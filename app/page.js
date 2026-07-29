@@ -75,8 +75,12 @@ export default function Page() {
   const jobs = data?.jobs ?? [];
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  // Remaining this week: today 00:00 through Sunday 23:59 of the current week.
+  const dow = today.getDay(); // 0=Sun, 1=Mon, ... 6=Sat
+  const daysUntilSunday = (7 - dow) % 7; // Sun->0, Mon->6, Sat->1
   const weekEnd = new Date(today);
-  weekEnd.setDate(today.getDate() + 7);
+  weekEnd.setDate(today.getDate() + daysUntilSunday);
 
   const dueWeek = jobs.filter((j) => {
     if (!j.dispatch) return false;
@@ -183,7 +187,7 @@ export default function Page() {
         >
           <Stat label="Active jobs" value={jobs.length} />
           <Stat label="Avg lead time" value={data?.avgLead ?? "—"} suffix=" wks" />
-          <Stat label="Due this week" value={dueWeek} />
+          <Stat label="Remaining this week" value={dueWeek} />
           <Stat label="Overdue" value={overdue} tone={overdue ? BRAND.red : BRAND.ink} />
         </div>
 
