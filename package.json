@@ -1,0 +1,30 @@
+{
+  "name": "production-feed",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Decor Systems live production schedule feed — installable desktop PWA reading Production Schedule 2026 Current.xlsx from SharePoint via Microsoft Graph.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^2.16.2",
+    "next": "^15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "eslint": "9.18.0",
+    "eslint-config-next": "15.1.6"
+  },
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
