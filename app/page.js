@@ -123,6 +123,11 @@ export default function Page() {
           }}
         >
           <div>
+            <img
+              src="/decor-logo-white.png"
+              alt="Decor Systems"
+              style={{ height: 34, width: "auto", display: "block", marginBottom: 12 }}
+            />
             <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.01em" }}>
               Production Schedule
             </h1>
@@ -296,6 +301,21 @@ export default function Page() {
           Lead time colour: green under 4.5 wks · amber 4.5–6 · red 6+.
           {data?.fileModified ? ` Source file modified ${fmtDate(data.fileModified.slice(0, 10))}.` : ""}
         </p>
+
+        <div
+          style={{
+            marginTop: 28,
+            paddingTop: 16,
+            borderTop: `1px solid ${BRAND.line}`,
+            textAlign: "center",
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: "0.12em",
+            color: BRAND.blue,
+          }}
+        >
+          BY LYPHEX
+        </div>
       </div>
     </main>
   );
