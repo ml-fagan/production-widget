@@ -243,6 +243,7 @@ export default function Page() {
                 <Th w={68} right>
                   Lead
                 </Th>
+                <Th w={64}>Link</Th>
               </tr>
             </thead>
             <tbody>
@@ -288,11 +289,14 @@ export default function Page() {
                   >
                     {j.lead != null ? j.lead : "—"}
                   </td>
+                  <td style={{ padding: "10px 14px" }}>
+                    <CopyLink link={j.clientLink} />
+                  </td>
                 </tr>
               ))}
               {list.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={4} style={{ padding: "24px 14px", textAlign: "center", color: BRAND.sub }}>
+                  <td colSpan={5} style={{ padding: "24px 14px", textAlign: "center", color: BRAND.sub }}>
                     No jobs match that filter.
                   </td>
                 </tr>
@@ -334,6 +338,39 @@ function Stat({ label, value, suffix = "", tone }) {
         {suffix && <span style={{ fontSize: 13, color: "#6b6862", fontWeight: 400 }}>{suffix}</span>}
       </div>
     </div>
+  );
+}
+
+function CopyLink({ link }) {
+  const [copied, setCopied] = useState(false);
+  if (!link) return <span style={{ color: "#c9c5bc", fontSize: 12 }}>—</span>;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      window.prompt("Copy this client link:", link);
+    }
+  };
+  return (
+    <button
+      onClick={copy}
+      title={link}
+      style={{
+        border: "1px solid #e5e1d8",
+        background: copied ? "#e2efda" : "#ffffff",
+        color: copied ? "#3B6D11" : "#004CFB",
+        borderRadius: 6,
+        padding: "4px 10px",
+        fontSize: 12,
+        cursor: "pointer",
+        fontFamily: "inherit",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {copied ? "Copied" : "Copy"}
+    </button>
   );
 }
 
