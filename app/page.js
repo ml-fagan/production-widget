@@ -89,6 +89,14 @@ export default function Page() {
   }).length;
   const overdue = jobs.filter((j) => j.overdue).length;
 
+  // Behind promise = jobs whose committed (promised) date is in the past,
+  // regardless of whether they've since been rescheduled. Live snapshot.
+  const behindPromise = jobs.filter((j) => {
+    if (!j.committed) return false;
+    const d = new Date(j.committed + "T00:00:00");
+    return d < today;
+  }).length;
+
   let list = jobs.filter(
     (j) =>
       j.crm.toLowerCase().includes(query.toLowerCase()) ||
@@ -188,7 +196,7 @@ export default function Page() {
           <Stat label="Active jobs" value={jobs.length} />
           <Stat label="Avg lead time" value={data?.avgLead ?? "—"} suffix=" wks" />
           <Stat label="Remaining this week" value={dueWeek} />
-          <Stat label="Overdue" value={overdue} tone={overdue ? BRAND.red : BRAND.ink} />
+          <Stat label="Behind promise" value={behindPromise} tone={behindPromise ? BRAND.red : BRAND.ink} />
         </div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
