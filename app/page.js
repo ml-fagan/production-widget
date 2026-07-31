@@ -239,6 +239,7 @@ export default function Page() {
               <tr style={{ background: BRAND.bg, textAlign: "left" }}>
                 <Th w={92}>CRM</Th>
                 <Th>Project</Th>
+                <Th w={96}>Promised</Th>
                 <Th w={96}>Dispatch</Th>
                 <Th w={68} right>
                   Lead
@@ -277,6 +278,15 @@ export default function Page() {
                     )}
                   </td>
                   <td style={{ padding: "10px 14px", color: BRAND.sub }}>
+                    {fmtDate(j.committed)}
+                  </td>
+                  <td
+                    style={{
+                      padding: "10px 14px",
+                      color: j.committed && j.actual && j.committed !== j.actual ? BRAND.red : BRAND.sub,
+                      fontWeight: j.committed && j.actual && j.committed !== j.actual ? 500 : 400,
+                    }}
+                  >
                     {fmtDate(j.dispatch)}
                   </td>
                   <td
@@ -296,7 +306,7 @@ export default function Page() {
               ))}
               {list.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={5} style={{ padding: "24px 14px", textAlign: "center", color: BRAND.sub }}>
+                  <td colSpan={6} style={{ padding: "24px 14px", textAlign: "center", color: BRAND.sub }}>
                     No jobs match that filter.
                   </td>
                 </tr>
