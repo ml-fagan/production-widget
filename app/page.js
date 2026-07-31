@@ -89,12 +89,17 @@ export default function Page() {
   }).length;
   const overdue = jobs.filter((j) => j.overdue).length;
 
-  // Behind promise = jobs whose committed (promised) date is in the past,
-  // regardless of whether they've since been rescheduled. Live snapshot.
+  // Overdue = a job we're not delivering as promised. Either:
+  //  (a) it has slipped — the effective dispatch date is later than the
+  //      committed/promised date, or
+  //  (b) its promised (committed) date is already in the past.
   const behindPromise = jobs.filter((j) => {
     if (!j.committed) return false;
-    const d = new Date(j.committed + "T00:00:00");
-    return d < today;
+    const committedD = new Date(j.committed + "T00:00:00");
+    const slipped =
+      j.dispatch && new Date(j.dispatch + "T00:00:00") > committedD;
+    const promisePast = committedD < today;
+    return slipped || promisePast;
   }).length;
 
   let list = jobs.filter(
@@ -196,7 +201,7 @@ export default function Page() {
           <Stat label="Active jobs" value={jobs.length} />
           <Stat label="Avg lead time" value={data?.avgLead ?? "—"} suffix=" wks" />
           <Stat label="Remaining this week" value={dueWeek} />
-          <Stat label="Behind promise" value={behindPromise} tone={behindPromise ? BRAND.red : BRAND.ink} />
+          <Stat label="Overdue" value={behindPromise} tone={behindPromise ? BRAND.red : BRAND.ink} />
         </div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
