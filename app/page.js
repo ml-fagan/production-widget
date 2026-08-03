@@ -368,6 +368,7 @@ function CopyLink({ link }) {
   const [copied, setCopied] = useState(false);
   if (!link) return <span style={{ color: "#c9c5bc", fontSize: 12 }}>—</span>;
   const copy = async () => {
+    window.open(link, "_blank", "noopener,noreferrer");
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
