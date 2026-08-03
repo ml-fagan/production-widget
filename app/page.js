@@ -143,7 +143,14 @@ export default function Page() {
             <img
               src="/decor-logo-white.png"
               alt="Decor Systems"
-              style={{ height: 34, width: "auto", display: "block", marginBottom: 12 }}
+              style={{
+                height: 34,
+                width: "auto",
+                display: "block",
+                marginBottom: 12,
+                // Logo asset is white; this page's background is always pale, so render it black.
+                filter: "brightness(0)",
+              }}
             />
             <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.01em" }}>
               Production Schedule
