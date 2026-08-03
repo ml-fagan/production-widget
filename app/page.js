@@ -261,6 +261,7 @@ export default function Page() {
                 <Th>Project</Th>
                 <Th w={96}>Promised</Th>
                 <Th w={96}>Dispatch</Th>
+                <Th w={30}></Th>
                 <Th w={68} right>
                   Lead
                 </Th>
@@ -309,6 +310,9 @@ export default function Page() {
                   >
                     {fmtDate(j.dispatch)}
                   </td>
+                  <td style={{ padding: "10px 6px", textAlign: "center" }}>
+                    <AsanaFlag check={j.asanaCheck} />
+                  </td>
                   <td
                     style={{
                       padding: "10px 14px",
@@ -326,7 +330,7 @@ export default function Page() {
               ))}
               {list.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={6} style={{ padding: "24px 14px", textAlign: "center", color: BRAND.sub }}>
+                  <td colSpan={7} style={{ padding: "24px 14px", textAlign: "center", color: BRAND.sub }}>
                     No jobs match that filter.
                   </td>
                 </tr>
@@ -356,6 +360,45 @@ export default function Page() {
         </div>
       </div>
     </main>
+  );
+}
+
+// Cross-check against the "3. Production" Asana board: red "!" when the
+// dispatch date doesn't line up with Asana's Due date (or the job couldn't be
+// matched/verified there), plain black when it's confirmed aligned.
+function AsanaFlag({ check }) {
+  if (!check) return null;
+  const warn = check.status === "warn";
+  let title = "";
+  if (check.reason === "match") title = `Matches Asana — ${check.taskName} (due ${fmtDate(check.asanaDue)})`;
+  else if (check.reason === "date_mismatch")
+    title = `Dispatch date doesn't match Asana — ${check.taskName}: due ${fmtDate(check.asanaDue)}`;
+  else if (check.reason === "no_match") title = "No matching Asana task found for this CRM/handover";
+  else if (check.reason === "ambiguous")
+    title = `Multiple Asana tasks match this CRM/handover — can't verify:\n${check.candidates
+      .map((c) => `${c.name} (due ${fmtDate(c.due)})`)
+      .join("\n")}`;
+  else if (check.reason === "asana_unavailable") title = `Asana check unavailable: ${check.error || "unknown error"}`;
+
+  return (
+    <span
+      title={title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 18,
+        height: 18,
+        borderRadius: 4,
+        background: warn ? BRAND.red : BRAND.ink,
+        color: "#ffffff",
+        fontSize: 12,
+        fontWeight: 700,
+        lineHeight: 1,
+      }}
+    >
+      {warn ? "!" : ""}
+    </span>
   );
 }
 
