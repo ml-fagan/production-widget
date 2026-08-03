@@ -365,7 +365,7 @@ export default function Page() {
 
 // Cross-check against the "3. Production" Asana board: red "!" when the
 // dispatch date doesn't line up with Asana's Due date (or the job couldn't be
-// matched/verified there), plain black when it's confirmed aligned.
+// matched/verified there), green when it's confirmed aligned.
 function AsanaFlag({ check }) {
   if (!check) return null;
   const warn = check.status === "warn";
@@ -390,7 +390,7 @@ function AsanaFlag({ check }) {
         width: 18,
         height: 18,
         borderRadius: 4,
-        background: warn ? BRAND.red : BRAND.ink,
+        background: warn ? BRAND.red : BRAND.green,
         color: "#ffffff",
         fontSize: 12,
         fontWeight: 700,
