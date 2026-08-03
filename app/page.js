@@ -128,7 +128,7 @@ export default function Page() {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 760, margin: "0 auto" }}>
+      <div style={{ maxWidth: 900, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",
@@ -257,15 +257,15 @@ export default function Page() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: BRAND.bg, textAlign: "left" }}>
-                <Th w={92}>CRM</Th>
+                <Th w={90}>CRM</Th>
                 <Th>Project</Th>
-                <Th w={96}>Promised</Th>
-                <Th w={96}>Dispatch</Th>
-                <Th w={30}></Th>
-                <Th w={68} right>
+                <Th w={76}>Promised</Th>
+                <Th w={76}>Dispatch</Th>
+                <Th w={28}></Th>
+                <Th w={54} right>
                   Lead
                 </Th>
-                <Th w={116}>Link</Th>
+                <Th w={104}>Link</Th>
               </tr>
             </thead>
             <tbody>
@@ -365,7 +365,7 @@ export default function Page() {
 
 // Cross-check against the "3. Production" Asana board: red "!" when the
 // dispatch date doesn't line up with Asana's Due date (or the job couldn't be
-// matched/verified there), green when it's confirmed aligned.
+// matched/verified there); empty and unmarked when it's confirmed aligned.
 function AsanaFlag({ check }) {
   if (!check) return null;
   const warn = check.status === "warn";
@@ -390,7 +390,8 @@ function AsanaFlag({ check }) {
         width: 18,
         height: 18,
         borderRadius: 4,
-        background: warn ? BRAND.red : BRAND.green,
+        background: warn ? BRAND.red : "transparent",
+        border: warn ? "none" : `1px solid ${BRAND.line}`,
         color: "#ffffff",
         fontSize: 12,
         fontWeight: 700,
