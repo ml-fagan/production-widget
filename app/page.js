@@ -257,7 +257,7 @@ export default function Page() {
                 <Th w={68} right>
                   Lead
                 </Th>
-                <Th w={64}>Link</Th>
+                <Th w={116}>Link</Th>
               </tr>
             </thead>
             <tbody>
@@ -367,8 +367,10 @@ function Stat({ label, value, suffix = "", tone }) {
 function CopyLink({ link }) {
   const [copied, setCopied] = useState(false);
   if (!link) return <span style={{ color: "#c9c5bc", fontSize: 12 }}>—</span>;
-  const copy = async () => {
+  const view = () => {
     window.open(link, "_blank", "noopener,noreferrer");
+  };
+  const copy = async () => {
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
@@ -377,24 +379,34 @@ function CopyLink({ link }) {
       window.prompt("Copy this client link:", link);
     }
   };
+  const btnStyle = {
+    border: "1px solid #e5e1d8",
+    background: "#ffffff",
+    color: "#004CFB",
+    borderRadius: 6,
+    padding: "4px 10px",
+    fontSize: 12,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    whiteSpace: "nowrap",
+  };
   return (
-    <button
-      onClick={copy}
-      title={link}
-      style={{
-        border: "1px solid #e5e1d8",
-        background: copied ? "#e2efda" : "#ffffff",
-        color: copied ? "#3B6D11" : "#004CFB",
-        borderRadius: 6,
-        padding: "4px 10px",
-        fontSize: 12,
-        cursor: "pointer",
-        fontFamily: "inherit",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {copied ? "Copied" : "Copy"}
-    </button>
+    <div style={{ display: "flex", gap: 6 }}>
+      <button onClick={view} title={link} style={btnStyle}>
+        View
+      </button>
+      <button
+        onClick={copy}
+        title={link}
+        style={{
+          ...btnStyle,
+          background: copied ? "#e2efda" : "#ffffff",
+          color: copied ? "#3B6D11" : "#004CFB",
+        }}
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
   );
 }
 
