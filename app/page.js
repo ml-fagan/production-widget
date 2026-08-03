@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { baseCrm, crmLooksValid } from "../lib/crmUtils.js";
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -44,6 +45,10 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [sortMode, setSortMode] = useState("dispatch");
+  const [genCrm, setGenCrm] = useState("");
+  const [genResult, setGenResult] = useState(null); // { link } | null
+  const [genError, setGenError] = useState(null);
+  const [genLoading, setGenLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,6 +78,30 @@ export default function Page() {
   }, [load]);
 
   const jobs = data?.jobs ?? [];
+
+  // Checked against the schedule already loaded above — no extra fetch.
+  const knownBaseCrms = new Set(jobs.map((j) => baseCrm(j.crm)));
+  const genNotScheduled = genResult != null && !knownBaseCrms.has(baseCrm(genResult.crm));
+  const genFormatInvalid = genCrm.trim().length > 0 && !crmLooksValid(genCrm);
+
+  const generateLink = useCallback(async () => {
+    const crm = genCrm.trim();
+    if (!crm) return;
+    setGenLoading(true);
+    setGenError(null);
+    setGenResult(null);
+    try {
+      const res = await fetch(`/api/genlink?crm=${encodeURIComponent(crm)}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Couldn't generate a link.");
+      setGenResult({ link: json.link, crm });
+    } catch (e) {
+      setGenError(String(e.message || e));
+    } finally {
+      setGenLoading(false);
+    }
+  }, [genCrm]);
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -343,6 +372,95 @@ export default function Page() {
           Lead time colour: green under 4.5 wks · amber 4.5–6 · red 6+.
           {data?.fileModified ? ` Source file modified ${fmtDate(data.fileModified.slice(0, 10))}.` : ""}
         </p>
+
+        <div
+          style={{
+            marginTop: 20,
+            border: `1px solid ${BRAND.line}`,
+            borderRadius: 12,
+            background: BRAND.card,
+            padding: 16,
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Generate client link</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              value={genCrm}
+              onChange={(e) => {
+                setGenCrm(e.target.value);
+                setGenResult(null);
+                setGenError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !genFormatInvalid) generateLink();
+              }}
+              placeholder="CRM number, e.g. 21811 or 21811-1"
+              style={{
+                flex: 1,
+                border: `1px solid ${BRAND.line}`,
+                background: BRAND.bg,
+                borderRadius: 8,
+                padding: "9px 12px",
+                fontSize: 14,
+                fontFamily: "inherit",
+                color: BRAND.ink,
+                outline: "none",
+              }}
+            />
+            <button
+              onClick={generateLink}
+              disabled={!genCrm.trim() || genFormatInvalid || genLoading}
+              style={{
+                border: `1px solid ${BRAND.line}`,
+                background: BRAND.card,
+                color: BRAND.ink,
+                borderRadius: 8,
+                padding: "9px 16px",
+                fontSize: 13,
+                cursor: !genCrm.trim() || genFormatInvalid || genLoading ? "default" : "pointer",
+                opacity: !genCrm.trim() || genFormatInvalid || genLoading ? 0.6 : 1,
+                fontFamily: "inherit",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {genLoading ? "Generating…" : "Generate"}
+            </button>
+          </div>
+
+          {genFormatInvalid && !genError && (
+            <div style={{ marginTop: 10, fontSize: 12, color: BRAND.sub }}>
+              Doesn't look like a CRM number yet — e.g. 21811 or 21811-1.
+            </div>
+          )}
+
+          {genError && (
+            <div style={{ marginTop: 10, fontSize: 13, color: BRAND.red }}>{genError}</div>
+          )}
+
+          {genResult && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: BRAND.sub,
+                    fontFamily: "'SF Mono', ui-monospace, monospace",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {genResult.link}
+                </span>
+                <CopyLink link={genResult.link} />
+              </div>
+              {genNotScheduled && (
+                <div style={{ marginTop: 8, fontSize: 12, color: BRAND.sub }}>
+                  This CRM isn't in the current schedule yet — the link is still valid and will
+                  start working as soon as the job appears.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         <div
           style={{
