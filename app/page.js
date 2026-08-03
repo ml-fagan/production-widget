@@ -18,6 +18,10 @@ const BRAND = {
 // Auto-refresh cadence while the window is open (ms). 15 min.
 const REFRESH_MS = 15 * 60 * 1000;
 
+// Pending generated links, remembered per-browser only (personal convenience
+// for whoever drafts these — not shared across staff/devices).
+const PENDING_LINKS_KEY = "decor-pending-client-links";
+
 function leadColor(l) {
   if (l == null) return BRAND.sub;
   if (l >= 6) return BRAND.red;
@@ -46,9 +50,34 @@ export default function Page() {
   const [query, setQuery] = useState("");
   const [sortMode, setSortMode] = useState("dispatch");
   const [genCrm, setGenCrm] = useState("");
+  const [genName, setGenName] = useState("");
   const [genResult, setGenResult] = useState(null); // { link } | null
   const [genError, setGenError] = useState(null);
   const [genLoading, setGenLoading] = useState(false);
+  const [pendingLinks, setPendingLinks] = useState([]);
+  const [pendingLoaded, setPendingLoaded] = useState(false);
+
+  // Load once on mount (localStorage isn't available during SSR).
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PENDING_LINKS_KEY) || "[]");
+      if (Array.isArray(saved)) setPendingLinks(saved);
+    } catch {
+      // Corrupt/blocked storage — just start empty.
+    }
+    setPendingLoaded(true);
+  }, []);
+
+  // Save on every change, but not before the initial load above has run
+  // (otherwise this would overwrite saved data with the empty initial state).
+  useEffect(() => {
+    if (!pendingLoaded) return;
+    try {
+      localStorage.setItem(PENDING_LINKS_KEY, JSON.stringify(pendingLinks));
+    } catch {
+      // Storage full/blocked — pending list just won't persist this time.
+    }
+  }, [pendingLinks, pendingLoaded]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -94,13 +123,26 @@ export default function Page() {
       const res = await fetch(`/api/genlink?crm=${encodeURIComponent(crm)}`, { cache: "no-store" });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Couldn't generate a link.");
-      setGenResult({ link: json.link, crm });
+      const name = genName.trim();
+      // Placeholder name travels in the link itself (no server storage) — the
+      // client-tracker shows it as "coming soon" until the CRM hits the real
+      // schedule, at which point it always uses the real name instead.
+      const link = name ? `${json.link}?name=${encodeURIComponent(name)}` : json.link;
+      setGenResult({ link, crm });
+      setPendingLinks((prev) => [
+        { crm, name, link, createdAt: Date.now() },
+        ...prev.filter((p) => baseCrm(p.crm) !== baseCrm(crm)),
+      ]);
     } catch (e) {
       setGenError(String(e.message || e));
     } finally {
       setGenLoading(false);
     }
-  }, [genCrm]);
+  }, [genCrm, genName]);
+
+  const removePendingLink = useCallback((crm) => {
+    setPendingLinks((prev) => prev.filter((p) => p.crm !== crm));
+  }, []);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -427,6 +469,28 @@ export default function Page() {
             </button>
           </div>
 
+          <input
+            value={genName}
+            onChange={(e) => setGenName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !genFormatInvalid) generateLink();
+            }}
+            placeholder="Project name (optional — shown as a placeholder until it's in the schedule)"
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              marginTop: 8,
+              border: `1px solid ${BRAND.line}`,
+              background: BRAND.bg,
+              borderRadius: 8,
+              padding: "9px 12px",
+              fontSize: 13,
+              fontFamily: "inherit",
+              color: BRAND.ink,
+              outline: "none",
+            }}
+          />
+
           {genFormatInvalid && !genError && (
             <div style={{ marginTop: 10, fontSize: 12, color: BRAND.sub }}>
               Doesn't look like a CRM number yet — e.g. 21811 or 21811-1.
@@ -458,6 +522,58 @@ export default function Page() {
                   start working as soon as the job appears.
                 </div>
               )}
+            </div>
+          )}
+
+          {pendingLinks.length > 0 && (
+            <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${BRAND.line}` }}>
+              <div style={{ fontSize: 12, color: BRAND.sub, marginBottom: 8 }}>
+                Pending links (saved in this browser only)
+              </div>
+              {pendingLinks.map((p) => {
+                const scheduled = knownBaseCrms.has(baseCrm(p.crm));
+                return (
+                  <div
+                    key={p.crm}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      flexWrap: "wrap",
+                      padding: "8px 0",
+                      borderTop: `1px solid ${BRAND.line}`,
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                      <div style={{ fontSize: 13 }}>{p.name || p.crm}</div>
+                      <div style={{ fontSize: 11, color: BRAND.sub }}>
+                        {p.crm}
+                        {" · "}
+                        <span style={{ color: scheduled ? BRAND.green : BRAND.amber }}>
+                          {scheduled ? "Now in schedule" : "Not scheduled yet"}
+                        </span>
+                      </div>
+                    </div>
+                    <CopyLink link={p.link} />
+                    <button
+                      onClick={() => removePendingLink(p.crm)}
+                      title="Remove from this list"
+                      style={{
+                        border: `1px solid ${BRAND.line}`,
+                        background: BRAND.bg,
+                        color: BRAND.sub,
+                        borderRadius: 6,
+                        padding: "4px 8px",
+                        fontSize: 12,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
