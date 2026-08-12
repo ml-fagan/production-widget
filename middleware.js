@@ -5,11 +5,33 @@ import { verifyToken, COOKIE_NAME } from "./lib/auth.js";
 const PUBLIC_PATHS = ["/unlock", "/api/login"];
 const PUBLIC_PREFIXES = ["/_next", "/icon", "/manifest", "/apple", "/favicon"];
 
+// Machine-to-machine routes: authorised by a shared bearer secret instead of
+// the staff password cookie, so another app (the handover form) can ask for a
+// single job without a human unlocking anything. Never public — a wrong or
+// missing header falls through to the normal cookie check, which 401s.
+const MACHINE_PREFIXES = ["/api/job"];
+
+function machineAuthorised(req) {
+  const expected = process.env.JOB_API_SECRET || "";
+  if (!expected) return false;
+  const header = req.headers.get("authorization") || "";
+  const given = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (given.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) {
+    diff |= expected.charCodeAt(i) ^ given.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 export async function middleware(req) {
   const { pathname } = req.nextUrl;
 
   if (PUBLIC_PATHS.includes(pathname)) return NextResponse.next();
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
+  if (MACHINE_PREFIXES.some((p) => pathname.startsWith(p)) && machineAuthorised(req)) {
+    return NextResponse.next();
+  }
 
   const secret = process.env.FEED_PASSWORD;
   // If no password is configured, don't lock anyone out — fail open with a
