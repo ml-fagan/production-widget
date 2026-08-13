@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+} from "firebase/auth";
 import Tabs from "../Tabs.js";
 import { auth, googleProvider, firebaseConfigured } from "../../lib/firebaseClient.js";
 
@@ -51,6 +56,9 @@ function fmtStamp(iso) {
 function SignIn({ user }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   if (!firebaseConfigured()) {
     return (
@@ -60,13 +68,31 @@ function SignIn({ user }) {
     );
   }
 
-  const signIn = async () => {
+  // Email and password, matching Decorflow — the team already has accounts.
+  // Google stays available for anyone who has linked one to their work address.
+  const signIn = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await signInWithEmailAndPassword(auth(), email.trim(), password);
+      setOpen(false);
+      setPassword("");
+    } catch {
+      setError("Incorrect email or password.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const signInGoogle = async () => {
     setBusy(true);
     setError(null);
     try {
       await signInWithPopup(auth(), googleProvider);
+      setOpen(false);
     } catch {
-      setError("Sign in failed.");
+      setError("Google sign in failed.");
     } finally {
       setBusy(false);
     }
@@ -92,10 +118,9 @@ function SignIn({ user }) {
             sign out
           </button>
         </>
-      ) : (
+      ) : !open ? (
         <button
-          onClick={signIn}
-          disabled={busy}
+          onClick={() => setOpen(true)}
           style={{
             border: `1px solid ${BRAND.line}`,
             background: BRAND.card,
@@ -107,8 +132,95 @@ function SignIn({ user }) {
             fontFamily: "inherit",
           }}
         >
-          {busy ? "Signing in…" : "Sign in to mark orders"}
+          Sign in to mark orders
         </button>
+      ) : (
+        <form
+          onSubmit={signIn}
+          style={{
+            background: BRAND.card,
+            border: `1px solid ${BRAND.line}`,
+            borderRadius: 10,
+            padding: 12,
+            width: 240,
+            textAlign: "left",
+          }}
+        >
+          <p style={{ margin: "0 0 8px", fontSize: 12 }}>
+            Use your Decorflow login
+          </p>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@decorsystems.com.au"
+            autoComplete="username"
+            style={{
+              width: "100%",
+              border: `1px solid ${BRAND.line}`,
+              borderRadius: 8,
+              padding: "7px 10px",
+              fontSize: 13,
+              marginBottom: 6,
+              fontFamily: "inherit",
+              boxSizing: "border-box",
+            }}
+          />
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            autoComplete="current-password"
+            style={{
+              width: "100%",
+              border: `1px solid ${BRAND.line}`,
+              borderRadius: 8,
+              padding: "7px 10px",
+              fontSize: 13,
+              fontFamily: "inherit",
+              boxSizing: "border-box",
+            }}
+          />
+          <button
+            type="submit"
+            disabled={busy || !email || !password}
+            style={{
+              width: "100%",
+              border: "none",
+              background: BRAND.green,
+              color: "#fff",
+              borderRadius: 8,
+              padding: "7px 0",
+              fontSize: 13,
+              cursor: "pointer",
+              marginTop: 8,
+              fontFamily: "inherit",
+              opacity: busy || !email || !password ? 0.6 : 1,
+            }}
+          >
+            {busy ? "Signing in…" : "Sign in"}
+          </button>
+          <button
+            type="button"
+            onClick={signInGoogle}
+            disabled={busy}
+            style={{
+              width: "100%",
+              border: `1px solid ${BRAND.line}`,
+              background: "transparent",
+              color: BRAND.sub,
+              borderRadius: 8,
+              padding: "6px 0",
+              fontSize: 12,
+              cursor: "pointer",
+              marginTop: 6,
+              fontFamily: "inherit",
+            }}
+          >
+            Continue with Google
+          </button>
+        </form>
       )}
       {error && <div style={{ color: "#a3312c" }}>{error}</div>}
     </div>
