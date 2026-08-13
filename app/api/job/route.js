@@ -78,10 +78,14 @@ export async function GET(req) {
         crm,
         job,
         siblings,
+        scheduled: Boolean(job),
+        // Checked whether or not the schedule has a row: a handover exists
+        // before anything is scheduled, so the Asana task is often the only
+        // thing that knows about the job yet. With no row there's no dispatch
+        // date to compare against, so the caller reads `scheduled` to know
+        // whether a date difference means anything.
         asana: asanaResult.lookup
-          ? job
-            ? checkAgainstAsana(job, asanaResult.lookup)
-            : { status: "warn", reason: "no_schedule_row" }
+          ? checkAgainstAsana(job || { crm, dispatch: null }, asanaResult.lookup)
           : { status: "warn", reason: "asana_unavailable", error: asanaResult.error },
         fileModified: lastModified,
         fetchedAt: new Date().toISOString(),

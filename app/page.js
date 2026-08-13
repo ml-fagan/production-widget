@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { baseCrm, crmLooksValid } from "../lib/crmUtils.js";
+import Tabs from "./Tabs.js";
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -56,6 +57,8 @@ export default function Page() {
   const [genLoading, setGenLoading] = useState(false);
   const [pendingLinks, setPendingLinks] = useState([]);
   const [pendingLoaded, setPendingLoaded] = useState(false);
+  const [awaiting, setAwaiting] = useState([]);
+  const [unordered, setUnordered] = useState([]);
 
   // Load once on mount (localStorage isn't available during SSR).
   useEffect(() => {
@@ -94,17 +97,43 @@ export default function Page() {
     }
   }, []);
 
+  // Logged handovers waiting for a date. Loaded separately from the schedule so
+  // the feed still works exactly as before if the handover app is unreachable.
+  const loadHandovers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/handovers", { cache: "no-store" });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error);
+      setAwaiting(json.awaiting || []);
+      setUnordered(
+        [...(json.awaiting || []), ...(json.scheduled || [])].filter(
+          (h) => !h.materialOrder?.actioned
+        )
+      );
+    } catch {
+      setAwaiting([]);
+      setUnordered([]);
+    }
+  }, []);
+
   useEffect(() => {
     load();
-    const id = setInterval(load, REFRESH_MS);
+    loadHandovers();
+    const id = setInterval(() => {
+      load();
+      loadHandovers();
+    }, REFRESH_MS);
     // Refresh when the window regains focus (e.g. opened each morning).
-    const onFocus = () => load();
+    const onFocus = () => {
+      load();
+      loadHandovers();
+    };
     window.addEventListener("focus", onFocus);
     return () => {
       clearInterval(id);
       window.removeEventListener("focus", onFocus);
     };
-  }, [load]);
+  }, [load, loadHandovers]);
 
   const jobs = data?.jobs ?? [];
 
@@ -267,6 +296,12 @@ export default function Page() {
             Couldn't load the schedule. {error}
           </div>
         )}
+
+        <Tabs
+          current="schedule"
+          counts={{ awaiting: awaiting.length, materials: unordered.length }}
+        />
+        <HandoverNote awaiting={awaiting} unordered={unordered} />
 
         <div
           style={{
@@ -600,6 +635,44 @@ export default function Page() {
 // Cross-check against the "3. Production" Asana board: red "!" when the
 // dispatch date doesn't line up with Asana's Due date (or the job couldn't be
 // matched/verified there); green tick when it's confirmed aligned.
+// One line above the schedule, not a section: the schedule is what the company
+// reads this page for, and handover queues live on their own tabs.
+function HandoverNote({ awaiting, unordered }) {
+  if (!awaiting?.length && !unordered?.length) return null;
+
+  return (
+    <p
+      style={{
+        fontSize: 13,
+        color: BRAND.sub,
+        margin: "0 0 16px",
+        display: "flex",
+        gap: 14,
+        flexWrap: "wrap",
+      }}
+    >
+      {awaiting.length > 0 && (
+        <span>
+          <strong style={{ color: BRAND.ink }}>{awaiting.length}</strong>{" "}
+          {awaiting.length === 1 ? "project" : "projects"} awaiting scheduling ·{" "}
+          <a href="/awaiting" style={{ color: BRAND.blue }}>
+            view
+          </a>
+        </span>
+      )}
+      {unordered.length > 0 && (
+        <span>
+          <strong style={{ color: BRAND.ink }}>{unordered.length}</strong> material{" "}
+          {unordered.length === 1 ? "order" : "orders"} not yet placed ·{" "}
+          <a href="/materials" style={{ color: BRAND.blue }}>
+            view
+          </a>
+        </span>
+      )}
+    </p>
+  );
+}
+
 function AsanaFlag({ check }) {
   if (!check) return null;
   const warn = check.status === "warn";
