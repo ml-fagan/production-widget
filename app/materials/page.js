@@ -1,21 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signOut,
-} from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
-import { auth, googleProvider, firebaseConfigured } from "../../lib/firebaseClient.js";
+import SignIn from "../SignIn.js";
+import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 
 // Material orders board.
 //
-// Every logged handover with its material list, so Alice can see what needs
-// ordering without opening each record — job, project, and the lines Mitch
-// listed. Read-only: the handover stays the source of truth, and ordering is
-// still tracked wherever Alice tracks it (Asana), not ticked off here.
+// Every handed-over job with its material list, so Alice can see what needs
+// ordering without opening each record. Two steps, because they answer
+// different questions: ordered means it's on its way, arrived means the job can
+// actually start. Duncan reads the same two states as the MATERIALS cell on the
+// schedule board — amber, then green.
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -24,11 +21,18 @@ const BRAND = {
   sub: "#6b6862",
   line: "#e5e1d8",
   green: "#408152",
+  amber: "#a86b12",
   blue: "#004CFB",
 };
 
 const REFRESH_MS = 15 * 60 * 1000;
 const HANDOVER_APP = "https://decorhandover.lyphex.com";
+
+const VIEWS = [
+  { key: "not_ordered", label: "To order" },
+  { key: "ordered", label: "Ordered" },
+  { key: "arrived", label: "Arrived" },
+];
 
 function fmtTime(iso) {
   if (!iso) return "";
@@ -51,198 +55,21 @@ function fmtStamp(iso) {
       });
 }
 
-// Who's ticking. Deliberately small and out of the way: everyone can read this
-// board on the shared password, only a signed-in person can mark an order.
-function SignIn({ user }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const [open, setOpen] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-
-  if (!firebaseConfigured()) {
-    return (
-      <div style={{ marginBottom: 6, color: "#a86b12" }}>
-        Sign-in not configured — ordering can&apos;t be recorded.
-      </div>
-    );
-  }
-
-  // Email and password, matching Decorflow — the team already has accounts.
-  // Google stays available for anyone who has linked one to their work address.
-  const signIn = async (e) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await signInWithEmailAndPassword(auth(), email.trim(), password);
-      setOpen(false);
-      setPassword("");
-    } catch {
-      setError("Incorrect email or password.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const signInGoogle = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await signInWithPopup(auth(), googleProvider);
-      setOpen(false);
-    } catch {
-      setError("Google sign in failed.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div style={{ marginBottom: 6 }}>
-      {user ? (
-        <>
-          <span>{user.email}</span>{" "}
-          <button
-            onClick={() => signOut(auth())}
-            style={{
-              border: "none",
-              background: "none",
-              color: BRAND.blue,
-              fontSize: 12,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              padding: 0,
-            }}
-          >
-            sign out
-          </button>
-        </>
-      ) : !open ? (
-        <button
-          onClick={() => setOpen(true)}
-          style={{
-            border: `1px solid ${BRAND.line}`,
-            background: BRAND.card,
-            color: BRAND.ink,
-            borderRadius: 8,
-            padding: "6px 12px",
-            fontSize: 13,
-            cursor: "pointer",
-            fontFamily: "inherit",
-          }}
-        >
-          Sign in to mark orders
-        </button>
-      ) : (
-        <form
-          onSubmit={signIn}
-          style={{
-            background: BRAND.card,
-            border: `1px solid ${BRAND.line}`,
-            borderRadius: 10,
-            padding: 12,
-            width: 240,
-            textAlign: "left",
-          }}
-        >
-          <p style={{ margin: "0 0 8px", fontSize: 12 }}>
-            Use your Decorflow login
-          </p>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@decorsystems.com.au"
-            autoComplete="username"
-            style={{
-              width: "100%",
-              border: `1px solid ${BRAND.line}`,
-              borderRadius: 8,
-              padding: "7px 10px",
-              fontSize: 13,
-              marginBottom: 6,
-              fontFamily: "inherit",
-              boxSizing: "border-box",
-            }}
-          />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            autoComplete="current-password"
-            style={{
-              width: "100%",
-              border: `1px solid ${BRAND.line}`,
-              borderRadius: 8,
-              padding: "7px 10px",
-              fontSize: 13,
-              fontFamily: "inherit",
-              boxSizing: "border-box",
-            }}
-          />
-          <button
-            type="submit"
-            disabled={busy || !email || !password}
-            style={{
-              width: "100%",
-              border: "none",
-              background: BRAND.green,
-              color: "#fff",
-              borderRadius: 8,
-              padding: "7px 0",
-              fontSize: 13,
-              cursor: "pointer",
-              marginTop: 8,
-              fontFamily: "inherit",
-              opacity: busy || !email || !password ? 0.6 : 1,
-            }}
-          >
-            {busy ? "Signing in…" : "Sign in"}
-          </button>
-          <button
-            type="button"
-            onClick={signInGoogle}
-            disabled={busy}
-            style={{
-              width: "100%",
-              border: `1px solid ${BRAND.line}`,
-              background: "transparent",
-              color: BRAND.sub,
-              borderRadius: 8,
-              padding: "6px 0",
-              fontSize: 12,
-              cursor: "pointer",
-              marginTop: 6,
-              fontFamily: "inherit",
-            }}
-          >
-            Continue with Google
-          </button>
-        </form>
-      )}
-      {error && <div style={{ color: "#a3312c" }}>{error}</div>}
-    </div>
-  );
-}
-
 export default function MaterialsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  // Kept apart from `error`: a failed click and a failed page load are
+  // different problems and shouldn't be concatenated into one sentence.
+  const [actionError, setActionError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [overrides, setOverrides] = useState({});
-  const [pending, setPending] = useState({});
-  const [showDone, setShowDone] = useState(false);
+  const [view, setView] = useState("not_ordered");
   const [user, setUser] = useState(null);
-  const [stamps, setStamps] = useState({});
-  // Kept apart from `error`: a failed tick and a failed page load are different
-  // problems and shouldn't be concatenated into one sentence.
-  const [actionError, setActionError] = useState(null);
+  const [pending, setPending] = useState({});
+  // What the server actually stored, adopted after each write so the name and
+  // time on screen are its answer rather than our guess.
+  const [stored, setStored] = useState({});
 
-  // Identifies who ticks an order. Doesn't gate the page — the shared staff
-  // password still does that.
   useEffect(() => {
     if (!firebaseConfigured()) return;
     return onAuthStateChanged(auth(), setUser);
@@ -274,53 +101,39 @@ export default function MaterialsPage() {
     };
   }, [load]);
 
-  // Optimistic: the tick flips immediately and the row moves, then the write
-  // goes to the handover app. On failure it flips back with a message rather
-  // than quietly disagreeing with what's stored.
-  const setActioned = useCallback(
-    async (jobId, actioned) => {
-      // Marking done is attributable, so it needs a signed-in person. The token
-      // is verified by the handover app; the name is never sent as plain text.
-      let idToken = null;
-      if (actioned) {
-        const current = firebaseConfigured() ? auth().currentUser : null;
-        if (!current) {
-          setActionError(
-            "Sign in first so the order is recorded against your name."
-          );
-          return;
-        }
-        idToken = await current.getIdToken();
+  const orderOf = (h) => stored[h.jobId] ?? h.materialOrder ?? {};
+  const stateOf = (h) => orderOf(h).state || "not_ordered";
+
+  const setState = useCallback(async (jobId, state) => {
+    // Claiming an order is placed or delivered is attributable; clearing it
+    // only withdraws a claim, so that doesn't need a name.
+    let idToken = null;
+    if (state !== "not_ordered") {
+      const current = firebaseConfigured() ? auth().currentUser : null;
+      if (!current) {
+        setActionError("Sign in first so this is recorded against your name.");
+        return;
       }
+      idToken = await current.getIdToken();
+    }
 
-      setPending((p) => ({ ...p, [jobId]: true }));
-      setOverrides((o) => ({ ...o, [jobId]: actioned }));
-      setActionError(null);
-      try {
-        const res = await fetch("/api/material-order", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId, actioned, idToken }),
-        });
-        const json = await res.json();
-        if (!json.ok) throw new Error(json.error || "Update failed");
-        // Adopt what was actually stored, so the name and time on screen are
-        // the server's, not a guess.
-        setStamps((s) => ({ ...s, [jobId]: json.materialOrder }));
-      } catch (e) {
-        setOverrides((o) => ({ ...o, [jobId]: !actioned }));
-        setActionError(`Couldn't update ${jobId}. ${String(e.message || e)}`);
-      } finally {
-        setPending((p) => ({ ...p, [jobId]: false }));
-      }
-    },
-    []
-  );
-
-  const isActioned = (h) =>
-    overrides[h.jobId] ?? Boolean(h.materialOrder?.actioned);
-
-  const orderStamp = (h) => stamps[h.jobId] ?? h.materialOrder;
+    setPending((p) => ({ ...p, [jobId]: true }));
+    setActionError(null);
+    try {
+      const res = await fetch("/api/material-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, state, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Update failed");
+      setStored((s) => ({ ...s, [jobId]: json.materialOrder }));
+    } catch (e) {
+      setActionError(`Couldn't update ${jobId}. ${String(e.message || e)}`);
+    } finally {
+      setPending((p) => ({ ...p, [jobId]: false }));
+    }
+  }, []);
 
   const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
   const q = query.trim().toLowerCase();
@@ -333,11 +146,25 @@ export default function MaterialsPage() {
       )
     : all;
 
-  const outstanding = matching.filter((h) => !isActioned(h));
-  const done = matching.filter(isActioned);
-  const jobs = showDone ? done : outstanding;
-
+  const counts = {
+    not_ordered: matching.filter((h) => stateOf(h) === "not_ordered").length,
+    ordered: matching.filter((h) => stateOf(h) === "ordered").length,
+    arrived: matching.filter((h) => stateOf(h) === "arrived").length,
+  };
+  const jobs = matching.filter((h) => stateOf(h) === view);
   const lineCount = jobs.reduce((n, h) => n + (h.materials?.length || 0), 0);
+
+  const btn = {
+    border: `1px solid ${BRAND.line}`,
+    background: BRAND.card,
+    color: BRAND.ink,
+    borderRadius: 8,
+    padding: "5px 12px",
+    fontSize: 12,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    whiteSpace: "nowrap",
+  };
 
   return (
     <main
@@ -366,26 +193,13 @@ export default function MaterialsPage() {
               Material orders
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-              {showDone ? "Already ordered" : "To order"} · {jobs.length}{" "}
-              {jobs.length === 1 ? "handover" : "handovers"} · {lineCount} material
-              lines
+              {jobs.length} {jobs.length === 1 ? "job" : "jobs"} · {lineCount}{" "}
+              material lines
             </p>
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
-            <SignIn user={user} />
-            <button
-              onClick={load}
-              style={{
-                border: `1px solid ${BRAND.line}`,
-                background: BRAND.card,
-                color: BRAND.ink,
-                borderRadius: 8,
-                padding: "6px 12px",
-                fontSize: 13,
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-            >
+            <SignIn user={user} brand={BRAND} />
+            <button onClick={load} style={{ ...btn, padding: "6px 12px", fontSize: 13 }}>
               {loading ? "Refreshing…" : "Refresh"}
             </button>
             <div style={{ marginTop: 6 }}>
@@ -394,34 +208,21 @@ export default function MaterialsPage() {
           </div>
         </header>
 
-        <Tabs
-          current="materials"
-          counts={{
-            awaiting: (data?.awaiting ?? []).length,
-            materials: all.filter((h) => !isActioned(h)).length,
-          }}
-        />
+        <Tabs current="materials" counts={{ materials: counts.not_ordered }} />
 
-        <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
-          {[
-            { key: false, label: `To order (${outstanding.length})` },
-            { key: true, label: `Ordered (${done.length})` },
-          ].map((opt) => (
+        <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
+          {VIEWS.map((v) => (
             <button
-              key={String(opt.key)}
-              onClick={() => setShowDone(opt.key)}
+              key={v.key}
+              onClick={() => setView(v.key)}
               style={{
-                border: `1px solid ${BRAND.line}`,
-                background: showDone === opt.key ? BRAND.ink : BRAND.card,
-                color: showDone === opt.key ? "#fff" : BRAND.sub,
-                borderRadius: 8,
-                padding: "5px 12px",
+                ...btn,
+                background: view === v.key ? BRAND.ink : BRAND.card,
+                color: view === v.key ? "#fff" : BRAND.sub,
                 fontSize: 13,
-                cursor: "pointer",
-                fontFamily: "inherit",
               }}
             >
-              {opt.label}
+              {v.label} ({counts[v.key]})
             </button>
           ))}
         </div>
@@ -430,8 +231,8 @@ export default function MaterialsPage() {
           <div
             style={{
               background: "#fdf4e6",
-              border: "1px solid #a86b12",
-              color: "#a86b12",
+              border: `1px solid ${BRAND.amber}`,
+              color: BRAND.amber,
               borderRadius: 8,
               padding: "10px 14px",
               fontSize: 13,
@@ -461,7 +262,7 @@ export default function MaterialsPage() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter by CRM, project or material"
+          placeholder="Filter by job, project or material"
           style={{
             width: "100%",
             border: `1px solid ${BRAND.line}`,
@@ -478,102 +279,153 @@ export default function MaterialsPage() {
         {!loading && jobs.length === 0 && (
           <p style={{ fontSize: 13, color: BRAND.sub }}>
             {all.length === 0
-              ? "No handovers logged yet."
+              ? "Nothing handed over yet."
               : q
                 ? "Nothing matches that filter."
-                : showDone
-                  ? "Nothing marked as ordered yet."
-                  : "Everything's been ordered."}
+                : view === "not_ordered"
+                  ? "Everything's been ordered."
+                  : "Nothing here yet."}
           </p>
         )}
 
         <div style={{ display: "grid", gap: 12 }}>
-          {jobs.map((h) => (
-            <section
-              key={h.jobId}
-              style={{
-                background: BRAND.card,
-                border: `1px solid ${BRAND.line}`,
-                borderRadius: 10,
-                padding: "14px 16px",
-              }}
-            >
-              <div
+          {jobs.map((h) => {
+            const state = stateOf(h);
+            const order = orderOf(h);
+            const busy = pending[h.jobId];
+            return (
+              <section
+                key={h.jobId}
                 style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 10,
-                  flexWrap: "wrap",
-                  marginBottom: 10,
+                  background: BRAND.card,
+                  border: `1px solid ${BRAND.line}`,
+                  borderLeft: `3px solid ${
+                    state === "arrived"
+                      ? BRAND.green
+                      : state === "ordered"
+                        ? BRAND.amber
+                        : BRAND.line
+                  }`,
+                  borderRadius: 10,
+                  padding: "14px 16px",
                 }}
               >
-                <a
-                  href={`${HANDOVER_APP}/${encodeURIComponent(h.jobId)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ fontWeight: 600, fontSize: 14, color: BRAND.blue, textDecoration: "none" }}
-                >
-                  {h.jobId}
-                </a>
-                <span style={{ fontSize: 14 }}>{h.project || h.client || "—"}</span>
-                <span style={{ fontSize: 12, color: BRAND.sub, marginLeft: "auto" }}>
-                  {h.totalSheets ? `${h.totalSheets} sheets` : ""}
-                  {h.totalSheets && h.totalM2 ? " · " : ""}
-                  {h.totalM2 ? `${h.totalM2} m²` : ""}
-                </span>
-                <button
-                  onClick={() => setActioned(h.jobId, !isActioned(h))}
-                  disabled={pending[h.jobId]}
+                <div
                   style={{
-                    border: `1px solid ${isActioned(h) ? BRAND.green : BRAND.line}`,
-                    background: isActioned(h) ? BRAND.green : BRAND.card,
-                    color: isActioned(h) ? "#fff" : BRAND.ink,
-                    borderRadius: 8,
-                    padding: "5px 12px",
-                    fontSize: 12,
-                    cursor: pending[h.jobId] ? "default" : "pointer",
-                    opacity: pending[h.jobId] ? 0.6 : 1,
-                    fontFamily: "inherit",
-                    whiteSpace: "nowrap",
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 10,
+                    flexWrap: "wrap",
+                    marginBottom: 8,
                   }}
                 >
-                  {isActioned(h) ? "✓ Ordered" : "Mark ordered"}
-                </button>
-              </div>
+                  <a
+                    href={`${HANDOVER_APP}/${encodeURIComponent(h.jobId)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      fontWeight: 600,
+                      fontSize: 14,
+                      color: BRAND.blue,
+                      textDecoration: "none",
+                    }}
+                  >
+                    {h.jobId}
+                  </a>
+                  <span style={{ fontSize: 14 }}>{h.project || h.client || "—"}</span>
+                  <span style={{ fontSize: 12, color: BRAND.sub }}>
+                    {h.totalSheets ? `${h.totalSheets} sheets` : ""}
+                    {h.totalSheets && h.totalM2 ? " · " : ""}
+                    {h.totalM2 ? `${h.totalM2} m²` : ""}
+                  </span>
 
-              {isActioned(h) && orderStamp(h)?.actionedAt && (
-                <p style={{ fontSize: 12, color: BRAND.sub, margin: "0 0 10px" }}>
-                  Ordered by {orderStamp(h).actionedBy || "unknown"} ·{" "}
-                  {fmtStamp(orderStamp(h).actionedAt)}
-                </p>
-              )}
+                  <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                    {state === "not_ordered" && (
+                      <button
+                        onClick={() => setState(h.jobId, "ordered")}
+                        disabled={busy}
+                        style={{ ...btn, opacity: busy ? 0.6 : 1 }}
+                      >
+                        Mark ordered
+                      </button>
+                    )}
+                    {state === "ordered" && (
+                      <>
+                        <button
+                          onClick={() => setState(h.jobId, "arrived")}
+                          disabled={busy}
+                          style={{
+                            ...btn,
+                            background: BRAND.green,
+                            borderColor: BRAND.green,
+                            color: "#fff",
+                            opacity: busy ? 0.6 : 1,
+                          }}
+                        >
+                          Mark arrived
+                        </button>
+                        <button
+                          onClick={() => setState(h.jobId, "not_ordered")}
+                          disabled={busy}
+                          style={{ ...btn, color: BRAND.sub }}
+                          title="Undo — puts this back on the to-order list"
+                        >
+                          Undo
+                        </button>
+                      </>
+                    )}
+                    {state === "arrived" && (
+                      <button
+                        onClick={() => setState(h.jobId, "ordered")}
+                        disabled={busy}
+                        style={{ ...btn, color: BRAND.sub }}
+                        title="Back to ordered"
+                      >
+                        ✓ Arrived
+                      </button>
+                    )}
+                  </span>
+                </div>
 
-              {h.materials?.length ? (
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ textAlign: "left", color: BRAND.sub }}>
-                      <th style={{ fontWeight: 500, padding: "2px 0" }}>Material</th>
-                      <th style={{ fontWeight: 500, width: 140 }}>Quantity</th>
-                      <th style={{ fontWeight: 500, width: 180 }}>Supplier / stock</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {h.materials.map((m, i) => (
-                      <tr key={i} style={{ borderTop: `1px solid ${BRAND.line}` }}>
-                        <td style={{ padding: "6px 0" }}>{m.name || "—"}</td>
-                        <td>{m.quantity || "—"}</td>
-                        <td style={{ color: BRAND.sub }}>{m.supplier || "—"}</td>
+                {(order.orderedAt || order.arrivedAt) && (
+                  <p style={{ fontSize: 12, color: BRAND.sub, margin: "0 0 10px" }}>
+                    {order.orderedAt &&
+                      `Ordered by ${order.orderedBy || "unknown"} · ${fmtStamp(order.orderedAt)}`}
+                    {order.orderedAt && order.arrivedAt && "  ·  "}
+                    {order.arrivedAt &&
+                      `Arrived ${fmtStamp(order.arrivedAt)}${
+                        order.arrivedBy ? ` · confirmed by ${order.arrivedBy}` : ""
+                      }`}
+                  </p>
+                )}
+
+                {h.materials?.length ? (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ textAlign: "left", color: BRAND.sub }}>
+                        <th style={{ fontWeight: 500, padding: "2px 0" }}>Material</th>
+                        <th style={{ fontWeight: 500, width: 140 }}>Quantity</th>
+                        <th style={{ fontWeight: 500, width: 180 }}>Supplier / stock</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p style={{ fontSize: 13, color: BRAND.sub, margin: 0 }}>
-                  No materials listed on this handover yet.
-                </p>
-              )}
-            </section>
-          ))}
+                    </thead>
+                    <tbody>
+                      {h.materials.map((m, i) => (
+                        <tr key={i} style={{ borderTop: `1px solid ${BRAND.line}` }}>
+                          <td style={{ padding: "6px 0" }}>{m.name || "—"}</td>
+                          <td>{m.quantity || "—"}</td>
+                          <td style={{ color: BRAND.sub }}>{m.supplier || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p style={{ fontSize: 13, color: BRAND.sub, margin: 0 }}>
+                    No materials listed on this handover yet.
+                  </p>
+                )}
+              </section>
+            );
+          })}
         </div>
       </div>
     </main>

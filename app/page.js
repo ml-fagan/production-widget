@@ -107,7 +107,7 @@ export default function Page() {
       setAwaiting(json.awaiting || []);
       setUnordered(
         [...(json.awaiting || []), ...(json.scheduled || [])].filter(
-          (h) => !h.materialOrder?.actioned
+          (h) => (h.materialOrder?.state || "not_ordered") === "not_ordered"
         )
       );
     } catch {
@@ -299,7 +299,7 @@ export default function Page() {
 
         <Tabs
           current="schedule"
-          counts={{ awaiting: awaiting.length, materials: unordered.length }}
+          counts={{ board: awaiting.length, materials: unordered.length }}
         />
         <HandoverNote awaiting={awaiting} unordered={unordered} />
 
@@ -654,8 +654,8 @@ function HandoverNote({ awaiting, unordered }) {
       {awaiting.length > 0 && (
         <span>
           <strong style={{ color: BRAND.ink }}>{awaiting.length}</strong>{" "}
-          {awaiting.length === 1 ? "project" : "projects"} awaiting scheduling ·{" "}
-          <a href="/awaiting" style={{ color: BRAND.blue }}>
+          {awaiting.length === 1 ? "project" : "projects"} awaiting a date ·{" "}
+          <a href="/board" style={{ color: BRAND.blue }}>
             view
           </a>
         </span>

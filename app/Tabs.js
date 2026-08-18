@@ -5,7 +5,7 @@
 
 const TABS = [
   { key: "schedule", label: "Production schedule", href: "/" },
-  { key: "awaiting", label: "Awaiting scheduling", href: "/awaiting" },
+  { key: "board", label: "Schedule board", href: "/board" },
   { key: "materials", label: "Material orders", href: "/materials" },
   // Reference tool, not part of this app — opens in a new tab so nobody loses
   // their place in the schedule. Never renders active, since no page passes this key.
