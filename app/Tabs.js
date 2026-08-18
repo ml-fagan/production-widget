@@ -7,6 +7,14 @@ const TABS = [
   { key: "schedule", label: "Production schedule", href: "/" },
   { key: "awaiting", label: "Awaiting scheduling", href: "/awaiting" },
   { key: "materials", label: "Material orders", href: "/materials" },
+  // Reference tool, not part of this app — opens in a new tab so nobody loses
+  // their place in the schedule. Never renders active, since no page passes this key.
+  {
+    key: "acoustics",
+    label: "Acoustic data",
+    href: "https://acoustics.lyphex.com",
+    external: true,
+  },
 ];
 
 export default function Tabs({ current, counts = {} }) {
@@ -27,6 +35,9 @@ export default function Tabs({ current, counts = {} }) {
           <a
             key={tab.key}
             href={tab.href}
+            target={tab.external ? "_blank" : undefined}
+            rel={tab.external ? "noreferrer" : undefined}
+            title={tab.external ? "Tested NRC and absorption coefficients — opens in a new tab" : undefined}
             style={{
               fontSize: 13,
               padding: "8px 12px",
@@ -35,9 +46,15 @@ export default function Tabs({ current, counts = {} }) {
               fontWeight: active ? 600 : 400,
               borderBottom: active ? "2px solid #408152" : "2px solid transparent",
               marginBottom: -1,
+              marginLeft: tab.external ? "auto" : undefined,
             }}
           >
             {tab.label}
+            {tab.external && (
+              <span aria-hidden="true" style={{ marginLeft: 5, fontSize: 11, opacity: 0.7 }}>
+                ↗
+              </span>
+            )}
             {count > 0 && (
               <span
                 style={{
