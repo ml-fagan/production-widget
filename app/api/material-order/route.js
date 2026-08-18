@@ -31,7 +31,8 @@ export async function POST(req) {
       },
       body: JSON.stringify({
         jobId: body.jobId,
-        actioned: body.actioned,
+        // not_ordered | ordered | arrived
+        state: body.state,
         // Passed straight through: the handover app verifies it and takes the
         // name from the token, so nothing here can put words in Alice's mouth.
         idToken: body.idToken || null,
