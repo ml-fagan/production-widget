@@ -7,6 +7,15 @@ const TABS = [
   { key: "schedule", label: "Production schedule", href: "/" },
   { key: "board", label: "Schedule board", href: "/board" },
   { key: "materials", label: "Material orders", href: "/materials" },
+  // Where a job starts. Its own app, so it opens in a new tab — but it sits
+  // inline with the rest because it's part of the same flow, not a reference.
+  {
+    key: "handover",
+    label: "Handover",
+    href: "https://decorhandover.lyphex.com",
+    external: true,
+    title: "Create or edit a handover — opens in a new tab",
+  },
   // Reference tool, not part of this app — opens in a new tab so nobody loses
   // their place in the schedule. Never renders active, since no page passes this key.
   {
@@ -14,6 +23,8 @@ const TABS = [
     label: "Acoustic data",
     href: "https://acoustics.lyphex.com",
     external: true,
+    rightAligned: true,
+    title: "Tested NRC and absorption coefficients — opens in a new tab",
   },
 ];
 
@@ -37,7 +48,7 @@ export default function Tabs({ current, counts = {} }) {
             href={tab.href}
             target={tab.external ? "_blank" : undefined}
             rel={tab.external ? "noreferrer" : undefined}
-            title={tab.external ? "Tested NRC and absorption coefficients — opens in a new tab" : undefined}
+            title={tab.title}
             style={{
               fontSize: 13,
               padding: "8px 12px",
@@ -46,7 +57,9 @@ export default function Tabs({ current, counts = {} }) {
               fontWeight: active ? 600 : 400,
               borderBottom: active ? "2px solid #408152" : "2px solid transparent",
               marginBottom: -1,
-              marginLeft: tab.external ? "auto" : undefined,
+              // Only the reference link is pushed to the far end; two "auto"
+              // margins would leave the first one hogging all the space.
+              marginLeft: tab.rightAligned ? "auto" : undefined,
             }}
           >
             {tab.label}
