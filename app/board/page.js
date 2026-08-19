@@ -50,6 +50,9 @@ export default function BoardPage() {
   const [actionError, setActionError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  // FC runs as a separate schedule, the way the spreadsheet keeps it in its
+  // own block. Same columns, different list.
+  const [stream, setStream] = useState("standard");
   const [user, setUser] = useState(null);
   // Edits applied locally the moment they're made, so typing doesn't wait on a
   // round trip. Replaced by the stored schedule once the write comes back.
@@ -92,12 +95,15 @@ export default function BoardPage() {
       ...h,
       schedule: { ...(h.schedule || {}), ...(edits[h.jobId] || {}) },
     }));
+    const inStream = merged.filter((h) =>
+      stream === "fc" ? h.fibreCement : !h.fibreCement
+    );
     const q = query.trim().toLowerCase();
     const matching = q
-      ? merged.filter((h) =>
+      ? inStream.filter((h) =>
           [h.jobId, h.project, h.client, h.product].join(" ").toLowerCase().includes(q)
         )
-      : merged;
+      : inStream;
     // Soonest out first, like the spreadsheet. Jobs with no date yet collect at
     // the bottom — they can't be ordered against dated work, and they're the
     // ones the count at the top of the page is pointing at.
@@ -109,9 +115,14 @@ export default function BoardPage() {
       if (!y) return -1;
       return x.localeCompare(y);
     });
-  }, [data, edits, query]);
+  }, [data, edits, query, stream]);
 
   const undated = rows.filter((r) => !r.schedule?.committedDate).length;
+  const allRows = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
+  const streamCounts = {
+    standard: allRows.filter((h) => !h.fibreCement).length,
+    fc: allRows.filter((h) => h.fibreCement).length,
+  };
 
   const save = useCallback(
     async (jobId, patch) => {
@@ -251,6 +262,28 @@ export default function BoardPage() {
         </div>
       )}
 
+      <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
+        {[
+          { key: "standard", label: "Standard production" },
+          { key: "fc", label: "Fibre cement" },
+        ].map((s2) => (
+          <button
+            key={s2.key}
+            onClick={() => setStream(s2.key)}
+            style={{
+              ...input,
+              padding: "5px 12px",
+              fontSize: 13,
+              cursor: "pointer",
+              background: stream === s2.key ? BRAND.ink : BRAND.card,
+              color: stream === s2.key ? "#fff" : BRAND.sub,
+            }}
+          >
+            {s2.label} ({streamCounts[s2.key]})
+          </button>
+        ))}
+      </div>
+
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
         <input
           value={query}
@@ -282,6 +315,7 @@ export default function BoardPage() {
                 <th style={th}>Committed</th>
                 <th style={th}>Actual</th>
                 <th style={{ ...th, textAlign: "center" }}>Lead (wks)</th>
+                <th style={th}>Material due</th>
                 {PROCESS_COLUMNS.map((c) => (
                   <th
                     key={c}
@@ -298,6 +332,7 @@ export default function BoardPage() {
                   </th>
                 ))}
                 <th style={th}>Priority</th>
+                <th style={th}>Comment</th>
                 <th style={th}>Material</th>
               </tr>
             </thead>
@@ -362,6 +397,11 @@ export default function BoardPage() {
                         }
                       />
                     </td>
+                    <td style={{ ...td, color: BRAND.sub }}>
+                      {row.materialAvailableDate || (
+                        <span title="Every material is in">—</span>
+                      )}
+                    </td>
                     {PROCESS_COLUMNS.map((c) => {
                       const state = cellState(row, c);
                       const isMaterials = c.toLowerCase() === "materials";
@@ -396,6 +436,14 @@ export default function BoardPage() {
                         style={{ ...input, width: 70 }}
                       />
                     </td>
+                    <td style={td}>
+                      <input
+                        value={s.comment || ""}
+                        onChange={(e) => save(row.jobId, { comment: e.target.value })}
+                        placeholder="—"
+                        style={{ ...input, width: 160 }}
+                      />
+                    </td>
                     <td style={{ ...td, whiteSpace: "normal", minWidth: 260, color: BRAND.sub }}>
                       {materialSummary(row)}
                     </td>
@@ -414,7 +462,13 @@ function materialSummary(row) {
   const lines = (row.materials || []).filter((m) => m.name || m.quantity);
   if (lines.length === 0) return "—";
   return lines
-    .map((m) => [m.quantity, m.name].filter(Boolean).join(" — "))
+    .map((m) => {
+      const label = [m.quantity, m.name].filter(Boolean).join(" — ");
+      if (m.fromStock) return `${label} (stock)`;
+      if (m.state === "completed") return `${label} ✓`;
+      if (m.state === "ordered") return `${label} (ordered${m.expectedDate ? ` ${m.expectedDate}` : ""})`;
+      return `${label} (to order)`;
+    })
     .join(" · ");
 }
 

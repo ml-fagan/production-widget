@@ -8,11 +8,10 @@ import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 
 // Material orders board.
 //
-// Every handed-over job with its material list, so Alice can see what needs
-// ordering without opening each record. Two steps, because they answer
-// different questions: ordered means it's on its way, arrived means the job can
-// actually start. Duncan reads the same two states as the MATERIALS cell on the
-// schedule board — amber, then green.
+// Alice works line by line, not job by job: one job can need three materials
+// from three suppliers landing weeks apart. Each line moves to order → ordered
+// → completed and carries the date she expects it, which is what Duncan
+// schedules against. A job is only "in" when every line is.
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -29,45 +28,31 @@ const REFRESH_MS = 15 * 60 * 1000;
 const HANDOVER_APP = "https://decorhandover.lyphex.com";
 
 const VIEWS = [
-  { key: "not_ordered", label: "To order" },
-  { key: "ordered", label: "Ordered" },
-  { key: "arrived", label: "Arrived" },
+  { key: "outstanding", label: "Outstanding" },
+  { key: "complete", label: "All in" },
 ];
 
 function fmtTime(iso) {
   if (!iso) return "";
-  return new Date(iso).toLocaleTimeString("en-AU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return new Date(iso).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" });
 }
 
-function fmtStamp(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? ""
-    : d.toLocaleString("en-AU", {
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+function size(m) {
+  if (!m.length || !m.width) return "—";
+  return `${m.length} × ${m.width}${m.thickness ? ` × ${m.thickness}` : ""}`;
 }
 
 export default function MaterialsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  // Kept apart from `error`: a failed click and a failed page load are
-  // different problems and shouldn't be concatenated into one sentence.
   const [actionError, setActionError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [view, setView] = useState("not_ordered");
+  const [view, setView] = useState("outstanding");
   const [user, setUser] = useState(null);
   const [pending, setPending] = useState({});
-  // What the server actually stored, adopted after each write so the name and
-  // time on screen are its answer rather than our guess.
+  // What the server stored, adopted after each write so what's on screen is
+  // its answer rather than our guess.
   const [stored, setStored] = useState({});
 
   useEffect(() => {
@@ -101,37 +86,40 @@ export default function MaterialsPage() {
     };
   }, [load]);
 
-  const orderOf = (h) => stored[h.jobId] ?? h.materialOrder ?? {};
-  const stateOf = (h) => orderOf(h).state || "not_ordered";
+  const linesFor = (h) => stored[h.jobId] ?? h.materials ?? [];
 
-  const setState = useCallback(async (jobId, state) => {
-    // Claiming an order is placed or delivered is attributable; clearing it
-    // only withdraws a claim, so that doesn't need a name.
+  const setLine = useCallback(async (jobId, lineId, patch) => {
+    // Claiming a line is ordered or in needs a name against it. Clearing one
+    // back to "to order" only withdraws a claim.
     let idToken = null;
-    if (state !== "not_ordered") {
+    const claiming = patch.state === "ordered" || patch.state === "completed";
+    if (claiming) {
       const current = firebaseConfigured() ? auth().currentUser : null;
       if (!current) {
         setActionError("Sign in first so this is recorded against your name.");
         return;
       }
       idToken = await current.getIdToken();
+    } else if (firebaseConfigured() && auth().currentUser) {
+      idToken = await auth().currentUser.getIdToken();
     }
 
-    setPending((p) => ({ ...p, [jobId]: true }));
+    const key = `${jobId}:${lineId}`;
+    setPending((p) => ({ ...p, [key]: true }));
     setActionError(null);
     try {
-      const res = await fetch("/api/material-order", {
+      const res = await fetch("/api/material-line", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, state, idToken }),
+        body: JSON.stringify({ jobId, lineId, idToken, ...patch }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Update failed");
-      setStored((s) => ({ ...s, [jobId]: json.materialOrder }));
+      setStored((s) => ({ ...s, [jobId]: json.materials }));
     } catch (e) {
       setActionError(`Couldn't update ${jobId}. ${String(e.message || e)}`);
     } finally {
-      setPending((p) => ({ ...p, [jobId]: false }));
+      setPending((p) => ({ ...p, [key]: false }));
     }
   }, []);
 
@@ -146,20 +134,22 @@ export default function MaterialsPage() {
       )
     : all;
 
+  const isOutstanding = (h) =>
+    linesFor(h).some((m) => m.state !== "completed") || linesFor(h).length === 0;
   const counts = {
-    not_ordered: matching.filter((h) => stateOf(h) === "not_ordered").length,
-    ordered: matching.filter((h) => stateOf(h) === "ordered").length,
-    arrived: matching.filter((h) => stateOf(h) === "arrived").length,
+    outstanding: matching.filter(isOutstanding).length,
+    complete: matching.filter((h) => !isOutstanding(h)).length,
   };
-  const jobs = matching.filter((h) => stateOf(h) === view);
-  const lineCount = jobs.reduce((n, h) => n + (h.materials?.length || 0), 0);
+  const jobs = matching.filter((h) =>
+    view === "outstanding" ? isOutstanding(h) : !isOutstanding(h)
+  );
 
   const btn = {
     border: `1px solid ${BRAND.line}`,
     background: BRAND.card,
     color: BRAND.ink,
     borderRadius: 8,
-    padding: "5px 12px",
+    padding: "4px 10px",
     fontSize: 12,
     cursor: "pointer",
     fontFamily: "inherit",
@@ -177,7 +167,7 @@ export default function MaterialsPage() {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1000, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",
@@ -193,8 +183,8 @@ export default function MaterialsPage() {
               Material orders
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-              {jobs.length} {jobs.length === 1 ? "job" : "jobs"} · {lineCount}{" "}
-              material lines
+              {jobs.length} {jobs.length === 1 ? "job" : "jobs"} · tick each line
+              as it lands
             </p>
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
@@ -208,7 +198,7 @@ export default function MaterialsPage() {
           </div>
         </header>
 
-        <Tabs current="materials" counts={{ materials: counts.not_ordered }} />
+        <Tabs current="materials" counts={{ materials: counts.outstanding }} />
 
         <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
           {VIEWS.map((v) => (
@@ -217,6 +207,7 @@ export default function MaterialsPage() {
               onClick={() => setView(v.key)}
               style={{
                 ...btn,
+                padding: "5px 12px",
                 background: view === v.key ? BRAND.ink : BRAND.card,
                 color: view === v.key ? "#fff" : BRAND.sub,
                 fontSize: 13,
@@ -280,32 +271,23 @@ export default function MaterialsPage() {
           <p style={{ fontSize: 13, color: BRAND.sub }}>
             {all.length === 0
               ? "Nothing handed over yet."
-              : q
-                ? "Nothing matches that filter."
-                : view === "not_ordered"
-                  ? "Everything's been ordered."
-                  : "Nothing here yet."}
+              : view === "outstanding"
+                ? "Everything's in."
+                : "Nothing fully in yet."}
           </p>
         )}
 
         <div style={{ display: "grid", gap: 12 }}>
           {jobs.map((h) => {
-            const state = stateOf(h);
-            const order = orderOf(h);
-            const busy = pending[h.jobId];
+            const lines = linesFor(h);
+            const outstanding = lines.filter((m) => m.state !== "completed").length;
             return (
               <section
                 key={h.jobId}
                 style={{
                   background: BRAND.card,
                   border: `1px solid ${BRAND.line}`,
-                  borderLeft: `3px solid ${
-                    state === "arrived"
-                      ? BRAND.green
-                      : state === "ordered"
-                        ? BRAND.amber
-                        : BRAND.line
-                  }`,
+                  borderLeft: `3px solid ${outstanding === 0 ? BRAND.green : BRAND.amber}`,
                   borderRadius: 10,
                   padding: "14px 16px",
                 }}
@@ -316,106 +298,135 @@ export default function MaterialsPage() {
                     alignItems: "baseline",
                     gap: 10,
                     flexWrap: "wrap",
-                    marginBottom: 8,
+                    marginBottom: 10,
                   }}
                 >
                   <a
                     href={`${HANDOVER_APP}/${encodeURIComponent(h.jobId)}`}
                     target="_blank"
                     rel="noreferrer"
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 14,
-                      color: BRAND.blue,
-                      textDecoration: "none",
-                    }}
+                    style={{ fontWeight: 600, fontSize: 14, color: BRAND.blue, textDecoration: "none" }}
                   >
                     {h.jobId}
                   </a>
                   <span style={{ fontSize: 14 }}>{h.project || h.client || "—"}</span>
-                  <span style={{ fontSize: 12, color: BRAND.sub }}>
-                    {h.totalSheets ? `${h.totalSheets} sheets` : ""}
-                    {h.totalSheets && h.totalM2 ? " · " : ""}
-                    {h.totalM2 ? `${h.totalM2} m²` : ""}
-                  </span>
-
-                  <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                    {state === "not_ordered" && (
-                      <button
-                        onClick={() => setState(h.jobId, "ordered")}
-                        disabled={busy}
-                        style={{ ...btn, opacity: busy ? 0.6 : 1 }}
-                      >
-                        Mark ordered
-                      </button>
-                    )}
-                    {state === "ordered" && (
-                      <>
-                        <button
-                          onClick={() => setState(h.jobId, "arrived")}
-                          disabled={busy}
-                          style={{
-                            ...btn,
-                            background: BRAND.green,
-                            borderColor: BRAND.green,
-                            color: "#fff",
-                            opacity: busy ? 0.6 : 1,
-                          }}
-                        >
-                          Mark arrived
-                        </button>
-                        <button
-                          onClick={() => setState(h.jobId, "not_ordered")}
-                          disabled={busy}
-                          style={{ ...btn, color: BRAND.sub }}
-                          title="Undo — puts this back on the to-order list"
-                        >
-                          Undo
-                        </button>
-                      </>
-                    )}
-                    {state === "arrived" && (
-                      <button
-                        onClick={() => setState(h.jobId, "ordered")}
-                        disabled={busy}
-                        style={{ ...btn, color: BRAND.sub }}
-                        title="Back to ordered"
-                      >
-                        ✓ Arrived
-                      </button>
-                    )}
+                  {h.fibreCement && (
+                    <span style={{ fontSize: 11, color: BRAND.sub, border: `1px solid ${BRAND.line}`, borderRadius: 4, padding: "1px 6px" }}>
+                      FC
+                    </span>
+                  )}
+                  <span style={{ fontSize: 12, color: BRAND.sub, marginLeft: "auto" }}>
+                    {outstanding === 0
+                      ? "all in"
+                      : `${outstanding} of ${lines.length} outstanding`}
                   </span>
                 </div>
 
-                {(order.orderedAt || order.arrivedAt) && (
-                  <p style={{ fontSize: 12, color: BRAND.sub, margin: "0 0 10px" }}>
-                    {order.orderedAt &&
-                      `Ordered by ${order.orderedBy || "unknown"} · ${fmtStamp(order.orderedAt)}`}
-                    {order.orderedAt && order.arrivedAt && "  ·  "}
-                    {order.arrivedAt &&
-                      `Arrived ${fmtStamp(order.arrivedAt)}${
-                        order.arrivedBy ? ` · confirmed by ${order.arrivedBy}` : ""
-                      }`}
-                  </p>
-                )}
-
-                {h.materials?.length ? (
+                {lines.length ? (
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                     <thead>
                       <tr style={{ textAlign: "left", color: BRAND.sub }}>
-                        <th style={{ fontWeight: 500, padding: "2px 0" }}>Material</th>
-                        <th style={{ fontWeight: 500, width: 140 }}>Quantity</th>
-                        <th style={{ fontWeight: 500, width: 180 }}>Supplier / stock</th>
+                        <th style={{ fontWeight: 500, padding: "2px 0" }}>Size</th>
+                        <th style={{ fontWeight: 500, width: 70 }}>Qty</th>
+                        <th style={{ fontWeight: 500 }}>Product</th>
+                        <th style={{ fontWeight: 500, width: 130 }}>Supplier</th>
+                        <th style={{ fontWeight: 500, width: 140 }}>Expected</th>
+                        <th style={{ fontWeight: 500, width: 150 }} />
                       </tr>
                     </thead>
                     <tbody>
-                      {h.materials.map((m, i) => (
-                        <tr key={i} style={{ borderTop: `1px solid ${BRAND.line}` }}>
-                          <td style={{ padding: "6px 0" }}>{m.name || "—"}</td>
-                          <td>{m.quantity || "—"}</td>
-                          <td style={{ color: BRAND.sub }}>{m.supplier || "—"}</td>
-                        </tr>
-                      ))}
+                      {lines.map((m) => {
+                        const busy = pending[`${h.jobId}:${m.id}`];
+                        const done = m.state === "completed";
+                        return (
+                          <tr key={m.id} style={{ borderTop: `1px solid ${BRAND.line}` }}>
+                            <td style={{ padding: "6px 0" }}>{size(m)}</td>
+                            <td>{m.quantity || "—"}</td>
+                            <td>{m.name || "—"}</td>
+                            <td style={{ color: BRAND.sub }}>
+                              {m.fromStock ? "Stock" : m.supplier || "—"}
+                            </td>
+                            <td>
+                              {m.fromStock ? (
+                                <span style={{ color: BRAND.sub }}>—</span>
+                              ) : (
+                                <input
+                                  type="date"
+                                  value={m.expectedDate || ""}
+                                  onChange={(e) =>
+                                    setLine(h.jobId, m.id, { expectedDate: e.target.value })
+                                  }
+                                  style={{
+                                    border: `1px solid ${BRAND.line}`,
+                                    borderRadius: 6,
+                                    padding: "2px 6px",
+                                    fontSize: 12,
+                                    fontFamily: "inherit",
+                                  }}
+                                />
+                              )}
+                            </td>
+                            <td style={{ textAlign: "right" }}>
+                              {m.fromStock ? (
+                                <span style={{ fontSize: 12, color: BRAND.green }}>
+                                  from stock
+                                </span>
+                              ) : (
+                                <span style={{ display: "inline-flex", gap: 6 }}>
+                                  {m.state === "to_order" && (
+                                    <button
+                                      onClick={() => setLine(h.jobId, m.id, { state: "ordered" })}
+                                      disabled={busy}
+                                      style={{ ...btn, opacity: busy ? 0.6 : 1 }}
+                                    >
+                                      Ordered
+                                    </button>
+                                  )}
+                                  {m.state === "ordered" && (
+                                    <>
+                                      <button
+                                        onClick={() => setLine(h.jobId, m.id, { state: "completed" })}
+                                        disabled={busy}
+                                        style={{
+                                          ...btn,
+                                          background: BRAND.green,
+                                          borderColor: BRAND.green,
+                                          color: "#fff",
+                                          opacity: busy ? 0.6 : 1,
+                                        }}
+                                      >
+                                        Complete
+                                      </button>
+                                      <button
+                                        onClick={() => setLine(h.jobId, m.id, { state: "to_order" })}
+                                        disabled={busy}
+                                        style={{ ...btn, color: BRAND.sub }}
+                                        title="Back to to-order"
+                                      >
+                                        Undo
+                                      </button>
+                                    </>
+                                  )}
+                                  {done && (
+                                    <button
+                                      onClick={() => setLine(h.jobId, m.id, { state: "ordered" })}
+                                      disabled={busy}
+                                      style={{ ...btn, color: BRAND.green }}
+                                      title={
+                                        m.completedBy
+                                          ? `Completed by ${m.completedBy}`
+                                          : "Completed"
+                                      }
+                                    >
+                                      ✓ In
+                                    </button>
+                                  )}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 ) : (
