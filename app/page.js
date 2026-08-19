@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { baseCrm, crmLooksValid } from "../lib/crmUtils.js";
 import Tabs from "./Tabs.js";
+import { leadFor } from "../lib/board.js";
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -59,6 +60,7 @@ export default function Page() {
   const [pendingLoaded, setPendingLoaded] = useState(false);
   const [awaiting, setAwaiting] = useState([]);
   const [unordered, setUnordered] = useState([]);
+  const [handovers, setHandovers] = useState([]);
 
   // Load once on mount (localStorage isn't available during SSR).
   useEffect(() => {
@@ -104,6 +106,7 @@ export default function Page() {
       const res = await fetch("/api/handovers", { cache: "no-store" });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error);
+      setHandovers([...(json.awaiting || []), ...(json.scheduled || [])]);
       setAwaiting(json.awaiting || []);
       setUnordered(
         [...(json.awaiting || []), ...(json.scheduled || [])].filter(
@@ -111,6 +114,7 @@ export default function Page() {
         )
       );
     } catch {
+      setHandovers([]);
       setAwaiting([]);
       setUnordered([]);
     }
@@ -135,7 +139,47 @@ export default function Page() {
     };
   }, [load, loadHandovers]);
 
-  const jobs = data?.jobs ?? [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const sheetJobs = data?.jobs ?? [];
+
+  // Jobs Duncan has dated on the schedule board but which haven't reached
+  // Jordan's spreadsheet yet. Shown here so a scheduled job is visible to the
+  // company without being typed twice.
+  //
+  // The spreadsheet still wins where both have the same CRM: it remains the
+  // source of truth, and this page shouldn't start disagreeing with it. As the
+  // board takes over, the sheet simply supplies fewer and fewer rows.
+  const sheetCrms = new Set(sheetJobs.map((j) => String(j.crm).trim().toLowerCase()));
+  const boardJobs = handovers
+    .filter((h) => h.schedule?.committedDate)
+    .filter((h) => !sheetCrms.has(String(h.jobId).trim().toLowerCase()))
+    .map((h) => {
+      const committed = h.schedule.committedDate || null;
+      const actual = h.schedule.actualDate || null;
+      const dispatch = actual || committed;
+      return {
+        crm: h.jobId,
+        project: h.project || h.client || "",
+        committed,
+        actual,
+        dispatch,
+        lead: leadFor(h.schedule),
+        priority: h.schedule.priority || "",
+        fc: false,
+        // Same rule the spreadsheet parser uses: past its date with nothing
+        // recorded as finished.
+        overdue: Boolean(
+          committed && !actual && new Date(committed + "T00:00:00") < today
+        ),
+        fromBoard: true,
+        clientLink: null,
+        asanaCheck: null,
+      };
+    });
+
+  const jobs = [...sheetJobs, ...boardJobs];
 
   // Checked against the schedule already loaded above — no extra fetch.
   const knownBaseCrms = new Set(jobs.map((j) => baseCrm(j.crm)));
@@ -172,9 +216,6 @@ export default function Page() {
   const removePendingLink = useCallback((crm) => {
     setPendingLinks((prev) => prev.filter((p) => p.crm !== crm));
   }, []);
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
 
   // Remaining this week: today 00:00 through Sunday 23:59 of the current week.
   const dow = today.getDay(); // 0=Sun, 1=Mon, ... 6=Sat
@@ -389,6 +430,21 @@ export default function Page() {
                   </td>
                   <td style={{ padding: "10px 14px" }}>
                     {j.project}
+                    {j.fromBoard && (
+                      <span
+                        title="Dated on the schedule board — not in the spreadsheet yet"
+                        style={{
+                          marginLeft: 8,
+                          fontSize: 11,
+                          color: BRAND.green,
+                          border: `1px solid ${BRAND.green}`,
+                          borderRadius: 4,
+                          padding: "1px 6px",
+                        }}
+                      >
+                        board
+                      </span>
+                    )}
                     {j.overdue && (
                       <span
                         style={{
