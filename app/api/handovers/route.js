@@ -1,6 +1,7 @@
 import { downloadScheduleBuffer } from "../../../lib/graph.js";
 import { parseSchedule } from "../../../lib/parseSchedule.js";
 import { fetchLoggedHandovers, splitByScheduled } from "../../../lib/handovers.js";
+import { tokenForCrm } from "../../../lib/token.js";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,6 +13,8 @@ export const revalidate = 0;
 //
 // Behind the staff password like the rest of the feed: this is internal data,
 // and the browser calling it is already unlocked.
+
+const TRACKER_BASE = process.env.TRACKER_BASE_URL || "";
 
 export async function GET() {
   try {
@@ -29,7 +32,18 @@ export async function GET() {
       scheduleError = String(err.message || err);
     }
 
-    const { awaiting, scheduled } = splitByScheduled(handovers, jobs);
+    // The client link is built here, not in the browser: the token is an HMAC
+    // and LINK_SECRET must stay server-side. Same token as a spreadsheet job
+    // would get, so a job scheduled on the board shares one link with any of
+    // its parts that came off the sheet.
+    const withLinks = handovers.map((h) => ({
+      ...h,
+      clientLink: TRACKER_BASE
+        ? `${TRACKER_BASE.replace(/\/$/, "")}/p/${tokenForCrm(h.jobId)}`
+        : null,
+    }));
+
+    const { awaiting, scheduled } = splitByScheduled(withLinks, jobs);
     return Response.json(
       {
         ok: true,

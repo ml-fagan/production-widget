@@ -174,7 +174,8 @@ export default function Page() {
           committed && !actual && new Date(committed + "T00:00:00") < today
         ),
         fromBoard: true,
-        clientLink: null,
+        // Built server-side in /api/handovers, where LINK_SECRET lives.
+        clientLink: h.clientLink || null,
         asanaCheck: null,
       };
     });
