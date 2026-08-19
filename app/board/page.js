@@ -464,8 +464,8 @@ function materialSummary(row) {
   return lines
     .map((m) => {
       const label = [m.quantity, m.name].filter(Boolean).join(" — ");
-      if (m.fromStock) return `${label} (stock)`;
-      if (m.state === "completed") return `${label} ✓`;
+      if (m.state === "completed") return `${label} ✓${m.fromStock ? " stock" : ""}`;
+      if (m.fromStock) return `${label} (stock — to confirm)`;
       if (m.state === "ordered") return `${label} (ordered${m.expectedDate ? ` ${m.expectedDate}` : ""})`;
       return `${label} (to order)`;
     })

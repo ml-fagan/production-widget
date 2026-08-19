@@ -29,12 +29,18 @@ const HANDOVER_APP = "https://decorhandover.lyphex.com";
 
 const VIEWS = [
   { key: "outstanding", label: "Outstanding" },
-  { key: "complete", label: "All in" },
+  { key: "complete", label: "All in — completed orders" },
 ];
 
 function fmtTime(iso) {
   if (!iso) return "";
   return new Date(iso).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" });
+}
+
+// Stock skips ordering but still gets confirmed — "we have stock" at handover
+// isn't the same as someone having looked on the floor.
+function effectiveState(m) {
+  return m.state || "to_order";
 }
 
 function size(m) {
@@ -134,8 +140,11 @@ export default function MaterialsPage() {
       )
     : all;
 
-  const isOutstanding = (h) =>
-    linesFor(h).some((m) => m.state !== "completed") || linesFor(h).length === 0;
+  const isOutstanding = (h) => {
+    const lines = linesFor(h);
+    if (lines.length === 0) return true;
+    return lines.some((m) => effectiveState(m) !== "completed");
+  };
   const counts = {
     outstanding: matching.filter(isOutstanding).length,
     complete: matching.filter((h) => !isOutstanding(h)).length,
@@ -280,7 +289,9 @@ export default function MaterialsPage() {
         <div style={{ display: "grid", gap: 12 }}>
           {jobs.map((h) => {
             const lines = linesFor(h);
-            const outstanding = lines.filter((m) => m.state !== "completed").length;
+            const outstanding = lines.filter(
+              (m) => effectiveState(m) !== "completed"
+            ).length;
             return (
               <section
                 key={h.jobId}
@@ -337,7 +348,8 @@ export default function MaterialsPage() {
                     <tbody>
                       {lines.map((m) => {
                         const busy = pending[`${h.jobId}:${m.id}`];
-                        const done = m.state === "completed";
+                        const state = effectiveState(m);
+                        const done = state === "completed";
                         return (
                           <tr key={m.id} style={{ borderTop: `1px solid ${BRAND.line}` }}>
                             <td style={{ padding: "6px 0" }}>{size(m)}</td>
@@ -368,12 +380,37 @@ export default function MaterialsPage() {
                             </td>
                             <td style={{ textAlign: "right" }}>
                               {m.fromStock ? (
-                                <span style={{ fontSize: 12, color: BRAND.green }}>
-                                  from stock
-                                </span>
+                                done ? (
+                                  <button
+                                    onClick={() => setLine(h.jobId, m.id, { state: "to_order" })}
+                                    disabled={busy}
+                                    style={{ ...btn, color: BRAND.green }}
+                                    title={
+                                      m.completedBy
+                                        ? `Stock confirmed by ${m.completedBy}`
+                                        : "Stock confirmed"
+                                    }
+                                  >
+                                    ✓ In stock
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => setLine(h.jobId, m.id, { state: "completed" })}
+                                    disabled={busy}
+                                    style={{
+                                      ...btn,
+                                      background: BRAND.green,
+                                      borderColor: BRAND.green,
+                                      color: "#fff",
+                                      opacity: busy ? 0.6 : 1,
+                                    }}
+                                  >
+                                    Confirm stock
+                                  </button>
+                                )
                               ) : (
                                 <span style={{ display: "inline-flex", gap: 6 }}>
-                                  {m.state === "to_order" && (
+                                  {state === "to_order" && (
                                     <button
                                       onClick={() => setLine(h.jobId, m.id, { state: "ordered" })}
                                       disabled={busy}
@@ -382,7 +419,7 @@ export default function MaterialsPage() {
                                       Ordered
                                     </button>
                                   )}
-                                  {m.state === "ordered" && (
+                                  {state === "ordered" && (
                                     <>
                                       <button
                                         onClick={() => setLine(h.jobId, m.id, { state: "completed" })}
