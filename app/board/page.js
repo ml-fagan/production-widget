@@ -98,17 +98,20 @@ export default function BoardPage() {
           [h.jobId, h.project, h.client, h.product].join(" ").toLowerCase().includes(q)
         )
       : merged;
-    // Committed date order, like the spreadsheet; undated jobs sit at the top
-    // because they're the ones needing a decision.
+    // Soonest out first, like the spreadsheet. Jobs with no date yet collect at
+    // the bottom — they can't be ordered against dated work, and they're the
+    // ones the count at the top of the page is pointing at.
     return matching.sort((a, b) => {
       const x = a.schedule?.committedDate || "";
       const y = b.schedule?.committedDate || "";
       if (!x && !y) return a.jobId.localeCompare(b.jobId);
-      if (!x) return -1;
-      if (!y) return 1;
+      if (!x) return 1;
+      if (!y) return -1;
       return x.localeCompare(y);
     });
   }, [data, edits, query]);
+
+  const undated = rows.filter((r) => !r.schedule?.committedDate).length;
 
   const save = useCallback(
     async (jobId, patch) => {
@@ -196,8 +199,9 @@ export default function BoardPage() {
             Schedule board
           </h1>
           <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-            {rows.length} handed-over {rows.length === 1 ? "job" : "jobs"} · runs
-            alongside the spreadsheet for now
+            {rows.length} handed-over {rows.length === 1 ? "job" : "jobs"}
+            {undated > 0 && `, ${undated} still without a date`} · soonest out
+            first
           </p>
         </div>
         <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
