@@ -8,14 +8,13 @@ const TABS = [
   { key: "board", label: "Schedule board", href: "/board" },
   { key: "materials", label: "Material orders", href: "/materials" },
   { key: "invoicing", label: "Invoicing", href: "/invoicing" },
-  // Where a job starts. Its own app, so it opens in a new tab — but it sits
-  // inline with the rest because it's part of the same flow, not a reference.
+  // A different app, but part of the same flow, so it behaves like the other
+  // tabs and navigates in place. Only the reference link opens a new tab.
   {
     key: "handover",
     label: "Handover",
     href: "https://decorhandover.lyphex.com",
-    external: true,
-    title: "Create or edit a handover — opens in a new tab",
+    title: "Create or edit a handover",
   },
   // Reference tool, not part of this app — opens in a new tab so nobody loses
   // their place in the schedule. Never renders active, since no page passes this key.
