@@ -354,6 +354,16 @@ export default function BoardPage() {
                       </a>
                       {" "}
                       <a
+                        href={`${HANDOVER_APP}/${encodeURIComponent(row.jobId)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Open the handover record"
+                        style={{ color: BRAND.sub, textDecoration: "none", fontSize: 11 }}
+                      >
+                        handover
+                      </a>
+                      {" · "}
+                      <a
                         href={`${HANDOVER_APP}/${encodeURIComponent(row.jobId)}/ticket`}
                         target="_blank"
                         rel="noreferrer"
