@@ -352,6 +352,16 @@ export default function BoardPage() {
                       >
                         {row.jobId}
                       </a>
+                      {" "}
+                      <a
+                        href={`${HANDOVER_APP}/${encodeURIComponent(row.jobId)}/ticket`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Job ticket — printable cover page for the floor"
+                        style={{ color: BRAND.sub, textDecoration: "none", fontSize: 11 }}
+                      >
+                        ticket
+                      </a>
                     </td>
                     <td style={td}>{row.project || row.client || "—"}</td>
                     <td style={{ ...td, textAlign: "center" }}>
