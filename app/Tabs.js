@@ -7,6 +7,7 @@ const TABS = [
   { key: "schedule", label: "Production schedule", href: "/" },
   { key: "board", label: "Schedule board", href: "/board" },
   { key: "materials", label: "Material orders", href: "/materials" },
+  { key: "invoicing", label: "Invoicing", href: "/invoicing" },
   // Where a job starts. Its own app, so it opens in a new tab — but it sits
   // inline with the rest because it's part of the same flow, not a reference.
   {
