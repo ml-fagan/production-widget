@@ -47,9 +47,13 @@ function fmtStamp(iso) {
     : d.toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-function chargeLabel(charge) {
-  if (!charge || charge.amount === "" || charge.amount == null) return null;
-  return `${charge.amount} ${charge.basis === "sheet" ? "sheets" : "m²"}`;
+// A line only counts as priced once it has an amount — one entered without a
+// basis is still shown (Mitch may not have decided m²-vs-sheet yet), just
+// without a unit label.
+function lineLabel(line) {
+  const priced = line.amount !== "" && line.amount != null;
+  const unit = line.basis === "sheet" ? "sheets" : line.basis === "m2" ? "m²" : "";
+  return { priced, text: priced ? `${line.amount}${unit ? ` ${unit}` : ""}` : "not priced" };
 }
 
 export default function InvoicingPage() {
@@ -141,7 +145,11 @@ export default function InvoicingPage() {
     charged: matching.filter((h) => stateOf(h) === "charged").length,
   };
   const jobs = matching.filter((h) => stateOf(h) === view);
-  const missingFigure = jobs.filter((h) => !chargeLabel(h.charge)).length;
+  // No billable line at all, or every billable line still has no amount.
+  const missingFigure = jobs.filter((h) => {
+    const lines = h.invoiceLines ?? [];
+    return lines.length === 0 || lines.every((l) => !lineLabel(l).priced);
+  }).length;
 
   const btn = {
     border: `1px solid ${BRAND.line}`,
@@ -280,7 +288,8 @@ export default function InvoicingPage() {
         <div style={{ display: "grid", gap: 10 }}>
           {jobs.map((h) => {
             const invoice = invoiceOf(h);
-            const charge = chargeLabel(h.charge);
+            const lines = h.invoiceLines ?? [];
+            const anyPriced = lines.some((l) => lineLabel(l).priced);
             const busy = pending[h.jobId];
             return (
               <section
@@ -291,7 +300,7 @@ export default function InvoicingPage() {
                   borderLeft: `3px solid ${
                     invoice.state === "charged"
                       ? BRAND.green
-                      : charge
+                      : anyPriced
                         ? BRAND.amber
                         : BRAND.line
                   }`,
@@ -352,24 +361,46 @@ export default function InvoicingPage() {
                   </span>
                 </div>
 
+                <div style={{ marginTop: 10, fontSize: 13 }}>
+                  {lines.length === 0 ? (
+                    <span style={{ color: BRAND.amber }}>No products or materials entered yet.</span>
+                  ) : (
+                    <table style={{ borderCollapse: "collapse", fontSize: 13 }}>
+                      <tbody>
+                        {lines.map((l) => {
+                          const label = lineLabel(l);
+                          return (
+                            <tr key={l.id}>
+                              <td style={{ padding: "2px 10px 2px 0", color: BRAND.sub, fontFamily: "'SF Mono', ui-monospace, monospace", fontSize: 12 }}>
+                                {l.code || "—"}
+                              </td>
+                              <td style={{ padding: "2px 10px 2px 0" }}>{l.name || "—"}</td>
+                              <td style={{ padding: "2px 10px 2px 0", color: BRAND.sub }}>
+                                {l.quantity !== "" && l.quantity != null ? `× ${l.quantity}` : ""}
+                              </td>
+                              <td style={{ padding: "2px 0" }}>
+                                {label.priced ? (
+                                  <strong>{label.text}</strong>
+                                ) : (
+                                  <span style={{ color: BRAND.amber }}>{label.text}</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
                 <div
                   style={{
                     display: "flex",
                     gap: 20,
                     flexWrap: "wrap",
-                    marginTop: 10,
+                    marginTop: 8,
                     fontSize: 13,
                   }}
                 >
-                  <Fact label="Product">{h.product || "—"}</Fact>
-                  <Fact label="Quantity">{h.quantity !== "" ? h.quantity : "—"}</Fact>
-                  <Fact label="To charge">
-                    {charge ? (
-                      <strong>{charge}</strong>
-                    ) : (
-                      <span style={{ color: BRAND.amber }}>not entered</span>
-                    )}
-                  </Fact>
                   {h.charge?.note && <Fact label="Note">{h.charge.note}</Fact>}
                   <Fact label="Despatch">{h.schedule?.actualDate || h.schedule?.committedDate || "—"}</Fact>
                 </div>
