@@ -195,6 +195,36 @@ export default function BoardPage() {
         boxSizing: "border-box",
       }}
     >
+      <style>{`
+        @media print {
+          @page { size: landscape; margin: 8mm; }
+          .no-print { display: none !important; }
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .print-table-wrapper {
+            overflow: visible !important;
+            border: none !important;
+            border-radius: 0 !important;
+          }
+          .print-table {
+            min-width: 0 !important;
+            width: 100% !important;
+            font-size: 10px !important;
+          }
+          .print-table th, .print-table td {
+            border: 1px solid #000 !important;
+            white-space: normal !important;
+          }
+          /* Cell inputs read like plain gridded text on paper, not form fields. */
+          .print-table input, .print-table select {
+            border: none !important;
+            background: transparent !important;
+            padding: 0 !important;
+            width: auto !important;
+            font: inherit !important;
+            color: inherit !important;
+          }
+        }
+      `}</style>
       <header
         style={{
           display: "flex",
@@ -215,7 +245,7 @@ export default function BoardPage() {
             first
           </p>
         </div>
-        <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
+        <div className="no-print" style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
           <SignIn user={user} brand={BRAND} />
           <button
             onClick={load}
@@ -223,13 +253,22 @@ export default function BoardPage() {
           >
             {loading ? "Refreshing…" : "Refresh"}
           </button>
+          <button
+            onClick={() => window.print()}
+            title="Print a landscape, gridded copy of this board to walk the factory with"
+            style={{ ...input, marginLeft: 8, padding: "6px 12px", fontSize: 13, cursor: "pointer" }}
+          >
+            Print
+          </button>
         </div>
       </header>
 
-      <Tabs
-        current="board"
-        counts={{ materials: rows.filter((r) => r.materialOrder?.state !== "arrived").length }}
-      />
+      <div className="no-print">
+        <Tabs
+          current="board"
+          counts={{ materials: rows.filter((r) => r.materialOrder?.state !== "arrived").length }}
+        />
+      </div>
 
       {actionError && (
         <div
@@ -286,6 +325,7 @@ export default function BoardPage() {
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
         <input
+          className="no-print"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter by job, project or product"
@@ -302,8 +342,11 @@ export default function BoardPage() {
       )}
 
       {rows.length > 0 && (
-        <div style={{ overflowX: "auto", background: BRAND.card, border: `1px solid ${BRAND.line}`, borderRadius: 10 }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 1500 }}>
+        <div
+          className="print-table-wrapper"
+          style={{ overflowX: "auto", background: BRAND.card, border: `1px solid ${BRAND.line}`, borderRadius: 10 }}
+        >
+          <table className="print-table" style={{ borderCollapse: "collapse", width: "100%", minWidth: 1500 }}>
             <thead>
               <tr>
                 <th style={th}>Job</th>
