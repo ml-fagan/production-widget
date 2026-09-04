@@ -341,7 +341,11 @@ export default function Page() {
 
         <Tabs
           current="schedule"
-          counts={{ board: awaiting.length, materials: unordered.length }}
+          counts={{
+            board: awaiting.length,
+            materials: unordered.length,
+            invoicing: handovers.filter((h) => (h.invoice?.state || "to_charge") !== "charged").length,
+          }}
         />
         <HandoverNote awaiting={awaiting} unordered={unordered} />
 
