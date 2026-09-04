@@ -24,6 +24,7 @@ const BRAND = {
   green: "#408152",
   amber: "#a86b12",
   blue: "#004CFB",
+  red: "#a3312c",
 };
 
 const REFRESH_MS = 15 * 60 * 1000;
@@ -378,12 +379,15 @@ export default function InvoicingPage() {
                               <td style={{ padding: "2px 10px 2px 0", color: BRAND.sub }}>
                                 {l.quantity !== "" && l.quantity != null ? `× ${l.quantity}` : ""}
                               </td>
-                              <td style={{ padding: "2px 0" }}>
+                              <td style={{ padding: "2px 10px 2px 0" }}>
                                 {label.priced ? (
                                   <strong>{label.text}</strong>
                                 ) : (
                                   <span style={{ color: BRAND.amber }}>{label.text}</span>
                                 )}
+                              </td>
+                              <td style={{ padding: "2px 0", color: BRAND.red, fontWeight: 500 }}>
+                                {l.note || ""}
                               </td>
                             </tr>
                           );
