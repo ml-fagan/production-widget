@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, Fragment } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
@@ -194,6 +194,8 @@ export default function MaterialStockPage() {
   const [expanded, setExpanded] = useState({});
   const [saving, setSaving] = useState(false);
   const [preOrderSaving, setPreOrderSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState(null); // pre-order id whose delete-confirm row is open
+  const [deleteText, setDeleteText] = useState("");
   const [pending, setPending] = useState({});
 
   useEffect(() => {
@@ -373,6 +375,35 @@ export default function MaterialStockPage() {
       setEntries((prev) => (json.stockEntry ? [json.stockEntry, ...prev] : prev));
     } catch (e) {
       setActionError(`Couldn't move that pre-order to stock. ${String(e.message || e)}`);
+    } finally {
+      setPending((p) => ({ ...p, [`preorder:${id}`]: false }));
+    }
+  }, []);
+
+  // Genuinely erases it — for a mis-entry, not for "don't need this
+  // anymore" (that's Cancel, which keeps the record).
+  const deletePreOrder = useCallback(async (id) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return;
+    }
+    setPending((p) => ({ ...p, [`preorder:${id}`]: true }));
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/pre-orders/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Delete failed");
+      setPreOrders((prev) => prev.filter((p) => p.id !== id));
+      setDeleteId(null);
+      setDeleteText("");
+    } catch (e) {
+      setActionError(`Couldn't delete that pre-order. ${String(e.message || e)}`);
     } finally {
       setPending((p) => ({ ...p, [`preorder:${id}`]: false }));
     }
@@ -773,7 +804,8 @@ export default function MaterialStockPage() {
                       const state = effectiveState(po);
                       const done = state === "completed";
                       return (
-                        <tr key={po.id}>
+                        <Fragment key={po.id}>
+                        <tr>
                           <td style={td}>
                             {matched ? (
                               <a
@@ -863,9 +895,67 @@ export default function MaterialStockPage() {
                               >
                                 Cancel
                               </button>
+                              <button
+                                onClick={() => {
+                                  setDeleteId(deleteId === po.id ? null : po.id);
+                                  setDeleteText("");
+                                }}
+                                disabled={busy}
+                                title="Erase this pre-order entirely — for a mis-entry, not just not needing it anymore"
+                                style={{ ...btn, color: BRAND.red, opacity: busy ? 0.6 : 1 }}
+                              >
+                                Delete
+                              </button>
                             </span>
                           </td>
                         </tr>
+                        {deleteId === po.id && (
+                          <tr>
+                            <td colSpan={8} style={{ ...td, background: BRAND.bg }}>
+                              <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                                <span style={{ color: BRAND.red }}>
+                                  Type <strong>delete</strong> to permanently erase this pre-order:
+                                </span>
+                                <input
+                                  autoFocus
+                                  value={deleteText}
+                                  onChange={(e) => setDeleteText(e.target.value)}
+                                  style={{
+                                    border: `1px solid ${BRAND.line}`,
+                                    borderRadius: 6,
+                                    padding: "3px 8px",
+                                    fontSize: 12,
+                                    fontFamily: "inherit",
+                                    width: 100,
+                                  }}
+                                />
+                                <button
+                                  onClick={() => deletePreOrder(po.id)}
+                                  disabled={busy || deleteText.trim().toLowerCase() !== "delete"}
+                                  style={{
+                                    ...btn,
+                                    background: BRAND.red,
+                                    borderColor: BRAND.red,
+                                    color: "#fff",
+                                    opacity: busy || deleteText.trim().toLowerCase() !== "delete" ? 0.5 : 1,
+                                  }}
+                                >
+                                  {busy ? "Deleting…" : "Confirm delete"}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setDeleteId(null);
+                                    setDeleteText("");
+                                  }}
+                                  style={{ ...btn, background: BRAND.card }}
+                                >
+                                  Cancel
+                                </button>
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       );
                     })}
                   </tbody>
