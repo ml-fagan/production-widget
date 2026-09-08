@@ -23,6 +23,7 @@ const BRAND = {
   green: "#408152",
   amber: "#a86b12",
   blue: "#004CFB",
+  red: "#a3312c",
 };
 
 const REFRESH_MS = 15 * 60 * 1000;
@@ -490,7 +491,7 @@ export default function MaterialsPage() {
                   <th style={th}>Material</th>
                   <th style={th}>Supplier</th>
                   <th style={th}>Expected</th>
-                  <th style={th}></th>
+                  <th style={th}>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -521,34 +522,48 @@ export default function MaterialsPage() {
                       <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>{m.name || "—"}</td>
                       <td style={{ ...td, color: BRAND.sub }}>{m.fromStock ? "Stock" : m.supplier || "—"}</td>
                       <td style={td}>
-                        {m.fromStock ? (
-                          <span style={{ color: BRAND.sub }}>—</span>
-                        ) : (
-                          <input
-                            type="date"
-                            value={m.expectedDate || ""}
-                            onChange={(e) => setLine(m.jobId, m.id, { expectedDate: e.target.value })}
-                            style={{
-                              border: `1px solid ${BRAND.line}`,
-                              borderRadius: 6,
-                              padding: "2px 6px",
-                              fontSize: 12,
-                              fontFamily: "inherit",
-                            }}
-                          />
-                        )}
+                        <input
+                          type="date"
+                          value={m.expectedDate || ""}
+                          onChange={(e) => setLine(m.jobId, m.id, { expectedDate: e.target.value })}
+                          title={
+                            m.fromStock
+                              ? "Optional — set or update this even for stock, if there's any uncertainty on timing"
+                              : undefined
+                          }
+                          style={{
+                            border: `1px solid ${BRAND.line}`,
+                            borderRadius: 6,
+                            padding: "2px 6px",
+                            fontSize: 12,
+                            fontFamily: "inherit",
+                          }}
+                        />
                       </td>
                       <td style={{ ...td, textAlign: "right" }}>
                         {m.fromStock ? (
                           done ? (
-                            <button
-                              onClick={() => setLine(m.jobId, m.id, { state: "to_order" })}
-                              disabled={busy}
-                              style={{ ...btn, color: BRAND.green }}
-                              title={m.completedBy ? `Stock confirmed by ${m.completedBy}` : "Stock confirmed"}
-                            >
-                              ✓ In stock
-                            </button>
+                            <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                              <span
+                                style={{ color: BRAND.green, fontSize: 12, fontWeight: 500 }}
+                                title={m.completedBy ? `Stock confirmed by ${m.completedBy}` : "Stock confirmed"}
+                              >
+                                ✓ In stock
+                              </span>
+                              <button
+                                onClick={() => setLine(m.jobId, m.id, { state: "to_order" })}
+                                disabled={busy}
+                                style={{
+                                  ...btn,
+                                  background: BRAND.red,
+                                  borderColor: BRAND.red,
+                                  color: "#fff",
+                                  opacity: busy ? 0.6 : 1,
+                                }}
+                              >
+                                Undo
+                              </button>
+                            </span>
                           ) : (
                             <button
                               onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
@@ -593,7 +608,13 @@ export default function MaterialsPage() {
                                 <button
                                   onClick={() => setLine(m.jobId, m.id, { state: "to_order" })}
                                   disabled={busy}
-                                  style={{ ...btn, color: BRAND.sub }}
+                                  style={{
+                                    ...btn,
+                                    background: BRAND.red,
+                                    borderColor: BRAND.red,
+                                    color: "#fff",
+                                    opacity: busy ? 0.6 : 1,
+                                  }}
                                   title="Back to to-order"
                                 >
                                   Undo
@@ -601,14 +622,27 @@ export default function MaterialsPage() {
                               </>
                             )}
                             {done && (
-                              <button
-                                onClick={() => setLine(m.jobId, m.id, { state: "ordered" })}
-                                disabled={busy}
-                                style={{ ...btn, color: BRAND.green }}
-                                title={m.completedBy ? `Completed by ${m.completedBy}` : "Completed"}
-                              >
-                                ✓ In
-                              </button>
+                              <>
+                                <span
+                                  style={{ color: BRAND.green, fontSize: 12, fontWeight: 500 }}
+                                  title={m.completedBy ? `Completed by ${m.completedBy}` : "Completed"}
+                                >
+                                  ✓ In
+                                </span>
+                                <button
+                                  onClick={() => setLine(m.jobId, m.id, { state: "ordered" })}
+                                  disabled={busy}
+                                  style={{
+                                    ...btn,
+                                    background: BRAND.red,
+                                    borderColor: BRAND.red,
+                                    color: "#fff",
+                                    opacity: busy ? 0.6 : 1,
+                                  }}
+                                >
+                                  Undo
+                                </button>
+                              </>
                             )}
                           </span>
                         )}
