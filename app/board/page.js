@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, Fragment } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
@@ -57,6 +57,11 @@ export default function BoardPage() {
   // Edits applied locally the moment they're made, so typing doesn't wait on a
   // round trip. Replaced by the stored schedule once the write comes back.
   const [edits, setEdits] = useState({});
+  // Leftover-stock panel: which job it's open for, and whether we're still
+  // asking or already showing the per-material quantity form.
+  const [leftoverOpen, setLeftoverOpen] = useState(null);
+  const [leftoverStep, setLeftoverStep] = useState("ask");
+  const [leftoverSaving, setLeftoverSaving] = useState(false);
 
   useEffect(() => {
     if (!firebaseConfigured()) return;
@@ -159,6 +164,49 @@ export default function BoardPage() {
       processState: { ...(row.schedule?.processState || {}), [column]: next },
     });
   };
+
+  // Logs whatever's left over from a job's own picking list — Alice sees it
+  // on Material stock from here on, free to use on a different job.
+  const submitLeftover = useCallback(async (row, lines) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in to log leftover stock — it's recorded against your name.");
+      return;
+    }
+    const entries = lines
+      .filter((l) => Number(l.quantity) > 0)
+      .map((l) => ({
+        name: l.name,
+        length: l.length,
+        width: l.width,
+        thickness: l.thickness,
+        quantity: Number(l.quantity),
+        jobId: row.jobId,
+        project: row.project || row.client || "",
+        source: "leftover",
+      }));
+    if (entries.length === 0) {
+      setLeftoverOpen(null);
+      return;
+    }
+    setLeftoverSaving(true);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/material-stock/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entries, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Save failed");
+      setLeftoverOpen(null);
+    } catch (e) {
+      setActionError(`Couldn't log leftover stock for ${row.jobId}. ${String(e.message || e)}`);
+    } finally {
+      setLeftoverSaving(false);
+    }
+  }, []);
 
   const th = {
     fontWeight: 600,
@@ -377,6 +425,7 @@ export default function BoardPage() {
                 <th style={th}>Priority</th>
                 <th style={th}>Comment</th>
                 <th style={th}>Material</th>
+                <th style={th}></th>
               </tr>
             </thead>
             <tbody>
@@ -385,7 +434,8 @@ export default function BoardPage() {
                 const lead = leadFor(s);
                 const auto = computedLead(s.approvalDate, s.committedDate);
                 return (
-                  <tr key={row.jobId}>
+                  <Fragment key={row.jobId}>
+                  <tr>
                     <td style={td}>
                       <a
                         href={`${HANDOVER_APP}/${encodeURIComponent(row.jobId)}`}
@@ -508,7 +558,38 @@ export default function BoardPage() {
                     <td style={{ ...td, whiteSpace: "normal", minWidth: 260, color: BRAND.sub }}>
                       {materialSummary(row)}
                     </td>
+                    <td style={{ ...td, whiteSpace: "nowrap" }}>
+                      <button
+                        onClick={() => {
+                          if (leftoverOpen === row.jobId) {
+                            setLeftoverOpen(null);
+                          } else {
+                            setLeftoverOpen(row.jobId);
+                            setLeftoverStep("ask");
+                          }
+                        }}
+                        style={{ ...input, padding: "3px 8px", cursor: "pointer", background: BRAND.card }}
+                      >
+                        Leftover stock
+                      </button>
+                    </td>
                   </tr>
+                  {leftoverOpen === row.jobId && (
+                    <tr key={`${row.jobId}-leftover`}>
+                      <td colSpan={14 + PROCESS_COLUMNS.length} style={{ ...td, background: BRAND.bg, padding: "10px 12px" }}>
+                        <LeftoverPanel
+                          row={row}
+                          step={leftoverStep}
+                          saving={leftoverSaving}
+                          onNo={() => setLeftoverOpen(null)}
+                          onYes={() => setLeftoverStep("form")}
+                          onSubmit={(lines) => submitLeftover(row, lines)}
+                          onCancel={() => setLeftoverOpen(null)}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -551,6 +632,144 @@ function Legend() {
           {CELL_COLOURS[k].label}
         </span>
       ))}
+    </div>
+  );
+}
+
+// Duncan's optional prompt when a job's dispatched or packed: quick to say no
+// to, quick to log a few sheets against when there's something worth keeping.
+function LeftoverPanel({ row, step, saving, onNo, onYes, onSubmit, onCancel }) {
+  const materials = (row.materials || []).filter((m) => m.name);
+  const [qty, setQty] = useState({});
+
+  if (step === "ask") {
+    return (
+      <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 13 }}>
+        <span>Any material left over for {row.jobId}?</span>
+        <button
+          onClick={onNo}
+          style={{
+            border: "1px solid #e5e1d8",
+            background: "#fff",
+            borderRadius: 6,
+            padding: "3px 12px",
+            fontSize: 13,
+            cursor: "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          No
+        </button>
+        <button
+          onClick={onYes}
+          style={{
+            border: "1px solid #408152",
+            background: "#408152",
+            color: "#fff",
+            borderRadius: 6,
+            padding: "3px 12px",
+            fontSize: 13,
+            cursor: "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          Yes
+        </button>
+      </div>
+    );
+  }
+
+  if (materials.length === 0) {
+    return (
+      <div style={{ fontSize: 13, color: "#6b6862" }}>
+        No materials listed on this handover to log leftovers against.{" "}
+        <button
+          onClick={onCancel}
+          style={{ background: "none", border: "none", color: "#004CFB", cursor: "pointer", fontFamily: "inherit" }}
+        >
+          Close
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <table style={{ borderCollapse: "collapse", fontSize: 13, marginBottom: 8 }}>
+        <thead>
+          <tr style={{ textAlign: "left", color: "#6b6862" }}>
+            <th style={{ fontWeight: 500, padding: "2px 12px 2px 0" }}>Size</th>
+            <th style={{ fontWeight: 500, padding: "2px 12px 2px 0" }}>Material</th>
+            <th style={{ fontWeight: 500, padding: "2px 12px 2px 0" }}>Ordered qty</th>
+            <th style={{ fontWeight: 500 }}>Leftover</th>
+          </tr>
+        </thead>
+        <tbody>
+          {materials.map((m) => (
+            <tr key={m.id}>
+              <td style={{ padding: "2px 12px 2px 0" }}>
+                {m.length && m.width ? `${m.length} × ${m.width}${m.thickness ? ` × ${m.thickness}` : ""}` : "—"}
+              </td>
+              <td style={{ padding: "2px 12px 2px 0" }}>{m.name}</td>
+              <td style={{ padding: "2px 12px 2px 0", color: "#6b6862" }}>{m.quantity || "—"}</td>
+              <td style={{ padding: "2px 0" }}>
+                <input
+                  type="number"
+                  min="0"
+                  value={qty[m.id] ?? ""}
+                  onChange={(e) => setQty((q) => ({ ...q, [m.id]: e.target.value }))}
+                  style={{
+                    width: 60,
+                    border: "1px solid #e5e1d8",
+                    borderRadius: 6,
+                    padding: "3px 6px",
+                    fontSize: 13,
+                    fontFamily: "inherit",
+                  }}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          disabled={saving}
+          onClick={() =>
+            onSubmit(
+              materials.map((m) => ({ ...m, quantity: Number(qty[m.id]) || 0 }))
+            )
+          }
+          style={{
+            border: "1px solid #408152",
+            background: "#408152",
+            color: "#fff",
+            borderRadius: 6,
+            padding: "5px 14px",
+            fontSize: 13,
+            cursor: "pointer",
+            fontFamily: "inherit",
+            opacity: saving ? 0.6 : 1,
+          }}
+        >
+          {saving ? "Saving…" : "Save leftover stock"}
+        </button>
+        <button
+          onClick={onCancel}
+          style={{
+            border: "1px solid #e5e1d8",
+            background: "#fff",
+            color: "#6b6862",
+            borderRadius: 6,
+            padding: "5px 14px",
+            fontSize: 13,
+            cursor: "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

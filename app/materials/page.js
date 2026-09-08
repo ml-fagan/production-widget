@@ -5,6 +5,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
+import { PROCESS_COLUMNS, CELL_COLOURS, cellState } from "../../lib/board.js";
 
 // Material orders board.
 //
@@ -48,6 +49,59 @@ function size(m) {
   return `${m.length} × ${m.width}${m.thickness ? ` × ${m.thickness}` : ""}`;
 }
 
+// Where a job actually is on Duncan's board right now: whichever assigned
+// process is under way, or else the furthest one finished, or else the
+// first not yet started. Tells Alice where her material physically is
+// without her having to go and ask.
+function currentStage(handover) {
+  const relevant = PROCESS_COLUMNS.filter((c) => cellState(handover, c) !== "none");
+  if (relevant.length === 0) return null;
+  const doing = relevant.find((c) => cellState(handover, c) === "doing");
+  if (doing) return { stage: doing, state: "doing" };
+  const done = relevant.filter((c) => cellState(handover, c) === "done");
+  if (done.length === relevant.length) return { stage: "Packed", state: "done" };
+  if (done.length) return { stage: done[done.length - 1], state: "done" };
+  return { stage: relevant[0], state: "todo" };
+}
+
+function StageBadge({ handover }) {
+  const stage = currentStage(handover);
+  if (!stage) return <span style={{ color: "#6b6862", fontSize: 12 }}>—</span>;
+  return (
+    <span
+      style={{
+        fontSize: 12,
+        padding: "2px 8px",
+        borderRadius: 4,
+        background: stage.stage === "Packed" ? "#cfe3d4" : CELL_COLOURS[stage.state].bg,
+        border: "1px solid #e5e1d8",
+      }}
+    >
+      {stage.stage}
+    </span>
+  );
+}
+
+function materialSignature(m) {
+  return [String(m.name || "").trim().toLowerCase(), m.length, m.width, m.thickness].join("|");
+}
+
+// Same materials, regrouped by what they are rather than which job they're
+// for — so Alice can see every job waiting on "Blackbutt NTV" in one place.
+function buildMaterialGroups(jobs) {
+  const map = new Map();
+  for (const h of jobs) {
+    for (const m of h.materials || []) {
+      const key = materialSignature(m);
+      if (!map.has(key)) {
+        map.set(key, { name: m.name, length: m.length, width: m.width, thickness: m.thickness, rows: [] });
+      }
+      map.get(key).rows.push({ ...m, jobId: h.jobId, project: h.project || h.client, handover: h });
+    }
+  }
+  return [...map.values()].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+}
+
 export default function MaterialsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -55,6 +109,8 @@ export default function MaterialsPage() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [view, setView] = useState("outstanding");
+  const [mode, setMode] = useState("orders"); // orders | tracking
+  const [trackBy, setTrackBy] = useState("project"); // project | material
   const [user, setUser] = useState(null);
   const [pending, setPending] = useState({});
   // What the server stored, adopted after each write so what's on screen is
@@ -209,23 +265,70 @@ export default function MaterialsPage() {
 
         <Tabs current="materials" counts={{ materials: counts.outstanding }} />
 
-        <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
-          {VIEWS.map((v) => (
+        <div style={{ display: "flex", gap: 4, marginBottom: 10, flexWrap: "wrap" }}>
+          {[
+            { key: "orders", label: "Orders" },
+            { key: "tracking", label: "Material tracking" },
+          ].map((m) => (
             <button
-              key={v.key}
-              onClick={() => setView(v.key)}
+              key={m.key}
+              onClick={() => setMode(m.key)}
               style={{
                 ...btn,
                 padding: "5px 12px",
-                background: view === v.key ? BRAND.ink : BRAND.card,
-                color: view === v.key ? "#fff" : BRAND.sub,
+                background: mode === m.key ? BRAND.blue : BRAND.card,
+                color: mode === m.key ? "#fff" : BRAND.sub,
+                borderColor: mode === m.key ? BRAND.blue : BRAND.line,
                 fontSize: 13,
               }}
             >
-              {v.label} ({counts[v.key]})
+              {m.label}
             </button>
           ))}
         </div>
+
+        {mode === "orders" && (
+          <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
+            {VIEWS.map((v) => (
+              <button
+                key={v.key}
+                onClick={() => setView(v.key)}
+                style={{
+                  ...btn,
+                  padding: "5px 12px",
+                  background: view === v.key ? BRAND.ink : BRAND.card,
+                  color: view === v.key ? "#fff" : BRAND.sub,
+                  fontSize: 13,
+                }}
+              >
+                {v.label} ({counts[v.key]})
+              </button>
+            ))}
+          </div>
+        )}
+
+        {mode === "tracking" && (
+          <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
+            {[
+              { key: "project", label: "By project" },
+              { key: "material", label: "By material" },
+            ].map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTrackBy(t.key)}
+                style={{
+                  ...btn,
+                  padding: "5px 12px",
+                  background: trackBy === t.key ? BRAND.ink : BRAND.card,
+                  color: trackBy === t.key ? "#fff" : BRAND.sub,
+                  fontSize: 13,
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {actionError && (
           <div
@@ -276,7 +379,7 @@ export default function MaterialsPage() {
           }}
         />
 
-        {!loading && jobs.length === 0 && (
+        {mode === "orders" && !loading && jobs.length === 0 && (
           <p style={{ fontSize: 13, color: BRAND.sub }}>
             {all.length === 0
               ? "Nothing handed over yet."
@@ -286,6 +389,7 @@ export default function MaterialsPage() {
           </p>
         )}
 
+        {mode === "orders" && (
         <div style={{ display: "grid", gap: 12 }}>
           {jobs.map((h) => {
             const lines = linesFor(h);
@@ -475,7 +579,124 @@ export default function MaterialsPage() {
             );
           })}
         </div>
+        )}
+
+        {mode === "tracking" && (
+          <MaterialTracking jobs={matching} trackBy={trackBy} />
+        )}
       </div>
     </main>
+  );
+}
+
+
+// Where each material actually is, read straight off Duncan's schedule board
+// rather than anyone asking around the factory.
+function MaterialTracking({ jobs, trackBy }) {
+  if (jobs.length === 0) {
+    return <p style={{ fontSize: 13, color: BRAND.sub }}>Nothing handed over yet.</p>;
+  }
+
+  if (trackBy === "project") {
+    return (
+      <div style={{ display: "grid", gap: 12 }}>
+        {jobs.map((h) => (
+          <section
+            key={h.jobId}
+            style={{
+              background: "#fff",
+              border: `1px solid ${BRAND.line}`,
+              borderRadius: 10,
+              padding: "14px 16px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>{h.jobId}</span>
+              <span style={{ fontSize: 14 }}>{h.project || h.client || "—"}</span>
+              <span style={{ marginLeft: "auto" }}>
+                <StageBadge handover={h} />
+              </span>
+            </div>
+            {(h.materials || []).length === 0 ? (
+              <p style={{ fontSize: 13, color: BRAND.sub, margin: 0 }}>No materials listed yet.</p>
+            ) : (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ textAlign: "left", color: BRAND.sub }}>
+                    <th style={{ fontWeight: 500, padding: "2px 0" }}>Size</th>
+                    <th style={{ fontWeight: 500, width: 70 }}>Qty</th>
+                    <th style={{ fontWeight: 500 }}>Material</th>
+                    <th style={{ fontWeight: 500, width: 110 }}>Order status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(h.materials || []).map((m) => (
+                    <tr key={m.id} style={{ borderTop: `1px solid ${BRAND.line}` }}>
+                      <td style={{ padding: "6px 0" }}>{size(m)}</td>
+                      <td>{m.quantity || "—"}</td>
+                      <td>{m.name || "—"}</td>
+                      <td style={{ color: BRAND.sub }}>{effectiveState(m).replace("_", " ")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        ))}
+      </div>
+    );
+  }
+
+  // By material: the same lines, regrouped so every job needing "Blackbutt
+  // NTV" (say) shows in one place regardless of which job it's for.
+  const groups = buildMaterialGroups(jobs);
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {groups.map((g) => (
+        <section
+          key={materialSignature(g)}
+          style={{
+            background: "#fff",
+            border: `1px solid ${BRAND.line}`,
+            borderRadius: 10,
+            padding: "14px 16px",
+          }}
+        >
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10 }}>
+            {g.name || "—"}
+            {g.length && g.width ? (
+              <span style={{ fontWeight: 400, color: BRAND.sub, marginLeft: 8 }}>
+                {g.length} × {g.width}
+                {g.thickness ? ` × ${g.thickness}` : ""}
+              </span>
+            ) : null}
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ textAlign: "left", color: BRAND.sub }}>
+                <th style={{ fontWeight: 500, padding: "2px 0" }}>Job</th>
+                <th style={{ fontWeight: 500 }}>Project</th>
+                <th style={{ fontWeight: 500, width: 70 }}>Qty</th>
+                <th style={{ fontWeight: 500, width: 110 }}>Order status</th>
+                <th style={{ fontWeight: 500, width: 130 }}>Stage</th>
+              </tr>
+            </thead>
+            <tbody>
+              {g.rows.map((r) => (
+                <tr key={`${r.jobId}:${r.id}`} style={{ borderTop: `1px solid ${BRAND.line}` }}>
+                  <td style={{ padding: "6px 0" }}>{r.jobId}</td>
+                  <td>{r.project || "—"}</td>
+                  <td>{r.quantity || "—"}</td>
+                  <td style={{ color: BRAND.sub }}>{effectiveState(r).replace("_", " ")}</td>
+                  <td>
+                    <StageBadge handover={r.handover} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ))}
+    </div>
   );
 }
