@@ -7,7 +7,7 @@ const TABS = [
   { key: "schedule", label: "Production schedule", href: "/" },
   { key: "board", label: "Schedule board", href: "/board" },
   { key: "materials", label: "Material orders", href: "/materials" },
-  { key: "stock", label: "Material stock", href: "/material-stock" },
+  { key: "stock", label: "Stock", href: "/material-stock" },
   { key: "invoicing", label: "Invoicing", href: "/invoicing" },
   // A different app, but part of the same flow, so it behaves like the other
   // tabs and navigates in place. Only the reference link opens a new tab.

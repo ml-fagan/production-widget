@@ -186,7 +186,7 @@ export default function MaterialStockPage() {
         >
           <div>
             <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.01em" }}>
-              Material stock
+              Stock
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
               {available.length} material{available.length === 1 ? "" : "s"} on hand — offcuts and

@@ -231,17 +231,24 @@ export default function MaterialsPage() {
       )
     : all;
 
-  const isOutstanding = (h) => {
-    const lines = linesFor(h);
-    if (lines.length === 0) return true;
-    return lines.some((m) => effectiveState(m) !== "completed");
-  };
+  // Flattened to one row per material line — Alice works line by line, not
+  // job by job, so the list reads like the schedule board's rows rather than
+  // a stack of per-job cards.
+  const allLines = matching.flatMap((h) =>
+    linesFor(h).map((m) => ({
+      ...m,
+      jobId: h.jobId,
+      project: h.project || h.client || "",
+      fibreCement: h.fibreCement,
+    }))
+  );
+  const isOutstandingLine = (m) => effectiveState(m) !== "completed";
   const counts = {
-    outstanding: matching.filter(isOutstanding).length,
-    complete: matching.filter((h) => !isOutstanding(h)).length,
+    outstanding: allLines.filter(isOutstandingLine).length,
+    complete: allLines.filter((m) => !isOutstandingLine(m)).length,
   };
-  const jobs = matching.filter((h) =>
-    view === "outstanding" ? isOutstanding(h) : !isOutstanding(h)
+  const lines = allLines.filter((m) =>
+    view === "outstanding" ? isOutstandingLine(m) : !isOutstandingLine(m)
   );
 
   const btn = {
@@ -253,6 +260,23 @@ export default function MaterialsPage() {
     fontSize: 12,
     cursor: "pointer",
     fontFamily: "inherit",
+    whiteSpace: "nowrap",
+  };
+  // Dense, line-by-line rows — same feel as the schedule board rather than a
+  // stack of per-job cards.
+  const th = {
+    fontWeight: 600,
+    fontSize: 11,
+    textAlign: "left",
+    padding: "6px 10px",
+    borderBottom: `1px solid ${BRAND.line}`,
+    whiteSpace: "nowrap",
+    color: BRAND.sub,
+  };
+  const td = {
+    padding: "5px 10px",
+    borderBottom: `1px solid ${BRAND.line}`,
+    fontSize: 12,
     whiteSpace: "nowrap",
   };
 
@@ -283,8 +307,9 @@ export default function MaterialsPage() {
               Material orders/tracking
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-              {jobs.length} {jobs.length === 1 ? "job" : "jobs"} · tick each line
-              as it lands
+              {mode === "orders"
+                ? `${lines.length} ${lines.length === 1 ? "line" : "lines"} · tick each line as it lands`
+                : `${matching.length} ${matching.length === 1 ? "job" : "jobs"}`}
             </p>
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
@@ -300,7 +325,15 @@ export default function MaterialsPage() {
 
         <Tabs current="materials" counts={{ materials: counts.outstanding }} />
 
-        <div style={{ display: "flex", gap: 4, marginBottom: 10, flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "inline-flex",
+            background: "#efece5",
+            borderRadius: 10,
+            padding: 3,
+            marginBottom: 16,
+          }}
+        >
           {[
             { key: "orders", label: "Orders" },
             { key: "tracking", label: "Material tracking" },
@@ -309,12 +342,16 @@ export default function MaterialsPage() {
               key={m.key}
               onClick={() => setMode(m.key)}
               style={{
-                ...btn,
-                padding: "5px 12px",
-                background: mode === m.key ? BRAND.blue : BRAND.card,
-                color: mode === m.key ? "#fff" : BRAND.sub,
-                borderColor: mode === m.key ? BRAND.blue : BRAND.line,
-                fontSize: 13,
+                border: "none",
+                background: mode === m.key ? "#fff" : "transparent",
+                color: mode === m.key ? BRAND.ink : BRAND.sub,
+                fontWeight: mode === m.key ? 600 : 500,
+                fontSize: 14,
+                padding: "8px 20px",
+                borderRadius: 8,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                boxShadow: mode === m.key ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
               }}
             >
               {m.label}
@@ -323,17 +360,22 @@ export default function MaterialsPage() {
         </div>
 
         {mode === "orders" && (
-          <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 18, marginBottom: 16, borderBottom: `1px solid ${BRAND.line}` }}>
             {VIEWS.map((v) => (
               <button
                 key={v.key}
                 onClick={() => setView(v.key)}
                 style={{
-                  ...btn,
-                  padding: "5px 12px",
-                  background: view === v.key ? BRAND.ink : BRAND.card,
-                  color: view === v.key ? "#fff" : BRAND.sub,
-                  fontSize: 13,
+                  border: "none",
+                  borderBottom: `2px solid ${view === v.key ? BRAND.sub : "transparent"}`,
+                  background: "none",
+                  color: view === v.key ? BRAND.ink : "#9c988f",
+                  fontWeight: view === v.key ? 600 : 400,
+                  fontSize: 12,
+                  padding: "0 0 7px",
+                  marginBottom: -1,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
                 }}
               >
                 {v.label} ({counts[v.key]})
@@ -343,7 +385,7 @@ export default function MaterialsPage() {
         )}
 
         {mode === "tracking" && (
-          <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 18, marginBottom: 16, borderBottom: `1px solid ${BRAND.line}` }}>
             {[
               { key: "project", label: "By project" },
               { key: "material", label: "By material" },
@@ -352,11 +394,16 @@ export default function MaterialsPage() {
                 key={t.key}
                 onClick={() => setTrackBy(t.key)}
                 style={{
-                  ...btn,
-                  padding: "5px 12px",
-                  background: trackBy === t.key ? BRAND.ink : BRAND.card,
-                  color: trackBy === t.key ? "#fff" : BRAND.sub,
-                  fontSize: 13,
+                  border: "none",
+                  borderBottom: `2px solid ${trackBy === t.key ? BRAND.sub : "transparent"}`,
+                  background: "none",
+                  color: trackBy === t.key ? BRAND.ink : "#9c988f",
+                  fontWeight: trackBy === t.key ? 600 : 400,
+                  fontSize: 12,
+                  padding: "0 0 7px",
+                  marginBottom: -1,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
                 }}
               >
                 {t.label}
@@ -414,7 +461,7 @@ export default function MaterialsPage() {
           }}
         />
 
-        {mode === "orders" && !loading && jobs.length === 0 && (
+        {mode === "orders" && !loading && lines.length === 0 && (
           <p style={{ fontSize: 13, color: BRAND.sub }}>
             {all.length === 0
               ? "Nothing handed over yet."
@@ -424,196 +471,154 @@ export default function MaterialsPage() {
           </p>
         )}
 
-        {mode === "orders" && (
-        <div style={{ display: "grid", gap: 12 }}>
-          {jobs.map((h) => {
-            const lines = linesFor(h);
-            const outstanding = lines.filter(
-              (m) => effectiveState(m) !== "completed"
-            ).length;
-            return (
-              <section
-                key={h.jobId}
-                style={{
-                  background: BRAND.card,
-                  border: `1px solid ${BRAND.line}`,
-                  borderLeft: `3px solid ${outstanding === 0 ? BRAND.green : BRAND.amber}`,
-                  borderRadius: 10,
-                  padding: "14px 16px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    gap: 10,
-                    flexWrap: "wrap",
-                    marginBottom: 10,
-                  }}
-                >
-                  <a
-                    href={`${HANDOVER_APP}/${encodeURIComponent(h.jobId)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ fontWeight: 600, fontSize: 14, color: BRAND.blue, textDecoration: "none" }}
-                  >
-                    {h.jobId}
-                  </a>
-                  <span style={{ fontSize: 14 }}>{h.project || h.client || "—"}</span>
-                  {h.fibreCement && (
-                    <span style={{ fontSize: 11, color: BRAND.sub, border: `1px solid ${BRAND.line}`, borderRadius: 4, padding: "1px 6px" }}>
-                      FC
-                    </span>
-                  )}
-                  <span style={{ fontSize: 12, color: BRAND.sub, marginLeft: "auto" }}>
-                    {outstanding === 0
-                      ? "all in"
-                      : `${outstanding} of ${lines.length} outstanding`}
-                  </span>
-                </div>
-
-                {lines.length ? (
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ textAlign: "left", color: BRAND.sub }}>
-                        <th style={{ fontWeight: 500, padding: "2px 0" }}>Size</th>
-                        <th style={{ fontWeight: 500, width: 70 }}>Qty</th>
-                        <th style={{ fontWeight: 500 }}>Product</th>
-                        <th style={{ fontWeight: 500, width: 130 }}>Supplier</th>
-                        <th style={{ fontWeight: 500, width: 140 }}>Expected</th>
-                        <th style={{ fontWeight: 500, width: 150 }} />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lines.map((m) => {
-                        const busy = pending[`${h.jobId}:${m.id}`];
-                        const state = effectiveState(m);
-                        const done = state === "completed";
-                        return (
-                          <tr key={m.id} style={{ borderTop: `1px solid ${BRAND.line}` }}>
-                            <td style={{ padding: "6px 0" }}>{size(m)}</td>
-                            <td>{m.quantity || "—"}</td>
-                            <td>{m.name || "—"}</td>
-                            <td style={{ color: BRAND.sub }}>
-                              {m.fromStock ? "Stock" : m.supplier || "—"}
-                            </td>
-                            <td>
-                              {m.fromStock ? (
-                                <span style={{ color: BRAND.sub }}>—</span>
-                              ) : (
-                                <input
-                                  type="date"
-                                  value={m.expectedDate || ""}
-                                  onChange={(e) =>
-                                    setLine(h.jobId, m.id, { expectedDate: e.target.value })
-                                  }
+        {mode === "orders" && lines.length > 0 && (
+          <div
+            style={{
+              overflowX: "auto",
+              background: BRAND.card,
+              border: `1px solid ${BRAND.line}`,
+              borderRadius: 10,
+            }}
+          >
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <thead>
+                <tr>
+                  <th style={th}>Job</th>
+                  <th style={th}>Project</th>
+                  <th style={th}>Size</th>
+                  <th style={{ ...th, textAlign: "right" }}>Qty</th>
+                  <th style={th}>Material</th>
+                  <th style={th}>Supplier</th>
+                  <th style={th}>Expected</th>
+                  <th style={th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((m) => {
+                  const busy = pending[`${m.jobId}:${m.id}`];
+                  const state = effectiveState(m);
+                  const done = state === "completed";
+                  return (
+                    <tr key={`${m.jobId}:${m.id}`}>
+                      <td style={td}>
+                        <a
+                          href={`${HANDOVER_APP}/${encodeURIComponent(m.jobId)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
+                        >
+                          {m.jobId}
+                        </a>
+                        {m.fibreCement && (
+                          <span style={{ marginLeft: 5, fontSize: 10, color: BRAND.sub, border: `1px solid ${BRAND.line}`, borderRadius: 4, padding: "0 4px" }}>
+                            FC
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>{m.project || "—"}</td>
+                      <td style={td}>{size(m)}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{m.quantity || "—"}</td>
+                      <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>{m.name || "—"}</td>
+                      <td style={{ ...td, color: BRAND.sub }}>{m.fromStock ? "Stock" : m.supplier || "—"}</td>
+                      <td style={td}>
+                        {m.fromStock ? (
+                          <span style={{ color: BRAND.sub }}>—</span>
+                        ) : (
+                          <input
+                            type="date"
+                            value={m.expectedDate || ""}
+                            onChange={(e) => setLine(m.jobId, m.id, { expectedDate: e.target.value })}
+                            style={{
+                              border: `1px solid ${BRAND.line}`,
+                              borderRadius: 6,
+                              padding: "2px 6px",
+                              fontSize: 12,
+                              fontFamily: "inherit",
+                            }}
+                          />
+                        )}
+                      </td>
+                      <td style={{ ...td, textAlign: "right" }}>
+                        {m.fromStock ? (
+                          done ? (
+                            <button
+                              onClick={() => setLine(m.jobId, m.id, { state: "to_order" })}
+                              disabled={busy}
+                              style={{ ...btn, color: BRAND.green }}
+                              title={m.completedBy ? `Stock confirmed by ${m.completedBy}` : "Stock confirmed"}
+                            >
+                              ✓ In stock
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
+                              disabled={busy}
+                              style={{
+                                ...btn,
+                                background: BRAND.green,
+                                borderColor: BRAND.green,
+                                color: "#fff",
+                                opacity: busy ? 0.6 : 1,
+                              }}
+                            >
+                              Confirm stock
+                            </button>
+                          )
+                        ) : (
+                          <span style={{ display: "inline-flex", gap: 6 }}>
+                            {state === "to_order" && (
+                              <button
+                                onClick={() => setLine(m.jobId, m.id, { state: "ordered" })}
+                                disabled={busy}
+                                style={{ ...btn, opacity: busy ? 0.6 : 1 }}
+                              >
+                                Ordered
+                              </button>
+                            )}
+                            {state === "ordered" && (
+                              <>
+                                <button
+                                  onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
+                                  disabled={busy}
                                   style={{
-                                    border: `1px solid ${BRAND.line}`,
-                                    borderRadius: 6,
-                                    padding: "2px 6px",
-                                    fontSize: 12,
-                                    fontFamily: "inherit",
+                                    ...btn,
+                                    background: BRAND.green,
+                                    borderColor: BRAND.green,
+                                    color: "#fff",
+                                    opacity: busy ? 0.6 : 1,
                                   }}
-                                />
-                              )}
-                            </td>
-                            <td style={{ textAlign: "right" }}>
-                              {m.fromStock ? (
-                                done ? (
-                                  <button
-                                    onClick={() => setLine(h.jobId, m.id, { state: "to_order" })}
-                                    disabled={busy}
-                                    style={{ ...btn, color: BRAND.green }}
-                                    title={
-                                      m.completedBy
-                                        ? `Stock confirmed by ${m.completedBy}`
-                                        : "Stock confirmed"
-                                    }
-                                  >
-                                    ✓ In stock
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={() => setLine(h.jobId, m.id, { state: "completed" })}
-                                    disabled={busy}
-                                    style={{
-                                      ...btn,
-                                      background: BRAND.green,
-                                      borderColor: BRAND.green,
-                                      color: "#fff",
-                                      opacity: busy ? 0.6 : 1,
-                                    }}
-                                  >
-                                    Confirm stock
-                                  </button>
-                                )
-                              ) : (
-                                <span style={{ display: "inline-flex", gap: 6 }}>
-                                  {state === "to_order" && (
-                                    <button
-                                      onClick={() => setLine(h.jobId, m.id, { state: "ordered" })}
-                                      disabled={busy}
-                                      style={{ ...btn, opacity: busy ? 0.6 : 1 }}
-                                    >
-                                      Ordered
-                                    </button>
-                                  )}
-                                  {state === "ordered" && (
-                                    <>
-                                      <button
-                                        onClick={() => setLine(h.jobId, m.id, { state: "completed" })}
-                                        disabled={busy}
-                                        style={{
-                                          ...btn,
-                                          background: BRAND.green,
-                                          borderColor: BRAND.green,
-                                          color: "#fff",
-                                          opacity: busy ? 0.6 : 1,
-                                        }}
-                                      >
-                                        Complete
-                                      </button>
-                                      <button
-                                        onClick={() => setLine(h.jobId, m.id, { state: "to_order" })}
-                                        disabled={busy}
-                                        style={{ ...btn, color: BRAND.sub }}
-                                        title="Back to to-order"
-                                      >
-                                        Undo
-                                      </button>
-                                    </>
-                                  )}
-                                  {done && (
-                                    <button
-                                      onClick={() => setLine(h.jobId, m.id, { state: "ordered" })}
-                                      disabled={busy}
-                                      style={{ ...btn, color: BRAND.green }}
-                                      title={
-                                        m.completedBy
-                                          ? `Completed by ${m.completedBy}`
-                                          : "Completed"
-                                      }
-                                    >
-                                      ✓ In
-                                    </button>
-                                  )}
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                ) : (
-                  <p style={{ fontSize: 13, color: BRAND.sub, margin: 0 }}>
-                    No materials listed on this handover yet.
-                  </p>
-                )}
-              </section>
-            );
-          })}
-        </div>
+                                >
+                                  Complete
+                                </button>
+                                <button
+                                  onClick={() => setLine(m.jobId, m.id, { state: "to_order" })}
+                                  disabled={busy}
+                                  style={{ ...btn, color: BRAND.sub }}
+                                  title="Back to to-order"
+                                >
+                                  Undo
+                                </button>
+                              </>
+                            )}
+                            {done && (
+                              <button
+                                onClick={() => setLine(m.jobId, m.id, { state: "ordered" })}
+                                disabled={busy}
+                                style={{ ...btn, color: BRAND.green }}
+                                title={m.completedBy ? `Completed by ${m.completedBy}` : "Completed"}
+                              >
+                                ✓ In
+                              </button>
+                            )}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
 
         {mode === "tracking" && (
