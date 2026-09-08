@@ -65,6 +65,7 @@ function fmtStamp(iso) {
 
 export default function MaterialStockPage() {
   const [entries, setEntries] = useState([]);
+  const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
@@ -95,16 +96,36 @@ export default function MaterialStockPage() {
     }
   }, []);
 
+  // For the job picker on "Use" — so assigning stock to a job means picking
+  // the real CRM, not typing a name that might not match anything.
+  const loadJobs = useCallback(async () => {
+    try {
+      const res = await fetch("/api/handovers", { cache: "no-store" });
+      const json = await res.json();
+      if (!json.ok) return;
+      setJobs([...(json.awaiting || []), ...(json.scheduled || [])]);
+    } catch {
+      // The picker just comes up empty; using stock without a job still works.
+    }
+  }, []);
+
   useEffect(() => {
     load();
-    const id = setInterval(load, REFRESH_MS);
-    const onFocus = () => load();
+    loadJobs();
+    const id = setInterval(() => {
+      load();
+      loadJobs();
+    }, REFRESH_MS);
+    const onFocus = () => {
+      load();
+      loadJobs();
+    };
     window.addEventListener("focus", onFocus);
     return () => {
       clearInterval(id);
       window.removeEventListener("focus", onFocus);
     };
-  }, [load]);
+  }, [load, loadJobs]);
 
   const submit = useCallback(
     async (entry) => {
@@ -331,6 +352,7 @@ export default function MaterialStockPage() {
                   <UseStockForm
                     brand={BRAND}
                     max={b.total}
+                    jobs={jobs}
                     saving={saving}
                     onCancel={() => setUseRow(null)}
                     onSubmit={async (patch) => {
@@ -340,7 +362,8 @@ export default function MaterialStockPage() {
                         width: b.width,
                         thickness: b.thickness,
                         quantity: -Math.abs(patch.quantity),
-                        location: patch.location,
+                        jobId: patch.jobId,
+                        project: patch.project,
                         note: patch.note,
                       });
                       if (ok) setUseRow(null);
@@ -503,8 +526,84 @@ function AddStockForm({ brand, onSubmit, onCancel, saving }) {
   );
 }
 
-function UseStockForm({ brand, max, onSubmit, onCancel, saving }) {
+// Search-as-you-type over the live job list, so assigning stock to a job
+// means picking the real CRM rather than typing something that might not
+// match anything on the schedule board.
+function JobPicker({ brand, jobs, value, onChange, placeholder }) {
+  const [text, setText] = useState(value ? `${value.jobId} — ${value.project || ""}` : "");
+  const [open, setOpen] = useState(false);
+
+  const q = text.trim().toLowerCase();
+  const matches = q
+    ? jobs
+        .filter((j) => `${j.jobId} ${j.project || j.client || ""}`.toLowerCase().includes(q))
+        .slice(0, 8)
+    : [];
+
+  const input = {
+    border: `1px solid ${brand.line}`,
+    borderRadius: 6,
+    padding: "6px 8px",
+    fontSize: 13,
+    fontFamily: "inherit",
+    width: "100%",
+    boxSizing: "border-box",
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        style={input}
+        value={text}
+        placeholder={placeholder}
+        onChange={(e) => {
+          setText(e.target.value);
+          setOpen(true);
+          if (value) onChange(null);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && matches.length > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            background: "#fff",
+            border: `1px solid ${brand.line}`,
+            borderRadius: 6,
+            marginTop: 2,
+            zIndex: 10,
+            maxHeight: 180,
+            overflowY: "auto",
+            boxShadow: "0 4px 10px rgba(0,0,0,0.08)",
+          }}
+        >
+          {matches.map((j) => (
+            <div
+              key={j.jobId}
+              onMouseDown={() => {
+                const picked = { jobId: j.jobId, project: j.project || j.client || "" };
+                onChange(picked);
+                setText(`${picked.jobId} — ${picked.project}`);
+                setOpen(false);
+              }}
+              style={{ padding: "6px 10px", fontSize: 13, cursor: "pointer" }}
+            >
+              <strong>{j.jobId}</strong> {j.project || j.client || ""}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UseStockForm({ brand, max, jobs, onSubmit, onCancel, saving }) {
   const [quantity, setQuantity] = useState("");
+  const [job, setJob] = useState(null);
   const [note, setNote] = useState("");
 
   const input = {
@@ -524,13 +623,24 @@ function UseStockForm({ brand, max, onSubmit, onCancel, saving }) {
         <label style={{ fontSize: 11, color: brand.sub, display: "block" }}>How many (of {max})</label>
         <input type="number" style={{ ...input, width: 80 }} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
       </div>
-      <div style={{ flex: 1, minWidth: 160 }}>
-        <label style={{ fontSize: 11, color: brand.sub, display: "block" }}>For / note (optional)</label>
-        <input style={{ ...input, width: "100%", boxSizing: "border-box" }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. job 20488-1" />
+      <div style={{ width: 220 }}>
+        <label style={{ fontSize: 11, color: brand.sub, display: "block" }}>Assign to a job (optional)</label>
+        <JobPicker brand={brand} jobs={jobs} value={job} onChange={setJob} placeholder="Search CRM or project" />
+      </div>
+      <div style={{ flex: 1, minWidth: 140 }}>
+        <label style={{ fontSize: 11, color: brand.sub, display: "block" }}>Note (optional)</label>
+        <input style={{ ...input, width: "100%", boxSizing: "border-box" }} value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
       <button
         disabled={!valid || saving}
-        onClick={() => onSubmit({ quantity: qty, note: note.trim() })}
+        onClick={() =>
+          onSubmit({
+            quantity: qty,
+            jobId: job?.jobId || null,
+            project: job?.project || "",
+            note: note.trim(),
+          })
+        }
         style={{
           border: `1px solid ${brand.red}`,
           background: brand.red,

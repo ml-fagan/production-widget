@@ -102,6 +102,21 @@ function buildMaterialGroups(jobs) {
   return [...map.values()].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 }
 
+// Only "used" entries (negative) assigned to this exact job — a leftover
+// logged *from* this job is the opposite direction, not "fetch this".
+function stockForJob(stockEntries, jobId) {
+  const used = stockEntries.filter((e) => e.jobId === jobId && Number(e.quantity) < 0);
+  const map = new Map();
+  for (const e of used) {
+    const key = [e.name, e.length, e.width, e.thickness].join("|");
+    const size = [e.length, e.width, e.thickness].filter(Boolean).join("×");
+    const bucket = map.get(key) || { name: e.name, size, qty: 0 };
+    bucket.qty += Math.abs(Number(e.quantity) || 0);
+    map.set(key, bucket);
+  }
+  return [...map.values()];
+}
+
 export default function MaterialsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -116,6 +131,7 @@ export default function MaterialsPage() {
   // What the server stored, adopted after each write so what's on screen is
   // its answer rather than our guess.
   const [stored, setStored] = useState({});
+  const [stockEntries, setStockEntries] = useState([]);
 
   useEffect(() => {
     if (!firebaseConfigured()) return;
@@ -137,16 +153,35 @@ export default function MaterialsPage() {
     }
   }, []);
 
+  // For Material tracking — stock assigned to a job shows there too, same as
+  // on the Schedule board.
+  const loadStock = useCallback(async () => {
+    try {
+      const res = await fetch("/api/material-stock", { cache: "no-store" });
+      const json = await res.json();
+      if (json.ok) setStockEntries(json.entries || []);
+    } catch {
+      // Tracking just shows order status/stage without a stock note.
+    }
+  }, []);
+
   useEffect(() => {
     load();
-    const id = setInterval(load, REFRESH_MS);
-    const onFocus = () => load();
+    loadStock();
+    const id = setInterval(() => {
+      load();
+      loadStock();
+    }, REFRESH_MS);
+    const onFocus = () => {
+      load();
+      loadStock();
+    };
     window.addEventListener("focus", onFocus);
     return () => {
       clearInterval(id);
       window.removeEventListener("focus", onFocus);
     };
-  }, [load]);
+  }, [load, loadStock]);
 
   const linesFor = (h) => stored[h.jobId] ?? h.materials ?? [];
 
@@ -245,7 +280,7 @@ export default function MaterialsPage() {
         >
           <div>
             <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.01em" }}>
-              Material orders
+              Material orders/tracking
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
               {jobs.length} {jobs.length === 1 ? "job" : "jobs"} · tick each line
@@ -582,7 +617,7 @@ export default function MaterialsPage() {
         )}
 
         {mode === "tracking" && (
-          <MaterialTracking jobs={matching} trackBy={trackBy} />
+          <MaterialTracking jobs={matching} trackBy={trackBy} stockEntries={stockEntries} />
         )}
       </div>
     </main>
@@ -592,7 +627,7 @@ export default function MaterialsPage() {
 
 // Where each material actually is, read straight off Duncan's schedule board
 // rather than anyone asking around the factory.
-function MaterialTracking({ jobs, trackBy }) {
+function MaterialTracking({ jobs, trackBy, stockEntries }) {
   if (jobs.length === 0) {
     return <p style={{ fontSize: 13, color: BRAND.sub }}>Nothing handed over yet.</p>;
   }
@@ -600,7 +635,9 @@ function MaterialTracking({ jobs, trackBy }) {
   if (trackBy === "project") {
     return (
       <div style={{ display: "grid", gap: 12 }}>
-        {jobs.map((h) => (
+        {jobs.map((h) => {
+          const fromStock = stockForJob(stockEntries, h.jobId);
+          return (
           <section
             key={h.jobId}
             style={{
@@ -641,8 +678,19 @@ function MaterialTracking({ jobs, trackBy }) {
                 </tbody>
               </table>
             )}
+            {fromStock.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 12, color: BRAND.red, fontWeight: 500 }}>
+                {fromStock.map((s, i) => (
+                  <div key={i}>
+                    From stock: {s.qty} × {s.name}
+                    {s.size ? ` (${s.size})` : ""}
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
-        ))}
+          );
+        })}
       </div>
     );
   }

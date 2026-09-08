@@ -62,6 +62,7 @@ export default function BoardPage() {
   const [leftoverOpen, setLeftoverOpen] = useState(null);
   const [leftoverStep, setLeftoverStep] = useState("ask");
   const [leftoverSaving, setLeftoverSaving] = useState(false);
+  const [stockEntries, setStockEntries] = useState([]);
 
   useEffect(() => {
     if (!firebaseConfigured()) return;
@@ -83,16 +84,53 @@ export default function BoardPage() {
     }
   }, []);
 
+  // Stock assigned to a job shows up on its row so the floor knows to pull
+  // it off the shelf instead of waiting on a delivery.
+  const loadStock = useCallback(async () => {
+    try {
+      const res = await fetch("/api/material-stock", { cache: "no-store" });
+      const json = await res.json();
+      if (json.ok) setStockEntries(json.entries || []);
+    } catch {
+      // Leaves the board working off the schedule alone.
+    }
+  }, []);
+
   useEffect(() => {
     load();
-    const id = setInterval(load, REFRESH_MS);
-    const onFocus = () => load();
+    loadStock();
+    const id = setInterval(() => {
+      load();
+      loadStock();
+    }, REFRESH_MS);
+    const onFocus = () => {
+      load();
+      loadStock();
+    };
     window.addEventListener("focus", onFocus);
     return () => {
       clearInterval(id);
       window.removeEventListener("focus", onFocus);
     };
-  }, [load]);
+  }, [load, loadStock]);
+
+  // Only "used" entries (negative) assigned to this exact job — a leftover
+  // logged *from* this job is the opposite direction and isn't "fetch this".
+  const stockForJob = useCallback(
+    (jobId) => {
+      const used = stockEntries.filter((e) => e.jobId === jobId && Number(e.quantity) < 0);
+      const map = new Map();
+      for (const e of used) {
+        const key = [e.name, e.length, e.width, e.thickness].join("|");
+        const size = [e.length, e.width, e.thickness].filter(Boolean).join("×");
+        const bucket = map.get(key) || { name: e.name, size, qty: 0 };
+        bucket.qty += Math.abs(Number(e.quantity) || 0);
+        map.set(key, bucket);
+      }
+      return [...map.values()];
+    },
+    [stockEntries]
+  );
 
   const rows = useMemo(() => {
     const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
@@ -557,6 +595,12 @@ export default function BoardPage() {
                     </td>
                     <td style={{ ...td, whiteSpace: "normal", minWidth: 260, color: BRAND.sub }}>
                       {materialSummary(row)}
+                      {stockForJob(row.jobId).map((s, i) => (
+                        <div key={i} style={{ color: BRAND.red, fontWeight: 500, marginTop: 2 }}>
+                          From stock: {s.qty} × {s.name}
+                          {s.size ? ` (${s.size})` : ""}
+                        </div>
+                      ))}
                     </td>
                     <td style={{ ...td, whiteSpace: "nowrap" }}>
                       <button
