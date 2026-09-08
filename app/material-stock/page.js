@@ -839,11 +839,11 @@ export default function MaterialStockPage() {
                                     opacity: busy ? 0.6 : 1,
                                   }}
                                 >
-                                  Complete
+                                  Delivered
                                 </button>
                               )}
                               {done && (
-                                <span style={{ color: BRAND.green, fontSize: 12, fontWeight: 500 }}>✓ In</span>
+                                <span style={{ color: BRAND.green, fontSize: 12, fontWeight: 500 }}>✓ Delivered</span>
                               )}
                             </span>
                             <span style={{ marginLeft: 8, display: "inline-flex", gap: 6 }}>

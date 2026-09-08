@@ -450,7 +450,7 @@ export default function MaterialsPage() {
                                     opacity: busy ? 0.6 : 1,
                                   }}
                                 >
-                                  Complete
+                                  Delivered
                                 </button>
                                 <button
                                   onClick={() => setLine(m.jobId, m.id, { state: "to_order" })}
@@ -472,9 +472,9 @@ export default function MaterialsPage() {
                               <>
                                 <span
                                   style={{ color: BRAND.green, fontSize: 12, fontWeight: 500 }}
-                                  title={m.completedBy ? `Completed by ${m.completedBy}` : "Completed"}
+                                  title={m.completedBy ? `Delivered — confirmed by ${m.completedBy}` : "Delivered"}
                                 >
-                                  ✓ In
+                                  ✓ Delivered
                                 </span>
                                 <button
                                   onClick={() => setLine(m.jobId, m.id, { state: "ordered" })}
