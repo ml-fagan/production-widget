@@ -292,6 +292,54 @@ export default function MaterialStockPage() {
     []
   );
 
+  /**
+   * Removes a material from the register entirely — every entry behind its
+   * balance.
+   *
+   * For something typed wrong. Using stock up is a negative entry, which keeps
+   * the history; an entry that was never true has no history worth keeping, and
+   * offsetting it would leave two wrong numbers instead of none. Confirmed
+   * first, because it can't be undone.
+   */
+  const clearMaterial = useCallback(async (balance) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return;
+    }
+    const ids = (balance.entries || []).map((e) => e.id).filter(Boolean);
+    if (ids.length === 0) return;
+    const label = [balance.name, balance.length && balance.width
+      ? `${balance.length} × ${balance.width}`
+      : ""].filter(Boolean).join(" ");
+    if (
+      !window.confirm(
+        `Clear ${label} from the register? This deletes ${ids.length} ` +
+          `${ids.length === 1 ? "entry" : "entries"} and can't be undone.`
+      )
+    ) {
+      return;
+    }
+
+    setSaving(true);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/material-stock/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Couldn't clear that material");
+      setEntries((prev) => prev.filter((e) => !ids.includes(e.id)));
+    } catch (e) {
+      setActionError(String(e.message || e));
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
   const setPreOrder = useCallback(async (id, patch) => {
     let idToken = null;
     const claiming = patch.state === "ordered" || patch.state === "completed" || patch.state === "cancelled";
@@ -661,6 +709,24 @@ export default function MaterialStockPage() {
                         }}
                       >
                         − Use
+                      </button>
+                      <button
+                        onClick={() => clearMaterial(b)}
+                        disabled={saving}
+                        title="Remove this material from the register — for something entered by mistake"
+                        style={{
+                          border: `1px solid ${BRAND.line}`,
+                          background: BRAND.card,
+                          color: BRAND.sub,
+                          borderRadius: 8,
+                          padding: "4px 10px",
+                          fontSize: 12,
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                          opacity: saving ? 0.6 : 1,
+                        }}
+                      >
+                        Clear
                       </button>
                     </div>
                     {locations.length > 0 && (
