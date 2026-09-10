@@ -379,7 +379,9 @@ export default function InvoicingPage() {
                         ✓ Charged
                       </button>
                     )}
-                    {invoice.state === "charged" && (
+                    {/* Deleting follows completion, not charging: the schedule
+                        owns when a job is over. */}
+                    {invoice.state === "charged" && h.schedule?.completedAt && (
                       <button
                         onClick={() => deleteJob(h)}
                         title="Remove this job and its record completely"

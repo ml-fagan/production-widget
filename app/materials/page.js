@@ -5,7 +5,6 @@ import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
-import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
 
 // Material orders board.
 //
@@ -135,27 +134,6 @@ export default function MaterialsPage() {
     }
   }, []);
 
-  // Removing a job takes it off every board at once, so the list here has to
-  // drop it too rather than wait for the next refresh.
-  const deleteJob = async (row) => {
-    const result = await confirmAndDeleteJob(row);
-    if (result.cancelled) return;
-    if (result.error) {
-      setActionError(result.error);
-      return;
-    }
-    setActionError(null);
-    setData((d) =>
-      d
-        ? {
-            ...d,
-            awaiting: (d.awaiting || []).filter((h) => h.jobId !== row.jobId),
-            scheduled: (d.scheduled || []).filter((h) => h.jobId !== row.jobId),
-          }
-        : d
-    );
-  };
-
   const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
   const q = query.trim().toLowerCase();
   const matching = q
@@ -186,12 +164,7 @@ export default function MaterialsPage() {
   const lines = allLines.filter((m) =>
     view === "outstanding" ? isOutstandingLine(m) : !isOutstandingLine(m)
   );
-  // A job usually has several lines; the delete belongs against the first of
-  // them rather than repeated on every row.
-  const firstLineOfJob = new Map();
-  for (const m of lines) {
-    if (!firstLineOfJob.has(m.jobId)) firstLineOfJob.set(m.jobId, m.id);
-  }
+
 
   const btn = {
     border: `1px solid ${BRAND.line}`,
@@ -360,7 +333,6 @@ export default function MaterialsPage() {
               <thead>
                 <tr>
                   <th style={th}>Job</th>
-                  <th style={th} />
                   <th style={th}>Project</th>
                   <th style={th}>Size</th>
                   <th style={{ ...th, textAlign: "right" }}>Qty</th>
@@ -377,23 +349,6 @@ export default function MaterialsPage() {
                   const done = state === "completed";
                   return (
                     <tr key={`${m.jobId}:${m.id}`}>
-                      <td style={td}>
-                        {/* Only on lines that are done, and only once per job:
-                            this removes the whole job, not the line. */}
-                        {done && firstLineOfJob.get(m.jobId) === m.id && (
-                          <button
-                            onClick={() => deleteJob({ jobId: m.jobId, project: m.project })}
-                            title={
-                              `Delete job ${m.jobId} and everything on it — all its ` +
-                              `material lines, and the job itself from the schedule ` +
-                              `board, invoicing and the client link. Not just this row.`
-                            }
-                            style={deleteLinkStyle}
-                          >
-                            Delete job
-                          </button>
-                        )}
-                      </td>
                       <td style={td}>
                         <a
                           href={`${HANDOVER_APP}/${encodeURIComponent(m.jobId)}`}
