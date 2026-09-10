@@ -5,6 +5,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
+import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
 
 // Invoicing board.
 //
@@ -132,6 +133,25 @@ export default function InvoicingPage() {
       setPending((p) => ({ ...p, [jobId]: false }));
     }
   }, []);
+
+  const deleteJob = async (row) => {
+    const result = await confirmAndDeleteJob(row);
+    if (result.cancelled) return;
+    if (result.error) {
+      setActionError(result.error);
+      return;
+    }
+    setActionError(null);
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            awaiting: (d.awaiting || []).filter((h) => h.jobId !== row.jobId),
+            scheduled: (d.scheduled || []).filter((h) => h.jobId !== row.jobId),
+          }
+        : d
+    );
+  };
 
   const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
   const q = query.trim().toLowerCase();
@@ -357,6 +377,15 @@ export default function InvoicingPage() {
                         }
                       >
                         ✓ Charged
+                      </button>
+                    )}
+                    {invoice.state === "charged" && (
+                      <button
+                        onClick={() => deleteJob(h)}
+                        title="Remove this job and its record completely"
+                        style={deleteLinkStyle}
+                      >
+                        Delete
                       </button>
                     )}
                   </span>

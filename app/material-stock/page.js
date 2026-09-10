@@ -465,15 +465,19 @@ export default function MaterialStockPage() {
   const jobById = new Map(jobs.map((h) => [String(h.jobId).trim().toLowerCase(), h]));
   const activePreOrders = preOrders.filter((po) => po.state !== "cancelled" && po.state !== "moved_to_stock");
 
+  // Tracking follows work in progress, so a job drops off it the moment
+  // Duncan marks it complete — and disappears outright if it's deleted, since
+  // the record it was drawn from is gone.
+  const trackable = jobs.filter((h) => !h.schedule?.completedAt);
   const tq = trackQuery.trim().toLowerCase();
   const trackingJobs = tq
-    ? jobs.filter((h) =>
+    ? trackable.filter((h) =>
         [h.jobId, h.project, h.client, ...(h.materials || []).map((m) => m.name)]
           .join(" ")
           .toLowerCase()
           .includes(tq)
       )
-    : jobs;
+    : trackable;
 
   return (
     <main

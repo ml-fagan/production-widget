@@ -5,6 +5,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
+import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
 import {
   PROCESS_COLUMNS,
   CELL_COLOURS,
@@ -320,67 +321,24 @@ export default function BoardPage() {
     }
   }, []);
 
-  /**
-   * Deletes a finished job outright — every board it appears on, and its client
-   * link with it.
-   *
-   * For a job that shouldn't be in the system at all: a test, a duplicate, one
-   * cancelled after handover. A real job that's simply finished is better left
-   * in Completed, where its charge and material history stay readable.
-   * Confirmed by typing the job number, because there's no undo and the row
-   * above it is one mis-click away.
-   */
   const deleteJob = useCallback(async (row) => {
-    const current = firebaseConfigured() ? auth().currentUser : null;
-    if (!current) {
-      setActionError("Sign in to delete a job — it's recorded against your name.");
+    const result = await confirmAndDeleteJob(row);
+    if (result.cancelled) return;
+    if (result.error) {
+      setActionError(result.error);
       return;
     }
-    const typed = window.prompt(
-      [
-        `Delete ${row.jobId} (${row.project || row.client || "no project"}) for good?`,
-        "",
-        "It disappears from the schedule board, material orders, invoicing and " +
-          "the handovers list, and its client link stops working. This can't be undone.",
-        "",
-        "Type the job number to confirm:",
-      ].join("\n")
-    );
-    if (typed === null) return;
-    if (typed.trim() !== row.jobId) {
-      setActionError(`Not deleted — "${typed.trim()}" doesn't match ${row.jobId}.`);
-      return;
-    }
-
     setActionError(null);
-    try {
-      const idToken = await current.getIdToken();
-      const res = await fetch("/api/handovers-delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: row.jobId, idToken }),
-      });
-      const json = await res.json();
-      if (!json.ok) {
-        throw new Error(
-          json.error === "not_completed"
-            ? "only a completed job can be deleted"
-            : json.error || "Delete failed"
-        );
-      }
-      // Drop it locally rather than waiting for the next refresh.
-      setData((d) =>
-        d
-          ? {
-              ...d,
-              awaiting: (d.awaiting || []).filter((h) => h.jobId !== row.jobId),
-              scheduled: (d.scheduled || []).filter((h) => h.jobId !== row.jobId),
-            }
-          : d
-      );
-    } catch (e) {
-      setActionError(`Couldn't delete ${row.jobId}. ${String(e.message || e)}`);
-    }
+    // Drop it locally rather than waiting for the next refresh.
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            awaiting: (d.awaiting || []).filter((h) => h.jobId !== row.jobId),
+            scheduled: (d.scheduled || []).filter((h) => h.jobId !== row.jobId),
+          }
+        : d
+    );
   }, []);
 
   const th = {
@@ -887,16 +845,7 @@ export default function BoardPage() {
                     <button
                       onClick={() => deleteJob(row)}
                       title="Remove this job and its record completely"
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: BRAND.red,
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                        fontSize: 12,
-                        padding: 0,
-                        marginLeft: 12,
-                      }}
+                      style={{ ...deleteLinkStyle, marginLeft: 12 }}
                     >
                       Delete
                     </button>
