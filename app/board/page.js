@@ -63,6 +63,10 @@ export default function BoardPage() {
   const [leftoverStep, setLeftoverStep] = useState("ask");
   const [leftoverSaving, setLeftoverSaving] = useState(false);
   const [stockEntries, setStockEntries] = useState([]);
+  // Mark-complete: which job's inline confirm row is open, and whether the
+  // request is in flight.
+  const [completeOpen, setCompleteOpen] = useState(null);
+  const [completing, setCompleting] = useState(false);
 
   useEffect(() => {
     if (!firebaseConfigured()) return;
@@ -132,13 +136,19 @@ export default function BoardPage() {
     [stockEntries]
   );
 
-  const rows = useMemo(() => {
+  // Every handed-over job, with local edits applied — the shared base for
+  // both the active board and the completed list below it.
+  const mergedRows = useMemo(() => {
     const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
-    const merged = all.map((h) => ({
+    return all.map((h) => ({
       ...h,
       schedule: { ...(h.schedule || {}), ...(edits[h.jobId] || {}) },
     }));
-    const inStream = merged.filter((h) =>
+  }, [data, edits]);
+
+  const rows = useMemo(() => {
+    const active = mergedRows.filter((h) => !h.schedule?.completedAt);
+    const inStream = active.filter((h) =>
       stream === "fc" ? h.fibreCement : !h.fibreCement
     );
     const q = query.trim().toLowerCase();
@@ -158,13 +168,23 @@ export default function BoardPage() {
       if (!y) return -1;
       return x.localeCompare(y);
     });
-  }, [data, edits, query, stream]);
+  }, [mergedRows, query, stream]);
+
+  // Finished jobs, newest first — kept as a stamp (who, when) rather than
+  // deleted, once they've dropped off the active board above.
+  const completedRows = useMemo(
+    () =>
+      mergedRows
+        .filter((h) => h.schedule?.completedAt)
+        .sort((a, b) => (b.schedule.completedAt || "").localeCompare(a.schedule.completedAt || "")),
+    [mergedRows]
+  );
 
   const undated = rows.filter((r) => !r.schedule?.committedDate).length;
-  const allRows = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
+  const activeRows = mergedRows.filter((h) => !h.schedule?.completedAt);
   const streamCounts = {
-    standard: allRows.filter((h) => !h.fibreCement).length,
-    fc: allRows.filter((h) => h.fibreCement).length,
+    standard: activeRows.filter((h) => !h.fibreCement).length,
+    fc: activeRows.filter((h) => h.fibreCement).length,
   };
 
   const save = useCallback(
@@ -246,6 +266,60 @@ export default function BoardPage() {
     }
   }, []);
 
+  // Drops a job off the board and the production schedule's active list,
+  // stamping who and when rather than deleting anything.
+  const completeJob = useCallback(async (jobId) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in to mark a job complete — it's recorded against your name.");
+      return;
+    }
+    setCompleting(true);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/handovers/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, completed: true, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Update failed");
+      setEdits((e) => ({
+        ...e,
+        [jobId]: { ...(e[jobId] || {}), completedAt: json.schedule.completedAt, completedBy: json.schedule.completedBy },
+      }));
+      setCompleteOpen(null);
+    } catch (e) {
+      setActionError(`Couldn't mark ${jobId} complete. ${String(e.message || e)}`);
+    } finally {
+      setCompleting(false);
+    }
+  }, []);
+
+  // Undoes a mark-complete — a mis-click shouldn't need a trip to Firestore.
+  const reopenJob = useCallback(async (jobId) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in to reopen a job — it's recorded against your name.");
+      return;
+    }
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/handovers/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, completed: false, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Update failed");
+      setEdits((e) => ({ ...e, [jobId]: { ...(e[jobId] || {}), completedAt: null, completedBy: "" } }));
+    } catch (e) {
+      setActionError(`Couldn't reopen ${jobId}. ${String(e.message || e)}`);
+    }
+  }, []);
+
   const th = {
     fontWeight: 600,
     fontSize: 11,
@@ -269,6 +343,7 @@ export default function BoardPage() {
     fontFamily: "inherit",
     background: BRAND.card,
   };
+  const totalCols = 14 + PROCESS_COLUMNS.length;
 
   return (
     <main
@@ -610,17 +685,35 @@ export default function BoardPage() {
                           } else {
                             setLeftoverOpen(row.jobId);
                             setLeftoverStep("ask");
+                            setCompleteOpen(null);
                           }
                         }}
                         style={{ ...input, padding: "3px 8px", cursor: "pointer", background: BRAND.card }}
                       >
                         Leftover stock
                       </button>
+                      <button
+                        onClick={() => {
+                          setCompleteOpen(completeOpen === row.jobId ? null : row.jobId);
+                          setLeftoverOpen(null);
+                        }}
+                        style={{
+                          ...input,
+                          padding: "3px 8px",
+                          cursor: "pointer",
+                          background: BRAND.card,
+                          color: BRAND.green,
+                          borderColor: BRAND.green,
+                          marginLeft: 6,
+                        }}
+                      >
+                        Mark complete
+                      </button>
                     </td>
                   </tr>
                   {leftoverOpen === row.jobId && (
                     <tr key={`${row.jobId}-leftover`}>
-                      <td colSpan={14 + PROCESS_COLUMNS.length} style={{ ...td, background: BRAND.bg, padding: "10px 12px" }}>
+                      <td colSpan={totalCols} style={{ ...td, background: BRAND.bg, padding: "10px 12px" }}>
                         <LeftoverPanel
                           row={row}
                           step={leftoverStep}
@@ -633,6 +726,49 @@ export default function BoardPage() {
                       </td>
                     </tr>
                   )}
+                  {completeOpen === row.jobId && (
+                    <tr key={`${row.jobId}-complete`}>
+                      <td colSpan={totalCols} style={{ ...td, background: BRAND.bg, padding: "10px 12px" }}>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 13 }}>
+                          <span>
+                            Mark {row.jobId} complete? It&apos;ll come off this board and the production schedule.
+                          </span>
+                          <button
+                            onClick={() => setCompleteOpen(null)}
+                            style={{
+                              border: `1px solid ${BRAND.line}`,
+                              background: "#fff",
+                              color: BRAND.sub,
+                              borderRadius: 6,
+                              padding: "3px 12px",
+                              fontSize: 13,
+                              cursor: "pointer",
+                              fontFamily: "inherit",
+                            }}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            disabled={completing}
+                            onClick={() => completeJob(row.jobId)}
+                            style={{
+                              border: `1px solid ${BRAND.green}`,
+                              background: BRAND.green,
+                              color: "#fff",
+                              borderRadius: 6,
+                              padding: "3px 12px",
+                              fontSize: 13,
+                              cursor: "pointer",
+                              fontFamily: "inherit",
+                              opacity: completing ? 0.6 : 1,
+                            }}
+                          >
+                            {completing ? "Marking…" : "Mark complete"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                   </Fragment>
                 );
               })}
@@ -640,8 +776,68 @@ export default function BoardPage() {
           </table>
         </div>
       )}
+
+      <h2 className="no-print" style={{ fontSize: 15, fontWeight: 600, margin: "24px 0 8px" }}>
+        Completed
+      </h2>
+      {completedRows.length === 0 ? (
+        <p className="no-print" style={{ fontSize: 13, color: BRAND.sub }}>
+          Nothing marked complete yet.
+        </p>
+      ) : (
+        <div
+          className="no-print"
+          style={{ overflowX: "auto", background: BRAND.card, border: `1px solid ${BRAND.line}`, borderRadius: 10 }}
+        >
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead>
+              <tr>
+                <th style={th}>CRM</th>
+                <th style={th}>Job name</th>
+                <th style={th}>Completed</th>
+                <th style={th}>By</th>
+                <th style={th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {completedRows.map((row) => (
+                <tr key={row.jobId}>
+                  <td style={td}>{row.jobId}</td>
+                  <td style={td}>{row.project || row.client || "—"}</td>
+                  <td style={td}>{fmtStamp(row.schedule.completedAt)}</td>
+                  <td style={{ ...td, color: BRAND.sub }}>{row.schedule.completedBy || "—"}</td>
+                  <td style={td}>
+                    <button
+                      onClick={() => reopenJob(row.jobId)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: BRAND.blue,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        fontSize: 12,
+                        padding: 0,
+                      }}
+                    >
+                      Reopen
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </main>
   );
+}
+
+function fmtStamp(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? "—"
+    : d.toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 function materialSummary(row) {

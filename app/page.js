@@ -154,6 +154,7 @@ export default function Page() {
   const sheetCrms = new Set(sheetJobs.map((j) => String(j.crm).trim().toLowerCase()));
   const boardJobs = handovers
     .filter((h) => h.schedule?.committedDate)
+    .filter((h) => !h.schedule?.completedAt)
     .filter((h) => !sheetCrms.has(String(h.jobId).trim().toLowerCase()))
     .map((h) => {
       const committed = h.schedule.committedDate || null;
