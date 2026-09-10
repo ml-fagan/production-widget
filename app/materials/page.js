@@ -383,10 +383,14 @@ export default function MaterialsPage() {
                         {done && firstLineOfJob.get(m.jobId) === m.id && (
                           <button
                             onClick={() => deleteJob({ jobId: m.jobId, project: m.project })}
-                            title={`Remove job ${m.jobId} and its record completely`}
+                            title={
+                              `Delete job ${m.jobId} and everything on it — all its ` +
+                              `material lines, and the job itself from the schedule ` +
+                              `board, invoicing and the client link. Not just this row.`
+                            }
                             style={deleteLinkStyle}
                           >
-                            Delete
+                            Delete job
                           </button>
                         )}
                       </td>
