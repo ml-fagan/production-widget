@@ -643,9 +643,20 @@ export default function BoardPage() {
                       />
                     </td>
                     <td style={{ ...td, color: BRAND.sub }}>
-                      {row.materialAvailableDate || (
-                        <span title="Every material is in">—</span>
-                      )}
+                      {/* An empty cell meant two opposite things: everything's
+                          in, or something's outstanding with no date on it.
+                          Duncan reads this to know whether he can start. */}
+                      {row.materialAvailableDate ||
+                        (row.materialOrder?.state === "arrived" ? (
+                          <span title="Every material is in">—</span>
+                        ) : (
+                          <span
+                            style={{ color: BRAND.red }}
+                            title="Material still outstanding, with no expected date entered"
+                          >
+                            no date
+                          </span>
+                        ))}
                     </td>
                     {PROCESS_COLUMNS.map((c) => {
                       const state = cellState(row, c);
