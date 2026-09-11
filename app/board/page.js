@@ -11,7 +11,8 @@ import {
   CELL_COLOURS,
   NEXT_STATE,
   cellState,
-  leadFor,
+  approvalFor,
+  boardLeadFor,
   computedLead,
   leadShade,
 } from "../../lib/board.js";
@@ -565,8 +566,12 @@ export default function BoardPage() {
             <tbody>
               {rows.map((row) => {
                 const s = row.schedule || {};
-                const lead = leadFor(s);
-                const auto = computedLead(s.approvalDate, s.committedDate);
+                const lead = boardLeadFor(row);
+                const approval = approvalFor(row);
+                // Shown but not saved: the date is the handover's until Duncan
+                // types one of his own.
+                const approvalFromHandover = !s.approvalDate && Boolean(approval);
+                const auto = computedLead(approval, s.committedDate);
                 return (
                   <Fragment key={row.jobId}>
                   <tr>
@@ -614,16 +619,34 @@ export default function BoardPage() {
                       />
                     </td>
                     <td style={td}>{row.product || "—"}</td>
-                    {["approvalDate", "committedDate", "actualDate"].map((field) => (
-                      <td style={td} key={field}>
-                        <input
-                          type="date"
-                          value={s[field] || ""}
-                          onChange={(e) => save(row.jobId, { [field]: e.target.value })}
-                          style={{ ...input, width: 130 }}
-                        />
-                      </td>
-                    ))}
+                    {["approvalDate", "committedDate", "actualDate"].map((field) => {
+                      const inherited =
+                        field === "approvalDate" && approvalFromHandover;
+                      return (
+                        <td style={td} key={field}>
+                          <input
+                            type="date"
+                            value={
+                              (field === "approvalDate" ? approval : s[field]) || ""
+                            }
+                            onChange={(e) => save(row.jobId, { [field]: e.target.value })}
+                            style={{
+                              ...input,
+                              width: 130,
+                              // Tinted so a date nobody on this board typed
+                              // doesn't read as one that was.
+                              background: inherited ? "#f2f0ea" : input.background,
+                              color: inherited ? BRAND.sub : input.color,
+                            }}
+                            title={
+                              inherited
+                                ? "From the handover — change it here to set your own"
+                                : undefined
+                            }
+                          />
+                        </td>
+                      );
+                    })}
                     <td style={{ ...td, textAlign: "center", background: leadShade(lead) }}>
                       <input
                         value={lead ?? ""}
