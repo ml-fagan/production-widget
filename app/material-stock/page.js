@@ -6,6 +6,7 @@ import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { PROCESS_COLUMNS, CELL_COLOURS, cellState } from "../../lib/board.js";
+import { groupByFinish } from "../../lib/materialGroups.js";
 
 // Stock — everything about where material physically is, outside the
 // ordered/delivered checklist on Material orders: what's on hand in the
@@ -160,6 +161,10 @@ const btn = {
   fontFamily: "inherit",
   whiteSpace: "nowrap",
 };
+// Smaller again, for the rows inside a finish box — several fit on a line
+// there, and the full-size button reads as the box's own action.
+const miniBtn = { ...btn, padding: "2px 8px", fontSize: 11, borderRadius: 6 };
+
 const th = {
   fontWeight: 600,
   fontSize: 11,
@@ -178,6 +183,9 @@ const td = {
 
 export default function MaterialStockPage() {
   const [entries, setEntries] = useState([]);
+  // What the handover app says is already spoken for — see loadAvailable.
+  const [available, setAvailable] = useState([]);
+  const [options, setOptions] = useState({ finishes: [], substrates: [] });
   const [jobs, setJobs] = useState([]);
   const [preOrders, setPreOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -218,6 +226,33 @@ export default function MaterialStockPage() {
     }
   }, []);
 
+  // The finish and substrate lists come from the handover app so both screens
+  // offer the same words. Empty until they load, which leaves the pickers with
+  // only "Other" — free text, which is where this started.
+  const loadOptions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/materials/options", { cache: "no-store" });
+      const json = await res.json();
+      if (json.ok) setOptions({ finishes: json.finishes || [], substrates: json.substrates || [] });
+    } catch {
+      // Leaves the pickers on free text rather than blocking an add.
+    }
+  }, []);
+
+  // Which sheets are already promised to a job. Worked out by the handover
+  // app from its own open handovers, not here: Mitch sees the same numbers
+  // beside his picking list, and two screens computing it separately is two
+  // screens that can disagree about whether a sheet is free.
+  const loadAvailable = useCallback(async () => {
+    try {
+      const res = await fetch("/api/material-stock/available", { cache: "no-store" });
+      const json = await res.json();
+      if (json.ok) setAvailable(json.materials || []);
+    } catch {
+      // Balances still show; nothing reads as reserved until the next refresh.
+    }
+  }, []);
+
   // For the job picker on "Use", for pre-order CRM matching, and for the
   // Tracking section — all three need the live job list.
   const loadJobs = useCallback(async () => {
@@ -243,15 +278,19 @@ export default function MaterialStockPage() {
 
   useEffect(() => {
     load();
+    loadAvailable();
+    loadOptions();
     loadJobs();
     loadPreOrders();
     const id = setInterval(() => {
       load();
+      loadAvailable();
       loadJobs();
       loadPreOrders();
     }, REFRESH_MS);
     const onFocus = () => {
       load();
+      loadAvailable();
       loadJobs();
       loadPreOrders();
     };
@@ -260,7 +299,7 @@ export default function MaterialStockPage() {
       clearInterval(id);
       window.removeEventListener("focus", onFocus);
     };
-  }, [load, loadJobs, loadPreOrders]);
+  }, [load, loadAvailable, loadOptions, loadJobs, loadPreOrders]);
 
   const submit = useCallback(
     async (entry) => {
@@ -460,7 +499,14 @@ export default function MaterialStockPage() {
   const balances = useMemo(() => balancesFrom(entries), [entries]);
   const q = query.trim().toLowerCase();
   const matchingBalances = q ? balances.filter((b) => (b.name || "").toLowerCase().includes(q)) : balances;
-  const available = matchingBalances.filter((b) => b.total > 0);
+  const onHand = matchingBalances.filter((b) => b.total > 0);
+  const finishGroups = useMemo(
+    () => groupByFinish(onHand, available),
+    // onHand is rebuilt each render from balances and the filter, so depend on
+    // what actually decides it rather than on the array identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [balances, q, available]
+  );
 
   const jobById = new Map(jobs.map((h) => [String(h.jobId).trim().toLowerCase(), h]));
   const activePreOrders = preOrders.filter((po) => po.state !== "cancelled" && po.state !== "moved_to_stock");
@@ -657,6 +703,7 @@ export default function MaterialStockPage() {
             {showAdd && (
               <AddStockForm
                 brand={BRAND}
+                options={options}
                 saving={saving}
                 onCancel={() => setShowAdd(false)}
                 onSubmit={async (entry) => {
@@ -666,7 +713,7 @@ export default function MaterialStockPage() {
               />
             )}
 
-            {!loading && available.length === 0 && (
+            {!loading && finishGroups.length === 0 && (
               <p style={{ fontSize: 13, color: BRAND.sub }}>
                 {balances.length === 0
                   ? "No material logged yet — leftovers from Duncan's board will show up here, or add some yourself."
@@ -674,134 +721,188 @@ export default function MaterialStockPage() {
               </p>
             )}
 
-            <div style={{ display: "grid", gap: 10 }}>
-              {available.map((b) => {
-                const key = signature(b);
-                const locations = [...new Set(b.entries.map((e) => e.location).filter(Boolean))];
-                return (
-                  <section
-                    key={key}
-                    style={{
-                      background: BRAND.card,
-                      border: `1px solid ${BRAND.line}`,
-                      borderRadius: 10,
-                      padding: "14px 16px",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                      <span style={{ fontWeight: 600, fontSize: 14 }}>{b.name || "—"}</span>
-                      {b.length && b.width ? (
-                        <span style={{ fontSize: 13, color: BRAND.sub }}>
-                          {b.length} × {b.width}
-                          {b.thickness ? ` × ${b.thickness}` : ""}
-                        </span>
-                      ) : null}
-                      <span style={{ fontSize: 14, fontWeight: 600, color: BRAND.green, marginLeft: "auto" }}>
-                        {b.total} on hand
-                      </span>
-                      <button
-                        onClick={() => setUseRow(useRow === key ? null : key)}
-                        style={{
-                          border: `1px solid ${BRAND.line}`,
-                          background: BRAND.card,
-                          color: BRAND.ink,
-                          borderRadius: 8,
-                          padding: "4px 10px",
-                          fontSize: 12,
-                          cursor: "pointer",
-                          fontFamily: "inherit",
-                        }}
-                      >
-                        − Use
-                      </button>
-                      <button
-                        onClick={() => clearMaterial(b)}
-                        disabled={saving}
-                        title="Remove this material from the register — for something entered by mistake"
-                        style={{
-                          border: `1px solid ${BRAND.line}`,
-                          background: BRAND.card,
-                          color: BRAND.sub,
-                          borderRadius: 8,
-                          padding: "4px 10px",
-                          fontSize: 12,
-                          cursor: "pointer",
-                          fontFamily: "inherit",
-                          opacity: saving ? 0.6 : 1,
-                        }}
-                      >
-                        Clear
-                      </button>
-                    </div>
-                    {locations.length > 0 && (
-                      <div style={{ fontSize: 12, color: BRAND.sub, marginTop: 4 }}>
-                        Where: {locations.join(", ")}
-                      </div>
-                    )}
-
-                    {useRow === key && (
-                      <UseStockForm
-                        brand={BRAND}
-                        max={b.total}
-                        jobs={jobs}
-                        saving={saving}
-                        onCancel={() => setUseRow(null)}
-                        onSubmit={async (patch) => {
-                          const ok = await submit({
-                            name: b.name,
-                            length: b.length,
-                            width: b.width,
-                            thickness: b.thickness,
-                            quantity: -Math.abs(patch.quantity),
-                            jobId: patch.jobId,
-                            project: patch.project,
-                            note: patch.note,
-                          });
-                          if (ok) setUseRow(null);
-                        }}
-                      />
-                    )}
-
-                    <button
-                      onClick={() => setExpanded((p) => ({ ...p, [key]: !p[key] }))}
+            {/* One box per finish, several across. Everything under a finish —
+                every substrate, every thickness — lives in its box and scrolls
+                there, so the page stays the size of the number of finishes we
+                hold rather than the number of sizes. */}
+            <div
+              style={{
+                display: "grid",
+                gap: 12,
+                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                alignItems: "start",
+              }}
+            >
+              {finishGroups.map((group) => (
+                <section
+                  key={group.finish}
+                  style={{
+                    background: BRAND.card,
+                    border: `1px solid ${BRAND.line}`,
+                    borderRadius: 10,
+                    padding: "12px 14px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>{group.finish}</span>
+                    <span
                       style={{
-                        marginTop: 8,
-                        background: "none",
-                        border: "none",
-                        color: BRAND.blue,
-                        fontSize: 12,
-                        cursor: "pointer",
-                        padding: 0,
-                        fontFamily: "inherit",
+                        marginLeft: "auto",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: group.free > 0 ? BRAND.green : BRAND.sub,
                       }}
                     >
-                      {expanded[key] ? "Hide history" : `History (${b.entries.length})`}
-                    </button>
+                      {group.free} free
+                    </span>
+                  </div>
+                  {/* Only worth a line when some of it is spoken for. */}
+                  {group.reserved > 0 && (
+                    <div style={{ fontSize: 12, color: BRAND.red, marginTop: 2 }}>
+                      {group.onHand} on hand · {group.reserved} reserved
+                    </div>
+                  )}
 
-                    {expanded[key] && (
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginTop: 8 }}>
-                        <tbody>
-                          {b.entries.map((e) => (
-                            <tr key={e.id} style={{ borderTop: `1px solid ${BRAND.line}` }}>
-                              <td style={{ padding: "4px 8px 4px 0", color: e.quantity < 0 ? BRAND.red : BRAND.green, fontWeight: 500 }}>
-                                {e.quantity > 0 ? `+${e.quantity}` : e.quantity}
-                              </td>
-                              <td style={{ padding: "4px 8px", color: BRAND.sub }}>
-                                {e.source === "leftover" ? "Leftover" : e.source === "preorder" ? "Pre-order" : "Manual"}
-                                {e.jobId ? ` · ${e.jobId}${e.project ? ` (${e.project})` : ""}` : ""}
-                              </td>
-                              <td style={{ padding: "4px 8px", color: BRAND.sub }}>{e.note}</td>
-                              <td style={{ padding: "4px 0", color: BRAND.sub, textAlign: "right", whiteSpace: "nowrap" }}>
-                                {e.loggedBy} · {fmtStamp(e.loggedAt)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </section>
-                );
-              })}
+                  <div style={{ maxHeight: 300, overflowY: "auto", marginTop: 8 }}>
+                    {group.rows.map((b) => {
+                      const key = signature(b);
+                      return (
+                        <div
+                          key={key}
+                          style={{
+                            borderTop: `1px solid ${BRAND.line}`,
+                            paddingTop: 8,
+                            marginTop: 8,
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                            <span style={{ fontSize: 13 }}>{b.substrate || "—"}</span>
+                            {b.thickness ? (
+                              <span style={{ fontSize: 13, color: BRAND.sub }}>
+                                {b.thickness}mm
+                              </span>
+                            ) : null}
+                            <span
+                              style={{
+                                marginLeft: "auto",
+                                fontSize: 13,
+                                fontWeight: 600,
+                                color: b.free > 0 ? BRAND.green : BRAND.sub,
+                              }}
+                            >
+                              {b.free}
+                            </span>
+                          </div>
+                          {b.length && b.width ? (
+                            <div style={{ fontSize: 12, color: BRAND.sub }}>
+                              {b.length} × {b.width}
+                              {b.location ? ` · ${b.location}` : ""}
+                            </div>
+                          ) : b.location ? (
+                            <div style={{ fontSize: 12, color: BRAND.sub }}>{b.location}</div>
+                          ) : null}
+
+                          {/* The whole point of the colour: these sheets are on
+                              the floor but already belong to a job, and the job
+                              number is what makes that actionable. */}
+                          {b.reserved > 0 && (
+                            <div style={{ fontSize: 12, color: BRAND.red, fontWeight: 500 }}>
+                              {b.reserved} reserved
+                              {b.reservedBy.length ? ` · ${b.reservedBy.join(", ")}` : ""}
+                            </div>
+                          )}
+
+                          <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
+                            <button onClick={() => setUseRow(useRow === key ? null : key)} style={miniBtn}>
+                              − Use
+                            </button>
+                            <button
+                              onClick={() => clearMaterial(b)}
+                              disabled={saving}
+                              title="Remove this material from the register — for something entered by mistake"
+                              style={{ ...miniBtn, color: BRAND.sub, opacity: saving ? 0.6 : 1 }}
+                            >
+                              Clear
+                            </button>
+                            <button
+                              onClick={() => setExpanded((p) => ({ ...p, [key]: !p[key] }))}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: BRAND.blue,
+                                fontSize: 12,
+                                cursor: "pointer",
+                                padding: 0,
+                                fontFamily: "inherit",
+                              }}
+                            >
+                              {expanded[key] ? "Hide" : `History (${b.entries.length})`}
+                            </button>
+                          </div>
+
+                          {useRow === key && (
+                            <UseStockForm
+                              brand={BRAND}
+                              max={b.total}
+                              jobs={jobs}
+                              saving={saving}
+                              onCancel={() => setUseRow(null)}
+                              onSubmit={async (patch) => {
+                                const ok = await submit({
+                                  name: b.name,
+                                  length: b.length,
+                                  width: b.width,
+                                  thickness: b.thickness,
+                                  quantity: -Math.abs(patch.quantity),
+                                  jobId: patch.jobId,
+                                  project: patch.project,
+                                  note: patch.note,
+                                });
+                                if (ok) setUseRow(null);
+                              }}
+                            />
+                          )}
+
+                          {expanded[key] && (
+                            <div style={{ marginTop: 6 }}>
+                              {b.entries.map((e) => (
+                                <div
+                                  key={e.id}
+                                  style={{
+                                    fontSize: 11,
+                                    color: BRAND.sub,
+                                    borderTop: `1px solid ${BRAND.line}`,
+                                    padding: "3px 0",
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      color: e.quantity < 0 ? BRAND.red : BRAND.green,
+                                      fontWeight: 500,
+                                    }}
+                                  >
+                                    {e.quantity > 0 ? `+${e.quantity}` : e.quantity}
+                                  </span>{" "}
+                                  {e.source === "leftover"
+                                    ? "Leftover"
+                                    : e.source === "preorder"
+                                      ? "Pre-order"
+                                      : "Manual"}
+                                  {e.jobId ? ` · ${e.jobId}` : ""}
+                                  {e.note ? ` · ${e.note}` : ""}
+                                  <div>
+                                    {e.loggedBy} · {fmtStamp(e.loggedAt)}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
             </div>
           </>
         )}
@@ -1185,8 +1286,77 @@ function MaterialTracking({ jobs, trackBy, stockEntries }) {
   );
 }
 
-function AddStockForm({ brand, onSubmit, onCancel, saving }) {
-  const [name, setName] = useState("");
+/** "Smartlook Blackbutt" + "FR MDF" → "Smartlook Blackbutt on FR MDF". */
+function materialNameOf(finish, substrate) {
+  return [finish.trim(), substrate.trim()].filter(Boolean).join(" on ");
+}
+
+/**
+ * A dropdown of what we sell, with "Other…" for what we don't.
+ *
+ * Same shape as the handover's picker, and for the same reason: the list is
+ * what keeps the names identical across the two apps, and the escape hatch is
+ * what stops a one-off finish from being forced into the nearest wrong one.
+ */
+function PickOne({ value, onChange, options, label, style }) {
+  const inList = options.includes(value);
+  const [custom, setCustom] = useState(Boolean(value) && !inList);
+
+  if (custom) {
+    return (
+      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+        <input
+          style={style}
+          value={value}
+          placeholder={label}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <button
+          type="button"
+          title={`Back to the ${label.toLowerCase()} list`}
+          onClick={() => {
+            setCustom(false);
+            onChange("");
+          }}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#6b6862" }}
+        >
+          ↩
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <select
+      style={style}
+      value={value}
+      onChange={(e) => {
+        if (e.target.value === "__other__") {
+          setCustom(true);
+          onChange("");
+          return;
+        }
+        onChange(e.target.value);
+      }}
+    >
+      <option value="">—</option>
+      {options.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+      <option value="__other__">Other…</option>
+    </select>
+  );
+}
+
+function AddStockForm({ brand, onSubmit, onCancel, saving, options }) {
+  // Two halves rather than one free-text name, the same as the handover's
+  // picking list. If Alice types "Tas Oak" while Mitch picks "Smartlook
+  // Tasmanian Oak", the register holds material his job can't find.
+  const [finish, setFinish] = useState("");
+  const [substrate, setSubstrate] = useState("");
+  const name = materialNameOf(finish, substrate);
   const [length, setLength] = useState("");
   const [width, setWidth] = useState("");
   const [thickness, setThickness] = useState("");
@@ -1214,10 +1384,26 @@ function AddStockForm({ brand, onSubmit, onCancel, saving }) {
         marginBottom: 16,
       }}
     >
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px 90px 80px", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px 90px 90px 80px", gap: 8, marginBottom: 8 }}>
         <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>Material</label>
-          <input style={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Blackbutt NTV" />
+          <label style={{ fontSize: 11, color: brand.sub }}>Finish</label>
+          <PickOne
+            style={input}
+            value={finish}
+            onChange={setFinish}
+            options={options.finishes}
+            label="Finish"
+          />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, color: brand.sub }}>Substrate</label>
+          <PickOne
+            style={input}
+            value={substrate}
+            onChange={setSubstrate}
+            options={options.substrates}
+            label="Substrate"
+          />
         </div>
         <div>
           <label style={{ fontSize: 11, color: brand.sub }}>Length</label>
