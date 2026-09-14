@@ -6,6 +6,7 @@ import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
+import { JobStateBadge } from "../../lib/jobState.js";
 
 // Invoicing board.
 //
@@ -15,6 +16,11 @@ import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
 //
 // Read-only on the figure itself: that's Mitch's, and if it's wrong the fix is
 // on the handover, not here.
+//
+// To charge is ordered by whether the work is actually finished. A job still
+// on the saw and a job sitting on the despatch dock are both "not charged
+// yet", but only one of them is hers to act on, and the list used to read the
+// same either way.
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -165,7 +171,20 @@ export default function InvoicingPage() {
     to_charge: matching.filter((h) => stateOf(h) === "to_charge").length,
     charged: matching.filter((h) => stateOf(h) === "charged").length,
   };
-  const jobs = matching.filter((h) => stateOf(h) === view);
+  const jobs = matching
+    .filter((h) => stateOf(h) === view)
+    // Out the door and uncharged first: that's the work waiting on her.
+    // Within each group, oldest despatch first — the longest unbilled.
+    .sort((a, b) => {
+      const ready = (h) => (h.state === "despatched" ? 0 : 1);
+      if (ready(a) !== ready(b)) return ready(a) - ready(b);
+      return String(a.schedule?.completedAt || "").localeCompare(
+        String(b.schedule?.completedAt || "")
+      );
+    });
+  // The nudge: finished work nobody has invoiced. Not "everything unbilled",
+  // which includes jobs that haven't been made yet and is just noise.
+  const readyToCharge = matching.filter((h) => h.state === "despatched").length;
   // No billable line at all, or every billable line still has no amount.
   const missingFigure = jobs.filter((h) => {
     const lines = h.invoiceLines ?? [];
@@ -212,6 +231,14 @@ export default function InvoicingPage() {
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
               {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
+              {view === "to_charge" && readyToCharge > 0 && (
+                <>
+                  {" · "}
+                  <strong style={{ color: BRAND.amber }}>
+                    {readyToCharge} despatched and waiting
+                  </strong>
+                </>
+              )}
               {missingFigure > 0 &&
                 view === "to_charge" &&
                 ` · ${missingFigure} with no figure entered yet`}
@@ -228,7 +255,7 @@ export default function InvoicingPage() {
           </div>
         </header>
 
-        <Tabs current="invoicing" counts={{ invoicing: counts.to_charge }} />
+        <Tabs current="invoicing" counts={{ invoicing: readyToCharge }} />
 
         <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
           {VIEWS.map((v) => (
@@ -349,6 +376,16 @@ export default function InvoicingPage() {
                   {h.client && h.project && (
                     <span style={{ fontSize: 12, color: BRAND.sub }}>{h.client}</span>
                   )}
+                  {/* Where the job actually is. "Not charged yet" says nothing
+                      about whether it's been made — this does. */}
+                  <JobStateBadge
+                    state={h.state}
+                    title={
+                      h.state === "despatched"
+                        ? "Out the door and waiting on an invoice"
+                        : "Where this job has got to"
+                    }
+                  />
 
                   <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
                     {invoice.state === "to_charge" ? (

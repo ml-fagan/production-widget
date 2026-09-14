@@ -449,7 +449,12 @@ export default function BoardPage() {
       <div className="no-print">
         <Tabs
           current="board"
-          counts={{ materials: rows.filter((r) => r.materialOrder?.state !== "arrived").length }}
+          counts={{
+            materials: rows.filter((r) => r.materialOrder?.state !== "arrived").length,
+            // Out the door and not charged. Shown on every tab strip so it
+            // reaches Veronica wherever she happens to be.
+            invoicing: mergedRows.filter((r) => r.state === "despatched").length,
+          }}
         />
       </div>
 
@@ -568,6 +573,14 @@ export default function BoardPage() {
                 const s = row.schedule || {};
                 const lead = boardLeadFor(row);
                 const approval = approvalFor(row);
+                // A job whose last material lands after the date it's committed
+                // to is a miss nobody is currently told about — both numbers
+                // are already on the row, they were just never compared.
+                const late = Boolean(
+                  row.materialAvailableDate &&
+                    s.committedDate &&
+                    row.materialAvailableDate > s.committedDate
+                );
                 // Shown but not saved: the date is the handover's until Duncan
                 // types one of his own.
                 const approvalFromHandover = !s.approvalDate && Boolean(approval);
@@ -665,21 +678,32 @@ export default function BoardPage() {
                         }
                       />
                     </td>
-                    <td style={{ ...td, color: BRAND.sub }}>
+                    <td style={{ ...td, color: late ? BRAND.red : BRAND.sub }}>
                       {/* An empty cell meant two opposite things: everything's
                           in, or something's outstanding with no date on it.
                           Duncan reads this to know whether he can start. */}
-                      {row.materialAvailableDate ||
-                        (row.materialOrder?.state === "arrived" ? (
-                          <span title="Every material is in">—</span>
-                        ) : (
-                          <span
-                            style={{ color: BRAND.red }}
-                            title="Material still outstanding, with no expected date entered"
-                          >
-                            no date
-                          </span>
-                        ))}
+                      {row.materialAvailableDate ? (
+                        <span
+                          style={late ? { color: BRAND.red, fontWeight: 600 } : undefined}
+                          title={
+                            late
+                              ? `Material lands ${row.materialAvailableDate}, after the committed date ${s.committedDate}. The job cannot start on time.`
+                              : "When the last outstanding material is expected"
+                          }
+                        >
+                          {row.materialAvailableDate}
+                          {late ? " ⚠" : ""}
+                        </span>
+                      ) : row.materialOrder?.state === "arrived" ? (
+                        <span title="Every material is in">—</span>
+                      ) : (
+                        <span
+                          style={{ color: BRAND.red }}
+                          title="Material still outstanding, with no expected date entered"
+                        >
+                          no date
+                        </span>
+                      )}
                     </td>
                     {PROCESS_COLUMNS.map((c) => {
                       const state = cellState(row, c);
@@ -762,7 +786,7 @@ export default function BoardPage() {
                           marginLeft: 6,
                         }}
                       >
-                        Mark complete
+                        Mark despatched
                       </button>
                     </td>
                   </tr>
@@ -818,7 +842,7 @@ export default function BoardPage() {
                               opacity: completing ? 0.6 : 1,
                             }}
                           >
-                            {completing ? "Marking…" : "Mark complete"}
+                            {completing ? "Marking…" : "Mark despatched"}
                           </button>
                         </div>
                       </td>
@@ -876,13 +900,26 @@ export default function BoardPage() {
                     >
                       Reopen
                     </button>
-                    <button
-                      onClick={() => deleteJob(row)}
-                      title="Remove this job and its record completely"
-                      style={{ ...deleteLinkStyle, marginLeft: 12 }}
-                    >
-                      Delete
-                    </button>
+                    {/* Despatch alone isn't enough: deleting a job Veronica
+                        hasn't charged takes the basis for the invoice with it.
+                        The handover app decides — see isDeletable — so the
+                        button and the endpoint can't disagree. */}
+                    {row.deletable ? (
+                      <button
+                        onClick={() => deleteJob(row)}
+                        title="Remove this job and its record completely"
+                        style={{ ...deleteLinkStyle, marginLeft: 12 }}
+                      >
+                        Delete
+                      </button>
+                    ) : (
+                      <span
+                        title="Not charged yet — Veronica still needs this record"
+                        style={{ marginLeft: 12, fontSize: 12, color: BRAND.sub }}
+                      >
+                        not charged
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}

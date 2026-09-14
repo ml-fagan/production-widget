@@ -236,7 +236,15 @@ export default function MaterialsPage() {
           </div>
         </header>
 
-        <Tabs current="materials" counts={{ materials: counts.outstanding }} />
+        <Tabs
+          current="materials"
+          counts={{
+            materials: counts.outstanding,
+            // Shown on every strip so finished-but-unbilled work reaches
+            // Veronica wherever she is, rather than only once she looks.
+            invoicing: all.filter((h) => h.state === "despatched").length,
+          }}
+        />
 
         <div style={{ display: "flex", gap: 18, marginBottom: 16, borderBottom: `1px solid ${BRAND.line}` }}>
           {VIEWS.map((v) => (
