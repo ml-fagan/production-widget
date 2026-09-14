@@ -887,7 +887,9 @@ export default function MaterialStockPage() {
                                     ? "Leftover"
                                     : e.source === "preorder"
                                       ? "Pre-order"
-                                      : "Manual"}
+                                      : e.source === "scheduled"
+                                        ? "Scheduled"
+                                        : "Manual"}
                                   {e.jobId ? ` · ${e.jobId}` : ""}
                                   {e.note ? ` · ${e.note}` : ""}
                                   <div>
