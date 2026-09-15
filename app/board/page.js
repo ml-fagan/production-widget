@@ -82,6 +82,9 @@ export default function BoardPage() {
   const [stockEntries, setStockEntries] = useState([]);
   // Mark-complete: which job's inline confirm row is open, and whether the
   // request is in flight.
+  // Which job's material list is open. One at a time: it's a look-up, not
+  // something to leave spread across the board.
+  const [materialsOpen, setMaterialsOpen] = useState(null);
   const [completeOpen, setCompleteOpen] = useState(null);
   const [completing, setCompleting] = useState(false);
 
@@ -762,14 +765,45 @@ export default function BoardPage() {
                         style={{ ...input, width: 160 }}
                       />
                     </td>
-                    <td style={{ ...td, whiteSpace: "normal", minWidth: 260, color: BRAND.sub }}>
-                      {materialSummary(row)}
-                      {stockForJob(row.jobId).map((s, i) => (
-                        <div key={i} style={{ color: BRAND.red, fontWeight: 500, marginTop: 2 }}>
-                          From stock: {s.qty} × {s.name}
-                          {s.size ? ` (${s.size})` : ""}
-                        </div>
-                      ))}
+                    <td style={{ ...td, minWidth: 170 }}>
+                      {(() => {
+                        const status = materialStatus(row);
+                        const colour =
+                          status.tone === "green"
+                            ? BRAND.green
+                            : status.tone === "red"
+                              ? BRAND.red
+                              : status.tone === "amber"
+                                ? "#a86b12"
+                                : BRAND.sub;
+                        if (status.lines.length === 0) {
+                          return <span style={{ color: BRAND.sub }}>—</span>;
+                        }
+                        return (
+                          <button
+                            onClick={() =>
+                              setMaterialsOpen(materialsOpen === row.jobId ? null : row.jobId)
+                            }
+                            title="What this job is waiting on — click for the list"
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: 0,
+                              font: "inherit",
+                              fontSize: 12,
+                              cursor: "pointer",
+                              color: colour,
+                              fontWeight: 500,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {status.label}{" "}
+                            <span style={{ color: BRAND.sub }}>
+                              {materialsOpen === row.jobId ? "▾" : "▸"}
+                            </span>
+                          </button>
+                        );
+                      })()}
                     </td>
                     <td style={{ ...td, whiteSpace: "nowrap" }}>
                       <button
@@ -805,6 +839,75 @@ export default function BoardPage() {
                       </button>
                     </td>
                   </tr>
+                  {/* The full picture, in its own row so opening it can't
+                      change the height of the grid above. */}
+                  {materialsOpen === row.jobId && (
+                    <tr key={`${row.jobId}-materials`}>
+                      <td
+                        colSpan={totalCols}
+                        style={{
+                          ...td,
+                          whiteSpace: "normal",
+                          background: "#faf9f6",
+                          padding: "10px 14px",
+                        }}
+                      >
+                        <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
+                          <tbody>
+                            {materialStatus(row).lines.map((m) => {
+                              const state = m.state || "to_order";
+                              const done = state === "completed";
+                              return (
+                                <tr key={m.id}>
+                                  <td style={{ padding: "2px 14px 2px 0", textAlign: "right" }}>
+                                    {m.quantity || "—"}
+                                  </td>
+                                  <td style={{ padding: "2px 14px 2px 0" }}>{m.name || "—"}</td>
+                                  <td style={{ padding: "2px 14px 2px 0", color: BRAND.sub }}>
+                                    {m.length && m.width
+                                      ? `${m.length} × ${m.width}${m.thickness ? ` × ${m.thickness}` : ""}`
+                                      : ""}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "2px 0",
+                                      color: done
+                                        ? BRAND.green
+                                        : m.fromStock
+                                          ? BRAND.red
+                                          : "#a86b12",
+                                    }}
+                                  >
+                                    {done
+                                      ? `✓ in${m.fromStock ? " (stock)" : ""}`
+                                      : m.fromStock
+                                        ? "on the shelf — fetch and confirm"
+                                        : state === "part_received"
+                                          ? `part received${m.expectedDate ? `, rest ${m.expectedDate}` : ""}`
+                                          : state === "ordered"
+                                            ? `ordered${m.expectedDate ? `, due ${m.expectedDate}` : ""}`
+                                            : "to order"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+
+                        {/* Already drawn off the shelf against this job, so the
+                            floor knows to go and get it rather than wait. */}
+                        {stockForJob(row.jobId).length > 0 && (
+                          <div style={{ marginTop: 8, color: BRAND.red, fontSize: 12 }}>
+                            Drawn from stock:{" "}
+                            {stockForJob(row.jobId)
+                              .map((e) => `${e.qty} × ${e.name}${e.size ? ` (${e.size})` : ""}`)
+                              .join(" · ")}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+
                   {leftoverOpen === row.jobId && (
                     <tr key={`${row.jobId}-leftover`}>
                       <td colSpan={totalCols} style={{ ...td, background: BRAND.bg, padding: "10px 12px" }}>
@@ -981,18 +1084,35 @@ function fmtStamp(iso) {
     : d.toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-function materialSummary(row) {
+/**
+ * The Material column in one line.
+ *
+ * It used to list every material in full, and a job with four of them made a
+ * cell four lines deep while its neighbours were one — which pulled the whole
+ * grid out of line and made the process cells, the thing the board is actually
+ * for, impossible to read across. Duncan needs one fact here: is he waiting on
+ * anything. The detail is a click away.
+ */
+function materialStatus(row) {
   const lines = (row.materials || []).filter((m) => m.name || m.quantity);
-  if (lines.length === 0) return "—";
-  return lines
-    .map((m) => {
-      const label = [m.quantity, m.name].filter(Boolean).join(" — ");
-      if (m.state === "completed") return `${label} ✓${m.fromStock ? " stock" : ""}`;
-      if (m.fromStock) return `${label} (stock — to confirm)`;
-      if (m.state === "ordered") return `${label} (ordered${m.expectedDate ? ` ${m.expectedDate}` : ""})`;
-      return `${label} (to order)`;
-    })
-    .join(" · ");
+  if (lines.length === 0) return { label: "—", tone: "sub", lines };
+
+  const out = lines.filter((m) => (m.state || "to_order") !== "completed");
+  const fromStock = lines.filter((m) => m.fromStock && (m.state || "to_order") !== "completed");
+
+  if (out.length === 0) {
+    return { label: `✓ all ${lines.length} in`, tone: "green", lines };
+  }
+
+  // Stock is called out because it's the one kind Duncan can act on himself:
+  // it's on a rack now, it just has to be fetched and confirmed.
+  const bits = [`${out.length} of ${lines.length} out`];
+  if (fromStock.length > 0) bits.push(`${fromStock.length} from stock`);
+  return {
+    label: bits.join(" · "),
+    tone: fromStock.length > 0 ? "red" : "amber",
+    lines,
+  };
 }
 
 function Legend() {
