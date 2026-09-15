@@ -44,8 +44,30 @@ function fmtTime(iso) {
 
 // Stock skips ordering but still gets confirmed — "we have stock" at handover
 // isn't the same as someone having looked on the floor.
+//
+// The handover app works the state out the same way and sends it down, so this
+// only stands in for a row that predates the field.
 function effectiveState(m) {
   return m.state || "to_order";
+}
+
+/**
+ * How many a quantity means. "2 Rolls", "37 + 3 Spare" — every number counts,
+ * matching the rule the handover app uses, so 200 of 300 means the same thing
+ * on both screens.
+ */
+function countOf(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const found = String(value ?? "").match(/\d+(?:\.\d+)?/g);
+  return found ? found.reduce((sum, n) => sum + Number(n), 0) : 0;
+}
+
+/** "200 of 300 in · 100 to come", for a line that arrived in more than one drop. */
+function receivedLabel(m) {
+  const had = countOf(m.receivedQty);
+  const want = countOf(m.quantity);
+  if (!had) return "";
+  return want > had ? `${had} of ${want} in · ${want - had} to come` : `${had} in`;
 }
 
 function size(m) {
@@ -156,6 +178,7 @@ export default function MaterialsPage() {
       fibreCement: h.fibreCement,
     }))
   );
+  // Part received is still outstanding: some of it is on a truck somewhere.
   const isOutstandingLine = (m) => effectiveState(m) !== "completed";
   const counts = {
     outstanding: allLines.filter(isOutstandingLine).length,
@@ -374,7 +397,16 @@ export default function MaterialsPage() {
                       </td>
                       <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>{m.project || "—"}</td>
                       <td style={td}>{size(m)}</td>
-                      <td style={{ ...td, textAlign: "right" }}>{m.quantity || "—"}</td>
+                      <td style={{ ...td, textAlign: "right", whiteSpace: "normal" }}>
+                        {m.quantity || "—"}
+                        {/* The short version of a part delivery, where the eye
+                            lands rather than out in the status column. */}
+                        {receivedLabel(m) && !done && (
+                          <div style={{ fontSize: 11, color: BRAND.amber }}>
+                            {receivedLabel(m)}
+                          </div>
+                        )}
+                      </td>
                       <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>{m.name || "—"}</td>
                       <td style={{ ...td, color: BRAND.sub }}>{m.fromStock ? "Stock" : m.supplier || "—"}</td>
                       <td style={td}>
@@ -446,8 +478,42 @@ export default function MaterialsPage() {
                                 Ordered
                               </button>
                             )}
-                            {state === "ordered" && (
+                            {(state === "ordered" || state === "part_received") && (
                               <>
+                                {/* What's landed so far. A big order rarely
+                                    arrives at once, and a line that can only be
+                                    ordered or delivered can't say 200 of 300 —
+                                    which is the thing Duncan needs to know. */}
+                                <span
+                                  style={{ display: "inline-flex", gap: 4, alignItems: "center" }}
+                                >
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    placeholder="0"
+                                    defaultValue={m.receivedQty ?? ""}
+                                    onBlur={(e) => {
+                                      const next = e.target.value.trim();
+                                      if (next !== String(m.receivedQty ?? "")) {
+                                        setLine(m.jobId, m.id, { receivedQty: next });
+                                      }
+                                    }}
+                                    disabled={busy}
+                                    title="How many have landed. Set the Expected date to when the rest is due."
+                                    aria-label={`Received of ${m.quantity}`}
+                                    style={{
+                                      width: 54,
+                                      border: `1px solid ${BRAND.line}`,
+                                      borderRadius: 6,
+                                      padding: "2px 6px",
+                                      fontSize: 12,
+                                      fontFamily: "inherit",
+                                    }}
+                                  />
+                                  <span style={{ fontSize: 11, color: BRAND.sub }}>
+                                    of {m.quantity || "—"}
+                                  </span>
+                                </span>
                                 <button
                                   onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
                                   disabled={busy}
@@ -458,11 +524,12 @@ export default function MaterialsPage() {
                                     color: "#fff",
                                     opacity: busy ? 0.6 : 1,
                                   }}
+                                  title="All in — closes the line whatever the count says"
                                 >
-                                  Delivered
+                                  All in
                                 </button>
                                 <button
-                                  onClick={() => setLine(m.jobId, m.id, { state: "to_order" })}
+                                  onClick={() => setLine(m.jobId, m.id, { state: "to_order", receivedQty: "" })}
                                   disabled={busy}
                                   style={{
                                     ...btn,
