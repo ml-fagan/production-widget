@@ -43,6 +43,21 @@ const BRAND = {
   red: "#a3312c",
 };
 
+/**
+ * Waste read at a glance. The bands are deliberately wide — this is a figure
+ * to notice across a lot of jobs, not a target to hit on any one of them, and
+ * a nest with awkward panel sizes will sit high however well it was run.
+ *
+ * Negative isn't a good result but a disagreement: more was charged and handed
+ * back than was bought for the job, so it reads as a problem.
+ */
+function wasteColour(percent) {
+  if (percent < 0) return BRAND.red;
+  if (percent <= 15) return BRAND.green;
+  if (percent <= 25) return "#a86b12";
+  return BRAND.red;
+}
+
 const REFRESH_MS = 15 * 60 * 1000;
 const HANDOVER_APP = "https://decorhandover.lyphex.com";
 
@@ -885,6 +900,33 @@ export default function BoardPage() {
                   <td style={td}>{row.project || row.client || "—"}</td>
                   <td style={td}>{fmtStamp(row.schedule.completedAt)}</td>
                   <td style={{ ...td, color: BRAND.sub }}>{row.schedule.completedBy || "—"}</td>
+                  {/* What the saw ate on this job: bought, less what was
+                      billed as area, less what went back on the shelf. Only
+                      shown once the job is off the floor, which is when the
+                      leftovers have been logged and the figure finally means
+                      something. */}
+                  <td style={td}>
+                    {row.wastage ? (
+                      <span
+                        style={{ color: wasteColour(row.wastage.percent), fontWeight: 500 }}
+                        title={[
+                          `${row.wastage.orderedM2} m² ordered`,
+                          `${row.wastage.chargedM2} m² charged`,
+                          `${row.wastage.leftoverM2} m² back to stock`,
+                          `${row.wastage.wasteM2} m² unaccounted`,
+                        ].join(" · ")}
+                      >
+                        {row.wastage.percent}%
+                      </span>
+                    ) : (
+                      <span
+                        style={{ color: BRAND.sub }}
+                        title="Only worked out for a job billed by area"
+                      >
+                        —
+                      </span>
+                    )}
+                  </td>
                   <td style={td}>
                     <button
                       onClick={() => reopenJob(row.jobId)}
