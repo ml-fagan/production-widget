@@ -467,6 +467,62 @@ export default function MaterialStockPage() {
     }
   }, []);
 
+  /**
+   * The pre-order turned up.
+   *
+   * Whatever jobs have claimed off their picking lists gets marked received
+   * against those lines, and the balance becomes ordinary stock — which is
+   * where the whole delivery would have gone if nobody had claimed any of it.
+   * Alice types what actually arrived only when it isn't what was ordered.
+   */
+  const preOrderArrived = useCallback(async (po) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return;
+    }
+    const typed = window.prompt(
+      [
+        `${po.name} — how many turned up?`,
+        "",
+        po.reserved > 0
+          ? `${po.reserved} of these are claimed by ${po.reservedBy
+              .map((r) => r.jobId)
+              .join(", ")}. Those get filled first; the rest goes into stock.`
+          : "Nothing is claimed against it, so all of it goes into stock.",
+      ].join("\n"),
+      String(po.quantity ?? "")
+    );
+    if (typed === null) return;
+
+    setPending((p) => ({ ...p, [`preorder:${po.id}`]: true }));
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/pre-orders/arrive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: po.id, arrived: typed.trim(), idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Update failed");
+      // Everything moved at once, so reload rather than patching three lists
+      // and hoping they agree.
+      load();
+      loadPreOrders();
+      loadJobs();
+      if (json.short > 0) {
+        setActionError(
+          `Recorded. ${json.short} short of what jobs had claimed — those lines are still outstanding.`
+        );
+      }
+    } catch (e) {
+      setActionError(`Couldn't record that arrival. ${String(e.message || e)}`);
+    } finally {
+      setPending((p) => ({ ...p, [`preorder:${po.id}`]: false }));
+    }
+  }, [load, loadPreOrders, loadJobs]);
+
   // Genuinely erases it — for a mis-entry, not for "don't need this
   // anymore" (that's Cancel, which keeps the record).
   const deletePreOrder = useCallback(async (id) => {
@@ -1004,7 +1060,17 @@ export default function MaterialStockPage() {
                             {matched ? matched.project || matched.client || "—" : po.project || "—"}
                           </td>
                           <td style={td}>{size(po)}</td>
-                          <td style={{ ...td, textAlign: "right" }}>{po.quantity || "—"}</td>
+                          <td style={{ ...td, textAlign: "right", whiteSpace: "normal" }}>
+                            {po.quantity || "—"}
+                            {/* Claimed by a job off its picking list. Worth
+                                seeing before it lands, because it decides how
+                                much of this delivery is actually hers. */}
+                            {po.reserved > 0 && (
+                              <div style={{ fontSize: 11, color: BRAND.blue }}>
+                                {po.reserved} reserved · {po.reservedBy.map((r) => r.jobId).join(", ")}
+                              </div>
+                            )}
+                          </td>
                           <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>{po.name || "—"}</td>
                           <td style={{ ...td, color: BRAND.sub }}>{po.supplier || "—"}</td>
                           <td style={td}>
@@ -1034,8 +1100,9 @@ export default function MaterialStockPage() {
                               )}
                               {state === "ordered" && (
                                 <button
-                                  onClick={() => setPreOrder(po.id, { state: "completed" })}
+                                  onClick={() => preOrderArrived(po)}
                                   disabled={busy}
+                                  title="Fills the jobs that claimed it, then puts the balance into stock"
                                   style={{
                                     ...btn,
                                     background: BRAND.green,
@@ -1044,7 +1111,7 @@ export default function MaterialStockPage() {
                                     opacity: busy ? 0.6 : 1,
                                   }}
                                 >
-                                  Delivered
+                                  Arrived
                                 </button>
                               )}
                               {done && (
