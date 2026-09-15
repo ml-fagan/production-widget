@@ -74,7 +74,8 @@ export default function InvoicingPage() {
   const [view, setView] = useState("to_charge");
   const [user, setUser] = useState(null);
   // Whether this person may charge a job, as opposed to look at what's owed.
-  const canEdit = useCapabilities(user).invoicing;
+  const caps = useCapabilities(user);
+  const canEdit = caps.invoicing;
   const [pending, setPending] = useState({});
   const [stored, setStored] = useState({});
 
@@ -262,7 +263,9 @@ export default function InvoicingPage() {
           </div>
         </header>
 
-        <Tabs current="invoicing" counts={{ invoicing: readyToCharge }} />
+        <Tabs
+          tabs={caps.tabs}
+          current="invoicing" counts={{ invoicing: readyToCharge }} />
 
         <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
           {VIEWS.map((v) => (

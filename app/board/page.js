@@ -6,6 +6,7 @@ import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
+import { useCapabilities } from "../../lib/useCapabilities.js";
 import {
   PROCESS_COLUMNS,
   CELL_COLOURS,
@@ -71,6 +72,8 @@ export default function BoardPage() {
   // own block. Same columns, different list.
   const [stream, setStream] = useState("standard");
   const [user, setUser] = useState(null);
+  // The schedule is the one board a viewer may work; deleting a record isn't.
+  const caps = useCapabilities(user);
   // Edits applied locally the moment they're made, so typing doesn't wait on a
   // round trip. Replaced by the stored schedule once the write comes back.
   const [edits, setEdits] = useState({});
@@ -216,6 +219,10 @@ export default function BoardPage() {
         setActionError("Sign in to edit the schedule — changes are recorded against your name.");
         return;
       }
+      if (!caps.schedule) {
+        setActionError("You can see the schedule, but not change it.");
+        return;
+      }
       setEdits((e) => ({ ...e, [jobId]: { ...(e[jobId] || {}), ...patch } }));
       setActionError(null);
       try {
@@ -231,7 +238,7 @@ export default function BoardPage() {
         setActionError(`Couldn't save ${jobId}. ${String(e.message || e)}`);
       }
     },
-    []
+    [caps.schedule]
   );
 
   const cycleCell = (row, column) => {
@@ -466,6 +473,7 @@ export default function BoardPage() {
 
       <div className="no-print">
         <Tabs
+          tabs={caps.tabs}
           current="board"
           counts={{
             materials: rows.filter((r) => r.materialOrder?.state !== "arrived").length,
@@ -1049,7 +1057,7 @@ export default function BoardPage() {
                         hasn't charged takes the basis for the invoice with it.
                         The handover app decides — see isDeletable — so the
                         button and the endpoint can't disagree. */}
-                    {row.deletable ? (
+                    {row.deletable && caps.manage ? (
                       <button
                         onClick={() => deleteJob(row)}
                         title="Remove this job and its record completely"

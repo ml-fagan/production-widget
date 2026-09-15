@@ -29,7 +29,10 @@ const TABS = [
   },
 ];
 
-export default function Tabs({ current, counts = {} }) {
+export default function Tabs({ current, counts = {}, tabs = null }) {
+  // A board this person can't use is a board in the way. The floor gets the
+  // two schedules; everyone else gets the lot.
+  const visible = tabs ? TABS.filter((t) => tabs.includes(t.key) || t.external) : TABS;
   return (
     <nav
       style={{
@@ -40,7 +43,7 @@ export default function Tabs({ current, counts = {} }) {
         flexWrap: "wrap",
       }}
     >
-      {TABS.map((tab) => {
+      {visible.map((tab) => {
         const active = tab.key === current;
         const count = counts[tab.key];
         return (

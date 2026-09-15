@@ -85,7 +85,8 @@ export default function MaterialsPage() {
   const [view, setView] = useState("outstanding");
   const [user, setUser] = useState(null);
   // Whether this person may change anything here, as opposed to read it.
-  const canEdit = useCapabilities(user).materials;
+  const caps = useCapabilities(user);
+  const canEdit = caps.materials;
   // What's been typed into a Received box but not saved yet, keyed by line.
   // The box was uncontrolled before, which meant a re-render could quietly
   // put the old number back under her cursor.
@@ -271,6 +272,7 @@ export default function MaterialsPage() {
         </header>
 
         <Tabs
+          tabs={caps.tabs}
           current="materials"
           counts={{
             materials: counts.outstanding,
