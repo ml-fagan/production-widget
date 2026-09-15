@@ -29,13 +29,13 @@ export async function POST(req) {
         Authorization: `Bearer ${secret}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        jobId: body.jobId,
-        lineId: body.lineId,
-        state: body.state,
-        expectedDate: body.expectedDate,
-        idToken: body.idToken || null,
-      }),
+      // Passed through whole rather than rebuilt field by field. Listing the
+      // fields here meant every new one had to be remembered in two places,
+      // and twice now it wasn't: first `state`, then `receivedQty`, each
+      // silently dropped in transit so the write looked fine and saved
+      // nothing. The handover app whitelists what it accepts, which is where
+      // that belongs.
+      body: JSON.stringify({ ...body, idToken: body.idToken || null }),
       cache: "no-store",
     });
     const json = await res.json().catch(() => ({

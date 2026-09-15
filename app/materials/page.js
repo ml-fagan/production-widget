@@ -86,6 +86,10 @@ export default function MaterialsPage() {
   const [user, setUser] = useState(null);
   // Whether this person may change anything here, as opposed to read it.
   const canEdit = useCapabilities(user).materials;
+  // What's been typed into a Received box but not saved yet, keyed by line.
+  // The box was uncontrolled before, which meant a re-render could quietly
+  // put the old number back under her cursor.
+  const [received, setReceived] = useState({});
   const [pending, setPending] = useState({});
   // What the server stored, adopted after each write so what's on screen is
   // its answer rather than our guess.
@@ -491,36 +495,83 @@ export default function MaterialsPage() {
                                     arrives at once, and a line that can only be
                                     ordered or delivered can't say 200 of 300 —
                                     which is the thing Duncan needs to know. */}
-                                <span
-                                  style={{ display: "inline-flex", gap: 4, alignItems: "center" }}
-                                >
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    placeholder="0"
-                                    defaultValue={m.receivedQty ?? ""}
-                                    onBlur={(e) => {
-                                      const next = e.target.value.trim();
-                                      if (next !== String(m.receivedQty ?? "")) {
-                                        setLine(m.jobId, m.id, { receivedQty: next });
-                                      }
-                                    }}
-                                    disabled={busy}
-                                    title="How many have landed. Set the Expected date to when the rest is due."
-                                    aria-label={`Received of ${m.quantity}`}
-                                    style={{
-                                      width: 54,
-                                      border: `1px solid ${BRAND.line}`,
-                                      borderRadius: 6,
-                                      padding: "2px 6px",
-                                      fontSize: 12,
-                                      fontFamily: "inherit",
-                                    }}
-                                  />
-                                  <span style={{ fontSize: 11, color: BRAND.sub }}>
-                                    of {m.quantity || "—"}
-                                  </span>
-                                </span>
+                                {(() => {
+                                  const key = `${m.jobId}:${m.id}`;
+                                  const stored = String(m.receivedQty ?? "");
+                                  const draft = received[key] ?? stored;
+                                  const changed = draft.trim() !== stored.trim();
+                                  const save = () => {
+                                    if (!changed) return;
+                                    setLine(m.jobId, m.id, { receivedQty: draft.trim() });
+                                    // Dropped so the box falls back to what
+                                    // came back from the server, rather than
+                                    // showing a draft that may not have saved.
+                                    setReceived((r) => {
+                                      const next = { ...r };
+                                      delete next[key];
+                                      return next;
+                                    });
+                                  };
+                                  return (
+                                    <span
+                                      style={{ display: "inline-flex", gap: 4, alignItems: "center" }}
+                                    >
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        placeholder="0"
+                                        value={draft}
+                                        onChange={(e) =>
+                                          setReceived((r) => ({ ...r, [key]: e.target.value }))
+                                        }
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") save();
+                                          if (e.key === "Escape") {
+                                            setReceived((r) => {
+                                              const next = { ...r };
+                                              delete next[key];
+                                              return next;
+                                            });
+                                          }
+                                        }}
+                                        onBlur={save}
+                                        disabled={busy}
+                                        title="How many have landed. Set the Expected date to when the rest is due."
+                                        aria-label={`Received of ${m.quantity}`}
+                                        style={{
+                                          width: 54,
+                                          border: `1px solid ${changed ? BRAND.amber : BRAND.line}`,
+                                          borderRadius: 6,
+                                          padding: "2px 6px",
+                                          fontSize: 12,
+                                          fontFamily: "inherit",
+                                        }}
+                                      />
+                                      <span style={{ fontSize: 11, color: BRAND.sub }}>
+                                        of {m.quantity || "—"}
+                                      </span>
+                                      {/* An explicit way to commit it. Relying
+                                          on the blur alone meant typing a
+                                          number and navigating away lost it,
+                                          with nothing on screen to say so. */}
+                                      {changed && (
+                                        <button
+                                          onClick={save}
+                                          disabled={busy}
+                                          style={{
+                                            ...btn,
+                                            background: BRAND.amber,
+                                            borderColor: BRAND.amber,
+                                            color: "#fff",
+                                            opacity: busy ? 0.6 : 1,
+                                          }}
+                                        >
+                                          Save
+                                        </button>
+                                      )}
+                                    </span>
+                                  );
+                                })()}
                                 <button
                                   onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
                                   disabled={busy}

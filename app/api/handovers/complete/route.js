@@ -28,11 +28,10 @@ export async function POST(req) {
         Authorization: `Bearer ${secret}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        jobId: body.jobId,
-        completed: Boolean(body.completed),
-        idToken: body.idToken || null,
-      }),
+      // Passed through whole rather than rebuilt field by field: listing
+      // them here meant every new field had to be remembered in two places,
+      // and twice it wasn't. The handover app whitelists what it accepts.
+      body: JSON.stringify({ ...body, idToken: body.idToken || null }),
       cache: "no-store",
     });
     const json = await res.json().catch(() => ({
