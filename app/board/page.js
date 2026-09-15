@@ -219,8 +219,15 @@ export default function BoardPage() {
         setActionError("Sign in to edit the schedule — changes are recorded against your name.");
         return;
       }
-      if (!caps.schedule) {
-        setActionError("You can see the schedule, but not change it.");
+      // The floor clicks jobs forward; the dates, priority and comment are
+      // Duncan's. Same endpoint, so the patch decides which is which.
+      const onlySteps = Object.keys(patch).every((k) => k === "processState");
+      if (!(onlySteps ? caps.processSteps : caps.schedule)) {
+        setActionError(
+          onlySteps
+            ? "You can see the schedule, but not change it."
+            : "Only a manager sets the dates — you can still click a job forward."
+        );
         return;
       }
       setEdits((e) => ({ ...e, [jobId]: { ...(e[jobId] || {}), ...patch } }));
@@ -238,7 +245,7 @@ export default function BoardPage() {
         setActionError(`Couldn't save ${jobId}. ${String(e.message || e)}`);
       }
     },
-    [caps.schedule]
+    [caps.schedule, caps.processSteps]
   );
 
   const cycleCell = (row, column) => {
