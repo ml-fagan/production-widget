@@ -91,6 +91,9 @@ export default function MaterialsPage() {
   // The box was uncontrolled before, which meant a re-render could quietly
   // put the old number back under her cursor.
   const [received, setReceived] = useState({});
+  // Same idea for the PO number: typed here, read out the back when the truck
+  // arrives, so it's the one thing tying a docket to a job.
+  const [po, setPo] = useState({});
   const [pending, setPending] = useState({});
   // What the server stored, adopted after each write so what's on screen is
   // its answer rather than our guess.
@@ -382,6 +385,7 @@ export default function MaterialsPage() {
                   <th style={{ ...th, textAlign: "right" }}>Qty</th>
                   <th style={th}>Material</th>
                   <th style={th}>Supplier</th>
+                  <th style={th}>PO</th>
                   <th style={th}>Expected</th>
                   <th style={th}>Status</th>
                 </tr>
@@ -422,6 +426,57 @@ export default function MaterialsPage() {
                       </td>
                       <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>{m.name || "—"}</td>
                       <td style={{ ...td, color: BRAND.sub }}>{m.fromStock ? "Stock" : m.supplier || "—"}</td>
+                      {/* The supplier's order number. Nothing in the job says
+                          it, so it has to be typed once — here, where the order
+                          is placed — and from then on it's what the warehouse
+                          matches a delivery docket against. Stock never has
+                          one: nothing was bought. */}
+                      <td style={td}>
+                        {m.fromStock ? (
+                          <span style={{ color: BRAND.sub }}>—</span>
+                        ) : (
+                          (() => {
+                            const key = `${m.jobId}:${m.id}`;
+                            const saved = String(m.poNumber ?? "");
+                            const draft = po[key] ?? saved;
+                            const changed = draft.trim() !== saved.trim();
+                            const clear = () =>
+                              setPo((p) => {
+                                const next = { ...p };
+                                delete next[key];
+                                return next;
+                              });
+                            const save = () => {
+                              if (!changed) return clear();
+                              setLine(m.jobId, m.id, { poNumber: draft.trim() });
+                              clear();
+                            };
+                            return (
+                              <input
+                                value={draft}
+                                onChange={(e) => setPo((p) => ({ ...p, [key]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") save();
+                                  if (e.key === "Escape") clear();
+                                }}
+                                onBlur={save}
+                                disabled={busy || !canEdit}
+                                placeholder="PO"
+                                title="Purchase order number — what the warehouse will see on the docket"
+                                aria-label={`PO number for ${m.name || m.jobId}`}
+                                style={{
+                                  width: 90,
+                                  border: `1px solid ${changed ? BRAND.amber : BRAND.line}`,
+                                  borderRadius: 6,
+                                  padding: "2px 6px",
+                                  fontSize: 12,
+                                  fontFamily: "inherit",
+                                }}
+                              />
+                            );
+                          })()
+                        )}
+                      </td>
                       <td style={td}>
                         <input
                           type="date"

@@ -7,6 +7,12 @@ const TABS = [
   { key: "schedule", label: "Production schedule", href: "/" },
   { key: "board", label: "Schedule board", href: "/board" },
   { key: "materials", label: "Material orders", href: "/materials" },
+  {
+    key: "warehouse",
+    label: "Warehouse",
+    href: "/warehouse",
+    title: "Deliveries expected — tick one off as it comes through the door",
+  },
   { key: "stock", label: "Stock", href: "/material-stock" },
   { key: "invoicing", label: "Invoicing", href: "/invoicing" },
   // A different app, but part of the same flow, so it behaves like the other
