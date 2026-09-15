@@ -5,6 +5,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
+import { useCapabilities } from "../../lib/useCapabilities.js";
 import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
 import { JobStateBadge } from "../../lib/jobState.js";
 
@@ -72,6 +73,8 @@ export default function InvoicingPage() {
   const [query, setQuery] = useState("");
   const [view, setView] = useState("to_charge");
   const [user, setUser] = useState(null);
+  // Whether this person may charge a job, as opposed to look at what's owed.
+  const canEdit = useCapabilities(user).invoicing;
   const [pending, setPending] = useState({});
   const [stored, setStored] = useState({});
 
@@ -110,6 +113,10 @@ export default function InvoicingPage() {
   const stateOf = (h) => invoiceOf(h).state || "to_charge";
 
   const setInvoice = useCallback(async (jobId, patch) => {
+    if (!canEdit) {
+      setActionError("This board is Veronica's — you can see it, but not change it.");
+      return;
+    }
     let idToken = null;
     if (patch.state === "charged") {
       const current = firebaseConfigured() ? auth().currentUser : null;
@@ -138,7 +145,7 @@ export default function InvoicingPage() {
     } finally {
       setPending((p) => ({ ...p, [jobId]: false }));
     }
-  }, []);
+  }, [canEdit]);
 
   const deleteJob = async (row) => {
     const result = await confirmAndDeleteJob(row);

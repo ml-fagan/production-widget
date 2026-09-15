@@ -5,6 +5,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
+import { useCapabilities } from "../../lib/useCapabilities.js";
 
 // Material orders board.
 //
@@ -83,6 +84,8 @@ export default function MaterialsPage() {
   const [query, setQuery] = useState("");
   const [view, setView] = useState("outstanding");
   const [user, setUser] = useState(null);
+  // Whether this person may change anything here, as opposed to read it.
+  const canEdit = useCapabilities(user).materials;
   const [pending, setPending] = useState({});
   // What the server stored, adopted after each write so what's on screen is
   // its answer rather than our guess.
@@ -122,6 +125,10 @@ export default function MaterialsPage() {
   const linesFor = (h) => stored[h.jobId] ?? h.materials ?? [];
 
   const setLine = useCallback(async (jobId, lineId, patch) => {
+    if (!canEdit) {
+      setActionError("This board is Alice's — you can see it, but not change it.");
+      return;
+    }
     // Claiming a line is ordered or in needs a name against it. Clearing one
     // back to "to order" only withdraws a claim.
     let idToken = null;
@@ -154,7 +161,7 @@ export default function MaterialsPage() {
     } finally {
       setPending((p) => ({ ...p, [key]: false }));
     }
-  }, []);
+  }, [canEdit]);
 
   const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
   const q = query.trim().toLowerCase();
