@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, Fragment } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
@@ -146,7 +146,6 @@ function stockForJob(stockEntries, jobId) {
 
 const SECTIONS = [
   { key: "hand", label: "On hand" },
-  { key: "preorders", label: "Pre-orders" },
   { key: "tracking", label: "Tracking" },
 ];
 
@@ -187,7 +186,6 @@ export default function MaterialStockPage() {
   const [available, setAvailable] = useState([]);
   const [options, setOptions] = useState({ finishes: [], substrates: [] });
   const [jobs, setJobs] = useState([]);
-  const [preOrders, setPreOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
@@ -197,13 +195,9 @@ export default function MaterialStockPage() {
   const [section, setSection] = useState("hand");
   const [user, setUser] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [showPreOrder, setShowPreOrder] = useState(false);
   const [useRow, setUseRow] = useState(null); // signature of the row being drawn down
   const [expanded, setExpanded] = useState({});
   const [saving, setSaving] = useState(false);
-  const [preOrderSaving, setPreOrderSaving] = useState(false);
-  const [deleteId, setDeleteId] = useState(null); // pre-order id whose delete-confirm row is open
-  const [deleteText, setDeleteText] = useState("");
   const [pending, setPending] = useState({});
 
   useEffect(() => {
@@ -253,8 +247,8 @@ export default function MaterialStockPage() {
     }
   }, []);
 
-  // For the job picker on "Use", for pre-order CRM matching, and for the
-  // Tracking section — all three need the live job list.
+  // For the job picker on "Use" and for the Tracking section — both need the
+  // live job list.
   const loadJobs = useCallback(async () => {
     try {
       const res = await fetch("/api/handovers", { cache: "no-store" });
@@ -266,40 +260,27 @@ export default function MaterialStockPage() {
     }
   }, []);
 
-  const loadPreOrders = useCallback(async () => {
-    try {
-      const res = await fetch("/api/pre-orders", { cache: "no-store" });
-      const json = await res.json();
-      if (json.ok) setPreOrders(json.preOrders || []);
-    } catch {
-      // Pre-orders just won't show until the next successful refresh.
-    }
-  }, []);
-
   useEffect(() => {
     load();
     loadAvailable();
     loadOptions();
     loadJobs();
-    loadPreOrders();
     const id = setInterval(() => {
       load();
       loadAvailable();
       loadJobs();
-      loadPreOrders();
-    }, REFRESH_MS);
+      }, REFRESH_MS);
     const onFocus = () => {
       load();
       loadAvailable();
       loadJobs();
-      loadPreOrders();
-    };
+      };
     window.addEventListener("focus", onFocus);
     return () => {
       clearInterval(id);
       window.removeEventListener("focus", onFocus);
     };
-  }, [load, loadAvailable, loadOptions, loadJobs, loadPreOrders]);
+  }, [load, loadAvailable, loadOptions, loadJobs]);
 
   const submit = useCallback(
     async (entry) => {
@@ -379,179 +360,6 @@ export default function MaterialStockPage() {
     }
   }, []);
 
-  const setPreOrder = useCallback(async (id, patch) => {
-    let idToken = null;
-    const claiming = patch.state === "ordered" || patch.state === "completed" || patch.state === "cancelled";
-    if (claiming) {
-      const current = firebaseConfigured() ? auth().currentUser : null;
-      if (!current) {
-        setActionError("Sign in first so this is recorded against your name.");
-        return;
-      }
-      idToken = await current.getIdToken();
-    } else if (firebaseConfigured() && auth().currentUser) {
-      idToken = await auth().currentUser.getIdToken();
-    }
-
-    setPending((p) => ({ ...p, [`preorder:${id}`]: true }));
-    setActionError(null);
-    try {
-      const res = await fetch("/api/pre-orders/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, idToken, ...patch }),
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Update failed");
-      setPreOrders((prev) => prev.map((p) => (p.id === id ? json.preOrder : p)));
-    } catch (e) {
-      setActionError(`Couldn't update that pre-order. ${String(e.message || e)}`);
-    } finally {
-      setPending((p) => ({ ...p, [`preorder:${id}`]: false }));
-    }
-  }, []);
-
-  const addPreOrder = useCallback(async (entry) => {
-    const current = firebaseConfigured() ? auth().currentUser : null;
-    if (!current) {
-      setActionError("Sign in first so this is recorded against your name.");
-      return false;
-    }
-    setPreOrderSaving(true);
-    setActionError(null);
-    try {
-      const idToken = await current.getIdToken();
-      const res = await fetch("/api/pre-orders/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...entry, idToken }),
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Save failed");
-      setPreOrders((prev) => [json.preOrder, ...prev]);
-      return true;
-    } catch (e) {
-      setActionError(String(e.message || e));
-      return false;
-    } finally {
-      setPreOrderSaving(false);
-    }
-  }, []);
-
-  // The CRM never turned into a real job — folds the pre-order into general
-  // stock (still coming, just not earmarked for a specific job anymore)
-  // rather than leaving it stuck waiting forever.
-  const movePreOrderToStock = useCallback(async (id) => {
-    const current = firebaseConfigured() ? auth().currentUser : null;
-    if (!current) {
-      setActionError("Sign in first so this is recorded against your name.");
-      return;
-    }
-    setPending((p) => ({ ...p, [`preorder:${id}`]: true }));
-    setActionError(null);
-    try {
-      const idToken = await current.getIdToken();
-      const res = await fetch("/api/pre-orders/move-to-stock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, idToken }),
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Update failed");
-      setPreOrders((prev) => prev.map((p) => (p.id === id ? json.preOrder : p)));
-      setEntries((prev) => (json.stockEntry ? [json.stockEntry, ...prev] : prev));
-    } catch (e) {
-      setActionError(`Couldn't move that pre-order to stock. ${String(e.message || e)}`);
-    } finally {
-      setPending((p) => ({ ...p, [`preorder:${id}`]: false }));
-    }
-  }, []);
-
-  /**
-   * The pre-order turned up.
-   *
-   * Whatever jobs have claimed off their picking lists gets marked received
-   * against those lines, and the balance becomes ordinary stock — which is
-   * where the whole delivery would have gone if nobody had claimed any of it.
-   * Alice types what actually arrived only when it isn't what was ordered.
-   */
-  const preOrderArrived = useCallback(async (po) => {
-    const current = firebaseConfigured() ? auth().currentUser : null;
-    if (!current) {
-      setActionError("Sign in first so this is recorded against your name.");
-      return;
-    }
-    const typed = window.prompt(
-      [
-        `${po.name} — how many turned up?`,
-        "",
-        po.reserved > 0
-          ? `${po.reserved} of these are claimed by ${po.reservedBy
-              .map((r) => r.jobId)
-              .join(", ")}. Those get filled first; the rest goes into stock.`
-          : "Nothing is claimed against it, so all of it goes into stock.",
-      ].join("\n"),
-      String(po.quantity ?? "")
-    );
-    if (typed === null) return;
-
-    setPending((p) => ({ ...p, [`preorder:${po.id}`]: true }));
-    setActionError(null);
-    try {
-      const idToken = await current.getIdToken();
-      const res = await fetch("/api/pre-orders/arrive", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: po.id, arrived: typed.trim(), idToken }),
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Update failed");
-      // Everything moved at once, so reload rather than patching three lists
-      // and hoping they agree.
-      load();
-      loadPreOrders();
-      loadJobs();
-      if (json.short > 0) {
-        setActionError(
-          `Recorded. ${json.short} short of what jobs had claimed — those lines are still outstanding.`
-        );
-      }
-    } catch (e) {
-      setActionError(`Couldn't record that arrival. ${String(e.message || e)}`);
-    } finally {
-      setPending((p) => ({ ...p, [`preorder:${po.id}`]: false }));
-    }
-  }, [load, loadPreOrders, loadJobs]);
-
-  // Genuinely erases it — for a mis-entry, not for "don't need this
-  // anymore" (that's Cancel, which keeps the record).
-  const deletePreOrder = useCallback(async (id) => {
-    const current = firebaseConfigured() ? auth().currentUser : null;
-    if (!current) {
-      setActionError("Sign in first so this is recorded against your name.");
-      return;
-    }
-    setPending((p) => ({ ...p, [`preorder:${id}`]: true }));
-    setActionError(null);
-    try {
-      const idToken = await current.getIdToken();
-      const res = await fetch("/api/pre-orders/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, idToken }),
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Delete failed");
-      setPreOrders((prev) => prev.filter((p) => p.id !== id));
-      setDeleteId(null);
-      setDeleteText("");
-    } catch (e) {
-      setActionError(`Couldn't delete that pre-order. ${String(e.message || e)}`);
-    } finally {
-      setPending((p) => ({ ...p, [`preorder:${id}`]: false }));
-    }
-  }, []);
-
   const balances = useMemo(() => balancesFrom(entries), [entries]);
   const q = query.trim().toLowerCase();
   const matchingBalances = q ? balances.filter((b) => (b.name || "").toLowerCase().includes(q)) : balances;
@@ -563,9 +371,6 @@ export default function MaterialStockPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [balances, q, available]
   );
-
-  const jobById = new Map(jobs.map((h) => [String(h.jobId).trim().toLowerCase(), h]));
-  const activePreOrders = preOrders.filter((po) => po.state !== "cancelled" && po.state !== "moved_to_stock");
 
   // Tracking follows work in progress, so a job drops off it the moment
   // Duncan marks it complete — and disappears outright if it's deleted, since
@@ -608,7 +413,7 @@ export default function MaterialStockPage() {
               Stock
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-              What's in the factory, what's pre-ordered, and what stage each job's material is at
+              What's on the racks, and what stage each job's material is at
             </p>
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
@@ -617,8 +422,7 @@ export default function MaterialStockPage() {
               onClick={() => {
                 load();
                 loadJobs();
-                loadPreOrders();
-              }}
+                          }}
               style={{ ...btn, padding: "6px 12px", fontSize: 13 }}
             >
               {loading ? "Refreshing…" : "Refresh"}
@@ -655,7 +459,6 @@ export default function MaterialStockPage() {
               }}
             >
               {s.label}
-              {s.key === "preorders" && activePreOrders.length > 0 ? ` (${activePreOrders.length})` : ""}
             </button>
           ))}
         </div>
@@ -962,246 +765,6 @@ export default function MaterialStockPage() {
                 </section>
               ))}
             </div>
-          </>
-        )}
-
-        {section === "preorders" && (
-          <>
-            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-              <div style={{ flex: 1 }} />
-              <button
-                onClick={() => setShowPreOrder((v) => !v)}
-                style={{
-                  border: `1px solid ${BRAND.green}`,
-                  background: BRAND.green,
-                  color: "#fff",
-                  borderRadius: 8,
-                  padding: "8px 16px",
-                  fontSize: 13,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                + Pre-order material
-              </button>
-            </div>
-
-            {showPreOrder && (
-              <PreOrderForm
-                brand={BRAND}
-                saving={preOrderSaving}
-                onCancel={() => setShowPreOrder(false)}
-                onSubmit={async (entry) => {
-                  const ok = await addPreOrder(entry);
-                  if (ok) setShowPreOrder(false);
-                }}
-              />
-            )}
-
-            {activePreOrders.length === 0 ? (
-              <p style={{ fontSize: 13, color: BRAND.sub }}>
-                Nothing pre-ordered right now.
-              </p>
-            ) : (
-              <div
-                style={{
-                  overflowX: "auto",
-                  background: BRAND.card,
-                  border: `1px solid ${BRAND.line}`,
-                  borderRadius: 10,
-                }}
-              >
-                <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                  <thead>
-                    <tr>
-                      <th style={th}>CRM</th>
-                      <th style={th}>Project</th>
-                      <th style={th}>Size</th>
-                      <th style={{ ...th, textAlign: "right" }}>Qty</th>
-                      <th style={th}>Material</th>
-                      <th style={th}>Supplier</th>
-                      <th style={th}>Expected</th>
-                      <th style={th}>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activePreOrders.map((po) => {
-                      const matched = jobById.get(String(po.crm).trim().toLowerCase()) || null;
-                      const busy = pending[`preorder:${po.id}`];
-                      const state = effectiveState(po);
-                      const done = state === "completed";
-                      return (
-                        <Fragment key={po.id}>
-                        <tr>
-                          <td style={td}>
-                            {matched ? (
-                              <a
-                                href={`${HANDOVER_APP}/${encodeURIComponent(po.crm)}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
-                              >
-                                {po.crm}
-                              </a>
-                            ) : (
-                              <span style={{ fontWeight: 600, fontStyle: "italic", color: BRAND.sub }} title="No handover for this CRM yet">
-                                {po.crm}
-                              </span>
-                            )}
-                            {matched && (
-                              <span style={{ marginLeft: 6 }}>
-                                <StageBadge handover={matched} />
-                              </span>
-                            )}
-                          </td>
-                          <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>
-                            {matched ? matched.project || matched.client || "—" : po.project || "—"}
-                          </td>
-                          <td style={td}>{size(po)}</td>
-                          <td style={{ ...td, textAlign: "right", whiteSpace: "normal" }}>
-                            {po.quantity || "—"}
-                            {/* Claimed by a job off its picking list. Worth
-                                seeing before it lands, because it decides how
-                                much of this delivery is actually hers. */}
-                            {po.reserved > 0 && (
-                              <div style={{ fontSize: 11, color: BRAND.blue }}>
-                                {po.reserved} reserved · {po.reservedBy.map((r) => r.jobId).join(", ")}
-                              </div>
-                            )}
-                          </td>
-                          <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>{po.name || "—"}</td>
-                          <td style={{ ...td, color: BRAND.sub }}>{po.supplier || "—"}</td>
-                          <td style={td}>
-                            <input
-                              type="date"
-                              value={po.expectedDate || ""}
-                              onChange={(e) => setPreOrder(po.id, { expectedDate: e.target.value })}
-                              style={{
-                                border: `1px solid ${BRAND.line}`,
-                                borderRadius: 6,
-                                padding: "2px 6px",
-                                fontSize: 12,
-                                fontFamily: "inherit",
-                              }}
-                            />
-                          </td>
-                          <td style={{ ...td, textAlign: "right" }}>
-                            <span style={{ display: "inline-flex", gap: 6 }}>
-                              {state === "to_order" && (
-                                <button
-                                  onClick={() => setPreOrder(po.id, { state: "ordered" })}
-                                  disabled={busy}
-                                  style={{ ...btn, opacity: busy ? 0.6 : 1 }}
-                                >
-                                  Ordered
-                                </button>
-                              )}
-                              {state === "ordered" && (
-                                <button
-                                  onClick={() => preOrderArrived(po)}
-                                  disabled={busy}
-                                  title="Fills the jobs that claimed it, then puts the balance into stock"
-                                  style={{
-                                    ...btn,
-                                    background: BRAND.green,
-                                    borderColor: BRAND.green,
-                                    color: "#fff",
-                                    opacity: busy ? 0.6 : 1,
-                                  }}
-                                >
-                                  Arrived
-                                </button>
-                              )}
-                              {done && (
-                                <span style={{ color: BRAND.green, fontSize: 12, fontWeight: 500 }}>✓ Delivered</span>
-                              )}
-                            </span>
-                            <span style={{ marginLeft: 8, display: "inline-flex", gap: 6 }}>
-                              <button
-                                onClick={() => movePreOrderToStock(po.id)}
-                                disabled={busy}
-                                title="The CRM never turned into a job — keep the material as general stock"
-                                style={{ ...btn, color: BRAND.blue, opacity: busy ? 0.6 : 1 }}
-                              >
-                                Move to stock
-                              </button>
-                              <button
-                                onClick={() => setPreOrder(po.id, { state: "cancelled" })}
-                                disabled={busy}
-                                title="Cancel this pre-order entirely"
-                                style={{ ...btn, color: BRAND.sub, opacity: busy ? 0.6 : 1 }}
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setDeleteId(deleteId === po.id ? null : po.id);
-                                  setDeleteText("");
-                                }}
-                                disabled={busy}
-                                title="Erase this pre-order entirely — for a mis-entry, not just not needing it anymore"
-                                style={{ ...btn, color: BRAND.red, opacity: busy ? 0.6 : 1 }}
-                              >
-                                Delete
-                              </button>
-                            </span>
-                          </td>
-                        </tr>
-                        {deleteId === po.id && (
-                          <tr>
-                            <td colSpan={8} style={{ ...td, background: BRAND.bg }}>
-                              <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-                                <span style={{ color: BRAND.red }}>
-                                  Type <strong>delete</strong> to permanently erase this pre-order:
-                                </span>
-                                <input
-                                  autoFocus
-                                  value={deleteText}
-                                  onChange={(e) => setDeleteText(e.target.value)}
-                                  style={{
-                                    border: `1px solid ${BRAND.line}`,
-                                    borderRadius: 6,
-                                    padding: "3px 8px",
-                                    fontSize: 12,
-                                    fontFamily: "inherit",
-                                    width: 100,
-                                  }}
-                                />
-                                <button
-                                  onClick={() => deletePreOrder(po.id)}
-                                  disabled={busy || deleteText.trim().toLowerCase() !== "delete"}
-                                  style={{
-                                    ...btn,
-                                    background: BRAND.red,
-                                    borderColor: BRAND.red,
-                                    color: "#fff",
-                                    opacity: busy || deleteText.trim().toLowerCase() !== "delete" ? 0.5 : 1,
-                                  }}
-                                >
-                                  {busy ? "Deleting…" : "Confirm delete"}
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setDeleteId(null);
-                                    setDeleteText("");
-                                  }}
-                                  style={{ ...btn, background: BRAND.card }}
-                                >
-                                  Cancel
-                                </button>
-                              </span>
-                            </td>
-                          </tr>
-                        )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </>
         )}
 
@@ -1699,134 +1262,3 @@ function UseStockForm({ brand, max, jobs, onSubmit, onCancel, saving }) {
 
 // Alice or Jordan getting ahead of a job that hasn't been handed over yet.
 // The CRM is typed by hand and doesn't have to match anything — once a
-// handover with that CRM is logged, this line finds it on its own.
-function PreOrderForm({ brand, onSubmit, onCancel, saving }) {
-  const [crm, setCrm] = useState("");
-  const [project, setProject] = useState("");
-  const [name, setName] = useState("");
-  const [length, setLength] = useState("");
-  const [width, setWidth] = useState("");
-  const [thickness, setThickness] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [supplier, setSupplier] = useState("");
-  const [expectedDate, setExpectedDate] = useState("");
-  const [note, setNote] = useState("");
-
-  const input = {
-    border: `1px solid ${brand.line}`,
-    borderRadius: 6,
-    padding: "6px 8px",
-    fontSize: 13,
-    fontFamily: "inherit",
-    width: "100%",
-    boxSizing: "border-box",
-  };
-
-  const valid = crm.trim() && name.trim();
-
-  return (
-    <div
-      style={{
-        background: brand.card,
-        border: `1px solid ${brand.line}`,
-        borderRadius: 10,
-        padding: 16,
-        marginBottom: 16,
-      }}
-    >
-      <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 1fr", gap: 8, marginBottom: 8 }}>
-        <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>CRM</label>
-          <input style={input} value={crm} onChange={(e) => setCrm(e.target.value)} placeholder="e.g. 20488-1" />
-        </div>
-        <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>Project (optional)</label>
-          <input style={input} value={project} onChange={(e) => setProject(e.target.value)} placeholder="Until there's a handover to name it" />
-        </div>
-        <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>Supplier</label>
-          <input style={input} value={supplier} onChange={(e) => setSupplier(e.target.value)} />
-        </div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px 70px", gap: 8, marginBottom: 8 }}>
-        <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>Material</label>
-          <input style={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Blackbutt NTV" />
-        </div>
-        <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>Length</label>
-          <input style={input} value={length} onChange={(e) => setLength(e.target.value)} />
-        </div>
-        <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>Width</label>
-          <input style={input} value={width} onChange={(e) => setWidth(e.target.value)} />
-        </div>
-        <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>Thick</label>
-          <input style={input} value={thickness} onChange={(e) => setThickness(e.target.value)} />
-        </div>
-        <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>Qty</label>
-          <input style={input} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
-        </div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 8, marginBottom: 12 }}>
-        <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>Expected (optional)</label>
-          <input type="date" style={input} value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} />
-        </div>
-        <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>Note (optional)</label>
-          <input style={input} value={note} onChange={(e) => setNote(e.target.value)} />
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <button
-          disabled={!valid || saving}
-          onClick={() =>
-            onSubmit({
-              crm: crm.trim(),
-              project: project.trim(),
-              name: name.trim(),
-              length,
-              width,
-              thickness,
-              quantity,
-              supplier: supplier.trim(),
-              expectedDate,
-              note: note.trim(),
-            })
-          }
-          style={{
-            border: `1px solid ${brand.green}`,
-            background: brand.green,
-            color: "#fff",
-            borderRadius: 8,
-            padding: "6px 16px",
-            fontSize: 13,
-            cursor: "pointer",
-            fontFamily: "inherit",
-            opacity: !valid || saving ? 0.6 : 1,
-          }}
-        >
-          {saving ? "Saving…" : "Save pre-order"}
-        </button>
-        <button
-          onClick={onCancel}
-          style={{
-            border: `1px solid ${brand.line}`,
-            background: brand.card,
-            color: brand.sub,
-            borderRadius: 8,
-            padding: "6px 16px",
-            fontSize: 13,
-            cursor: "pointer",
-            fontFamily: "inherit",
-          }}
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-}

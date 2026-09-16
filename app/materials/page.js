@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, Fragment } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
+import PreOrderForm from "../PreOrderForm.js";
 
 // Material orders board.
 //
@@ -42,6 +43,10 @@ const HANDOVER_APP = "https://decorhandover.lyphex.com";
 const VIEWS = [
   { key: "outstanding", label: "Outstanding" },
   { key: "complete", label: "All in — completed orders" },
+  // Last, because it's the start of the list's life rather than a stage of
+  // it: raised here, and from that moment it's sitting in Outstanding with
+  // everything else waiting to be ordered.
+  { key: "preorders", label: "Pre-orders" },
 ];
 
 function fmtTime(iso) {
@@ -107,6 +112,11 @@ export default function MaterialsPage() {
   // arrives, so it's the one thing tying a docket to a job.
   const [po, setPo] = useState({});
   const [pending, setPending] = useState({});
+  const [showPreOrder, setShowPreOrder] = useState(false);
+  const [preOrderSaving, setPreOrderSaving] = useState(false);
+  // Which pre-order has its delete-confirm row open, and what's typed in it.
+  const [deleteId, setDeleteId] = useState(null);
+  const [deleteText, setDeleteText] = useState("");
   // What the server stored, adopted after each write so what's on screen is
   // its answer rather than our guess.
   const [stored, setStored] = useState({});
@@ -201,7 +211,8 @@ export default function MaterialsPage() {
       return;
     }
     const current = firebaseConfigured() ? auth().currentUser : null;
-    const claiming = patch.state === "ordered" || patch.state === "completed";
+    const claiming =
+      patch.state === "ordered" || patch.state === "completed" || patch.state === "cancelled";
     if (claiming && !current) {
       setActionError("Sign in first so this is recorded against your name.");
       return;
@@ -278,6 +289,95 @@ export default function MaterialsPage() {
     }
   }, [canEdit, load]);
 
+  // Raising one. Jordan or Duncan know a job's coming — a quote, a heads-up
+  // from drafting — and the lead time should start now rather than when Mitch
+  // gets round to writing the handover.
+  const addPreOrder = useCallback(async (entry) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return false;
+    }
+    setPreOrderSaving(true);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/pre-orders/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...entry, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Save failed");
+      setPreOrders((prev) => [json.preOrder, ...prev]);
+      return true;
+    } catch (e) {
+      setActionError(String(e.message || e));
+      return false;
+    } finally {
+      setPreOrderSaving(false);
+    }
+  }, []);
+
+  // The CRM never turned into a job — the material's still coming, it just
+  // isn't earmarked anymore, so it becomes ordinary stock rather than sitting
+  // here waiting for a handover that will never be written.
+  const movePreOrderToStock = useCallback(async (id) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return;
+    }
+    const key = `pre:${id}`;
+    setPending((p) => ({ ...p, [key]: true }));
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/pre-orders/move-to-stock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Update failed");
+      setPreOrders((prev) => prev.map((p) => (p.id === id ? json.preOrder : p)));
+    } catch (e) {
+      setActionError(`Couldn't move that pre-order to stock. ${String(e.message || e)}`);
+    } finally {
+      setPending((p) => ({ ...p, [key]: false }));
+    }
+  }, []);
+
+  // Genuinely erases it — for a mis-entry, not for "we don't need this
+  // anymore", which is Cancel and keeps the record.
+  const deletePreOrder = useCallback(async (id) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return;
+    }
+    const key = `pre:${id}`;
+    setPending((p) => ({ ...p, [key]: true }));
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/pre-orders/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Delete failed");
+      setPreOrders((prev) => prev.filter((p) => p.id !== id));
+      setDeleteId(null);
+      setDeleteText("");
+    } catch (e) {
+      setActionError(`Couldn't delete that pre-order. ${String(e.message || e)}`);
+    } finally {
+      setPending((p) => ({ ...p, [key]: false }));
+    }
+  }, []);
+
   // One call for either kind of row, so the cells below don't each have to
   // know which they're rendering.
   const patchRow = useCallback(
@@ -308,9 +408,9 @@ export default function MaterialsPage() {
     }))
   );
 
-  // Pre-orders, as rows of the same list. Cancelled ones and ones already
-  // folded into general stock are finished with — the record stays on the
-  // Stock page, but there's nothing left for Alice to do about them.
+  // Pre-orders, as rows of the same list, and as the Pre-orders tab's own
+  // list. Cancelled ones and ones already folded into general stock are
+  // finished with — the record stays, but there's nothing left to do.
   const preOrderLines = preOrders
     .filter((p) => p.state !== "cancelled" && p.state !== "moved_to_stock")
     .filter(
@@ -341,10 +441,16 @@ export default function MaterialsPage() {
   const counts = {
     outstanding: allLines.filter(isOutstandingLine).length,
     complete: allLines.filter((m) => !isOutstandingLine(m)).length,
+    preorders: preOrderLines.length,
   };
-  const lines = allLines.filter((m) =>
-    view === "outstanding" ? isOutstandingLine(m) : !isOutstandingLine(m)
-  );
+  // The Pre-orders tab has a list of its own below, so the shared table stands
+  // down for it.
+  const lines =
+    view === "preorders"
+      ? []
+      : allLines.filter((m) =>
+          view === "outstanding" ? isOutstandingLine(m) : !isOutstandingLine(m)
+        );
 
 
   const btn = {
@@ -403,7 +509,9 @@ export default function MaterialsPage() {
               Material orders
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-              {lines.length} {lines.length === 1 ? "line" : "lines"} · tick each line as it lands
+              {view === "preorders"
+                ? "Material wanted for a job that hasn't been handed over yet"
+                : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · tick each line as it lands`}
             </p>
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
@@ -500,7 +608,233 @@ export default function MaterialsPage() {
           }}
         />
 
-        {!loading && lines.length === 0 && (
+        {view === "preorders" && (
+          <>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "baseline" }}>
+              <p style={{ fontSize: 12, color: BRAND.sub, margin: 0, flex: 1 }}>
+                Raised here, and from that moment it&apos;s sitting in Outstanding to be ordered like
+                anything else. When it lands, whatever a job has claimed goes to that job and the
+                rest onto the racks.
+              </p>
+              <button
+                onClick={() => setShowPreOrder((v) => !v)}
+                disabled={!canEdit}
+                title={canEdit ? undefined : "You can see these, but not raise one."}
+                style={{
+                  border: `1px solid ${BRAND.green}`,
+                  background: BRAND.green,
+                  color: "#fff",
+                  borderRadius: 8,
+                  padding: "8px 16px",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  whiteSpace: "nowrap",
+                  opacity: canEdit ? 1 : 0.5,
+                }}
+              >
+                + Pre-order material
+              </button>
+            </div>
+
+            {showPreOrder && (
+              <PreOrderForm
+                brand={BRAND}
+                saving={preOrderSaving}
+                onCancel={() => setShowPreOrder(false)}
+                onSubmit={async (entry) => {
+                  const ok = await addPreOrder(entry);
+                  if (ok) setShowPreOrder(false);
+                }}
+              />
+            )}
+
+            {preOrderLines.length === 0 ? (
+              <p style={{ fontSize: 13, color: BRAND.sub }}>Nothing pre-ordered right now.</p>
+            ) : (
+              <div
+                style={{
+                  overflowX: "auto",
+                  background: BRAND.card,
+                  border: `1px solid ${BRAND.line}`,
+                  borderRadius: 10,
+                }}
+              >
+                <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>CRM</th>
+                      <th style={th}>Project</th>
+                      <th style={th}>Size</th>
+                      <th style={{ ...th, textAlign: "right" }}>Qty</th>
+                      <th style={th}>Material</th>
+                      <th style={th}>Supplier</th>
+                      <th style={th}>Status</th>
+                      <th style={th}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preOrderLines.map((p) => {
+                      const key = `pre:${p.id}`;
+                      const busy = pending[key];
+                      const state = effectiveState(p);
+                      return (
+                        <Fragment key={p.id}>
+                          <tr>
+                            <td style={td}>
+                              {p.hasHandover ? (
+                                <a
+                                  href={`${HANDOVER_APP}/${encodeURIComponent(p.crm)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
+                                >
+                                  {p.crm}
+                                </a>
+                              ) : (
+                                <span
+                                  style={{ fontWeight: 600, fontStyle: "italic", color: BRAND.sub }}
+                                  title="No handover under this number yet — which is the point of a pre-order"
+                                >
+                                  {p.crm}
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>
+                              {p.project || "—"}
+                              {(p.loggedBy || p.note) && (
+                                <div style={{ fontSize: 11, color: BRAND.sub }}>
+                                  {p.loggedBy ? p.loggedBy.split("@")[0] : ""}
+                                  {p.loggedBy && p.note ? " · " : ""}
+                                  {p.note || ""}
+                                </div>
+                              )}
+                            </td>
+                            <td style={td}>{size(p)}</td>
+                            <td style={{ ...td, textAlign: "right", whiteSpace: "normal" }}>
+                              {p.quantity || "—"}
+                              {/* Claimed by a job off its picking list — worth
+                                  seeing before it lands, because it decides how
+                                  much of the delivery is actually spare. */}
+                              {p.reserved > 0 && (
+                                <div style={{ fontSize: 11, color: BRAND.blue }}>
+                                  {p.reserved} claimed ·{" "}
+                                  {[...new Set((p.reservedBy || []).map((r) => r.jobId))].join(", ")}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>{p.name || "—"}</td>
+                            <td style={{ ...td, color: BRAND.sub }}>{p.supplier || "—"}</td>
+                            <td style={td}>
+                              {state === "completed" ? (
+                                <span style={{ color: BRAND.green, fontWeight: 500 }}>✓ Arrived</span>
+                              ) : state === "ordered" ? (
+                                <span style={{ color: BRAND.amber }}>
+                                  On order{p.poNumber ? ` · PO ${p.poNumber}` : ""}
+                                </span>
+                              ) : (
+                                <span style={{ color: BRAND.sub }}>Waiting to be ordered</span>
+                              )}
+                            </td>
+                            {/* Ordering and booking in happen in Outstanding,
+                                with the rest of her work. What's left here is
+                                what only a pre-order can need: it never became
+                                a job, or it shouldn't have been typed. */}
+                            <td style={{ ...td, textAlign: "right" }}>
+                              <span style={{ display: "inline-flex", gap: 6 }}>
+                                {state !== "completed" && (
+                                  <>
+                                    <button
+                                      onClick={() => movePreOrderToStock(p.id)}
+                                      disabled={busy || !canEdit}
+                                      title="The CRM never turned into a job — keep the material as general stock"
+                                      style={{ ...btn, color: BRAND.blue, opacity: busy ? 0.6 : 1 }}
+                                    >
+                                      Move to stock
+                                    </button>
+                                    <button
+                                      onClick={() => patchRow(p, { state: "cancelled" })}
+                                      disabled={busy || !canEdit}
+                                      title="Cancel this pre-order entirely — keeps the record"
+                                      style={{ ...btn, color: BRAND.sub, opacity: busy ? 0.6 : 1 }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    setDeleteId(deleteId === p.id ? null : p.id);
+                                    setDeleteText("");
+                                  }}
+                                  disabled={busy || !canEdit}
+                                  title="Erase it — for a mis-entry, not for not needing it anymore"
+                                  style={{ ...btn, color: BRAND.red, opacity: busy ? 0.6 : 1 }}
+                                >
+                                  Delete
+                                </button>
+                              </span>
+                            </td>
+                          </tr>
+                          {deleteId === p.id && (
+                            <tr>
+                              <td colSpan={8} style={{ ...td, background: BRAND.bg }}>
+                                <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                                  <span style={{ color: BRAND.red }}>
+                                    Type <strong>delete</strong> to permanently erase this pre-order:
+                                  </span>
+                                  <input
+                                    autoFocus
+                                    value={deleteText}
+                                    onChange={(e) => setDeleteText(e.target.value)}
+                                    style={{
+                                      border: `1px solid ${BRAND.line}`,
+                                      borderRadius: 6,
+                                      padding: "3px 8px",
+                                      fontSize: 12,
+                                      fontFamily: "inherit",
+                                      width: 100,
+                                    }}
+                                  />
+                                  <button
+                                    onClick={() => deletePreOrder(p.id)}
+                                    disabled={busy || deleteText.trim().toLowerCase() !== "delete"}
+                                    style={{
+                                      ...btn,
+                                      background: BRAND.red,
+                                      borderColor: BRAND.red,
+                                      color: "#fff",
+                                      opacity:
+                                        busy || deleteText.trim().toLowerCase() !== "delete" ? 0.5 : 1,
+                                    }}
+                                  >
+                                    {busy ? "Deleting…" : "Confirm delete"}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setDeleteId(null);
+                                      setDeleteText("");
+                                    }}
+                                    style={{ ...btn, background: BRAND.card }}
+                                  >
+                                    Cancel
+                                  </button>
+                                </span>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+
+        {!loading && view !== "preorders" && lines.length === 0 && (
           <p style={{ fontSize: 13, color: BRAND.sub }}>
             {all.length === 0
               ? "Nothing handed over yet."
