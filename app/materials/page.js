@@ -42,7 +42,11 @@ const REFRESH_MS = 15 * 60 * 1000;
 const HANDOVER_APP = "https://decorhandover.lyphex.com";
 
 const VIEWS = [
+  // The three stages of buying something, then the list of what hasn't been
+  // asked for yet. A line leaves Outstanding the moment Alice orders it, so
+  // what's left in front of her is only what she still has to do.
   { key: "outstanding", label: "Outstanding" },
+  { key: "ordered", label: "Ordered" },
   { key: "complete", label: "All in — completed orders" },
   // Last, because it's the start of the list's life rather than a stage of
   // it: raised here, and from that moment it's sitting in Outstanding with
@@ -450,21 +454,29 @@ export default function MaterialsPage() {
   // Pre-orders first: they're the ones with nothing behind them yet, so
   // they're the ones that get forgotten.
   const allLines = [...preOrderLines, ...jobLines];
-  // Part received is still outstanding: some of it is on a truck somewhere.
-  const isOutstandingLine = (m) => effectiveState(m) !== "completed";
+  /**
+   * Which list a line belongs in — the three stages of buying something.
+   *
+   * Outstanding is work for Alice: nothing has been ordered yet. Ordered is
+   * work for the supplier and then the dock: it's bought, and what's left is
+   * waiting for it. A part delivery stays in Ordered, because some of it is
+   * still on a truck somewhere.
+   */
+  const bucketOf = (m) => {
+    const state = effectiveState(m);
+    if (state === "completed") return "complete";
+    if (state === "ordered" || state === "part_received") return "ordered";
+    return "outstanding";
+  };
   const counts = {
-    outstanding: allLines.filter(isOutstandingLine).length,
-    complete: allLines.filter((m) => !isOutstandingLine(m)).length,
+    outstanding: allLines.filter((m) => bucketOf(m) === "outstanding").length,
+    ordered: allLines.filter((m) => bucketOf(m) === "ordered").length,
+    complete: allLines.filter((m) => bucketOf(m) === "complete").length,
     preorders: preOrderLines.length,
   };
   // The Pre-orders tab has a list of its own below, so the shared table stands
   // down for it.
-  const lines =
-    view === "preorders"
-      ? []
-      : allLines.filter((m) =>
-          view === "outstanding" ? isOutstandingLine(m) : !isOutstandingLine(m)
-        );
+  const lines = view === "preorders" ? [] : allLines.filter((m) => bucketOf(m) === view);
 
 
   const btn = {
@@ -525,7 +537,13 @@ export default function MaterialsPage() {
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
               {view === "preorders"
                 ? "Material wanted for a job that hasn't been handed over yet"
-                : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · tick each line as it lands`}
+                : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${
+                    view === "outstanding"
+                      ? "order each one, then mark it Ordered"
+                      : view === "ordered"
+                        ? "waiting on the supplier — tick each one as it lands"
+                        : "in, and nothing more to do"
+                  }`}
             </p>
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
@@ -543,7 +561,11 @@ export default function MaterialsPage() {
           tabs={caps.tabs}
           current="materials"
           counts={{
-            materials: counts.outstanding,
+            // Everything not yet in — what's still to buy and what's bought
+            // but not arrived. The split between those two is Alice's
+            // business; to everyone else it's one number: material the
+            // factory is still waiting on.
+            materials: counts.outstanding + counts.ordered,
             // Shown on every strip so finished-but-unbilled work reaches
             // Veronica wherever she is, rather than only once she looks.
             invoicing: all.filter((h) => h.state === "despatched").length,
@@ -859,8 +881,10 @@ export default function MaterialsPage() {
             {all.length === 0
               ? "Nothing handed over yet."
               : view === "outstanding"
-                ? "Everything's in."
-                : "Nothing fully in yet."}
+                ? "Nothing left to order."
+                : view === "ordered"
+                  ? "Nothing on order — everything's either still to buy or already in."
+                  : "Nothing fully in yet."}
           </p>
         )}
 
