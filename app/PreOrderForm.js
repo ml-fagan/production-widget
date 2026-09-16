@@ -10,22 +10,26 @@ import PickOne from "./PickOne.js";
 //
 // The CRM is typed from memory or a quote and may not match anything real
 // yet. That's the point of it.
-export default function PreOrderForm({ brand, onSubmit, onCancel, saving }) {
-  const [crm, setCrm] = useState("");
-  const [project, setProject] = useState("");
+//
+// The same form does the correcting. A pre-order is raised early, from a quote
+// or a phone call, so half the time the finish isn't settled or the count
+// moves — pass `initial` and it opens filled in, ready to be put right.
+export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initial = null }) {
+  const [crm, setCrm] = useState(initial?.crm ?? "");
+  const [project, setProject] = useState(initial?.project ?? "");
   // Named the way a handover names a material — the finish, then the board
   // it's pressed on. Two fields rather than one line of free text, because
   // Alice orders the face and the substrate from different people, and because
   // a pre-order typed its own way never matches the stock it turns into.
-  const [finish, setFinish] = useState("");
-  const [substrate, setSubstrate] = useState("");
-  const [length, setLength] = useState("");
-  const [width, setWidth] = useState("");
-  const [thickness, setThickness] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [supplier, setSupplier] = useState("");
-  const [expectedDate, setExpectedDate] = useState("");
-  const [note, setNote] = useState("");
+  const [finish, setFinish] = useState(initial?.finish ?? "");
+  const [substrate, setSubstrate] = useState(initial?.substrate ?? "");
+  const [length, setLength] = useState(String(initial?.length ?? ""));
+  const [width, setWidth] = useState(String(initial?.width ?? ""));
+  const [thickness, setThickness] = useState(String(initial?.thickness ?? ""));
+  const [quantity, setQuantity] = useState(String(initial?.quantity ?? ""));
+  const [supplier, setSupplier] = useState(initial?.supplier ?? "");
+  const [expectedDate, setExpectedDate] = useState(initial?.expectedDate ?? "");
+  const [note, setNote] = useState(initial?.note ?? "");
   // The same lists the handover offers, served by it rather than copied — see
   // /api/materials/options.
   const [options, setOptions] = useState({ finishes: [], substrates: [] });
@@ -155,7 +159,7 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving }) {
             opacity: !valid || saving ? 0.6 : 1,
           }}
         >
-          {saving ? "Saving…" : "Save pre-order"}
+          {saving ? "Saving…" : initial ? "Save changes" : "Save pre-order"}
         </button>
         <button
           onClick={onCancel}

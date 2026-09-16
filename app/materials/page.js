@@ -59,6 +59,13 @@ function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" });
 }
 
+function fmtDay(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+}
+
 // Stock skips ordering but still gets confirmed — "we have stock" at handover
 // isn't the same as someone having looked on the floor.
 //
@@ -132,6 +139,8 @@ export default function MaterialsPage() {
   const [pending, setPending] = useState({});
   const [showPreOrder, setShowPreOrder] = useState(false);
   const [preOrderSaving, setPreOrderSaving] = useState(false);
+  // Which pre-order is open for correcting, if any.
+  const [editId, setEditId] = useState(null);
   // Which pre-order has its delete-confirm row open, and what's typed in it.
   const [deleteId, setDeleteId] = useState(null);
   const [deleteText, setDeleteText] = useState("");
@@ -328,6 +337,48 @@ export default function MaterialsPage() {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Save failed");
       setPreOrders((prev) => [json.preOrder, ...prev]);
+      return true;
+    } catch (e) {
+      setActionError(String(e.message || e));
+      return false;
+    } finally {
+      setPreOrderSaving(false);
+    }
+  }, []);
+
+  /**
+   * Putting a pre-order right.
+   *
+   * Jordan raises one off a quote and the finish or the count often isn't
+   * settled yet, so it stays his to correct until Alice buys it. After that
+   * the server refuses: the record is then what a supplier has been asked for.
+   * The stamp lives on the pre-order itself — the material order downstream
+   * just reads the new numbers, since what it needs to know is what to buy.
+   */
+  const updatePreOrder = useCallback(async (id, entry) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so the change is recorded against your name.");
+      return false;
+    }
+    setPreOrderSaving(true);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/pre-orders/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, idToken, ...entry }),
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        throw new Error(
+          json.error === "already_ordered"
+            ? "It's been ordered — the details are what the supplier was asked for now, so they can't be changed here."
+            : json.error || "Save failed"
+        );
+      }
+      setPreOrders((prev) => prev.map((p) => (p.id === id ? { ...p, ...json.preOrder } : p)));
       return true;
     } catch (e) {
       setActionError(String(e.message || e));
@@ -747,6 +798,14 @@ export default function MaterialsPage() {
                                   {p.note || ""}
                                 </div>
                               )}
+                              {/* Says the record isn't quite what was first
+                                  written, and whose doing that was. */}
+                              {p.editedAt && (
+                                <div style={{ fontSize: 11, color: BRAND.amber }}>
+                                  edited {fmtDay(p.editedAt)}
+                                  {p.editedBy ? ` by ${p.editedBy.split("@")[0]}` : ""}
+                                </div>
+                              )}
                             </td>
                             <td style={td}>{size(p)}</td>
                             <td style={{ ...td, textAlign: "right", whiteSpace: "normal" }}>
@@ -785,6 +844,22 @@ export default function MaterialsPage() {
                                 a job, or it shouldn't have been typed. */}
                             <td style={{ ...td, textAlign: "right" }}>
                               <span style={{ display: "inline-flex", gap: 6 }}>
+                                {/* Only until Alice buys it. After that the
+                                    record is what a supplier was asked for,
+                                    and the server says so too. */}
+                                {state === "to_order" && (
+                                  <button
+                                    onClick={() => {
+                                      setEditId(editId === p.id ? null : p.id);
+                                      setDeleteId(null);
+                                    }}
+                                    disabled={busy || !canEdit}
+                                    title="Put it right — the finish, the count, whatever's changed since"
+                                    style={{ ...btn, opacity: busy ? 0.6 : 1 }}
+                                  >
+                                    {editId === p.id ? "Close" : "Edit"}
+                                  </button>
+                                )}
                                 {state !== "completed" && (
                                   <>
                                     <button
@@ -819,6 +894,24 @@ export default function MaterialsPage() {
                               </span>
                             </td>
                           </tr>
+                          {editId === p.id && (
+                            <tr>
+                              <td colSpan={9} style={{ padding: 0, background: BRAND.bg }}>
+                                <div style={{ padding: "12px 10px 0" }}>
+                                  <PreOrderForm
+                                    brand={BRAND}
+                                    saving={preOrderSaving}
+                                    initial={p}
+                                    onCancel={() => setEditId(null)}
+                                    onSubmit={async (entry) => {
+                                      const ok = await updatePreOrder(p.id, entry);
+                                      if (ok) setEditId(null);
+                                    }}
+                                  />
+                                </div>
+                              </td>
+                            </tr>
+                          )}
                           {deleteId === p.id && (
                             <tr>
                               <td colSpan={9} style={{ ...td, background: BRAND.bg }}>
