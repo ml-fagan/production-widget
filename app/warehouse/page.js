@@ -76,6 +76,7 @@ function startOfToday() {
 
 export default function WarehousePage() {
   const [data, setData] = useState(null);
+  const [preOrders, setPreOrders] = useState([]);
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -96,11 +97,19 @@ export default function WarehousePage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/handovers", { cache: "no-store" });
+      // Pre-orders arrive on the same dock as everything else — material Alice
+      // bought before the job was written up — so they belong in the same list
+      // under their own PO.
+      const [res, preRes] = await Promise.all([
+        fetch("/api/handovers", { cache: "no-store" }),
+        fetch("/api/pre-orders", { cache: "no-store" }).catch(() => null),
+      ]);
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Failed to load handovers");
       setData(json);
       setError(null);
+      const preJson = preRes ? await preRes.json().catch(() => null) : null;
+      if (preJson?.ok) setPreOrders(preJson.preOrders || []);
     } catch (e) {
       setError(String(e.message || e));
     } finally {
@@ -155,6 +164,52 @@ export default function WarehousePage() {
     [canReceive]
   );
 
+  /**
+   * A pre-order landing, from the dock.
+   *
+   * It doesn't simply close: jobs may have claimed part of it off their
+   * picking lists, so those are filled first and the balance becomes stock.
+   * The handover app does that in one batch — all that's said here is how many
+   * came off the truck.
+   */
+  const preOrderArrived = useCallback(
+    async (row, arrived) => {
+      if (!canReceive) {
+        setActionError("You can see what's coming, but marking it in is for the warehouse or Alice.");
+        return;
+      }
+      const current = firebaseConfigured() ? auth().currentUser : null;
+      if (!current) {
+        setActionError("Sign in first so this is recorded against your name.");
+        return;
+      }
+      const key = `pre:${row.id}`;
+      setPending((p) => ({ ...p, [key]: true }));
+      setActionError(null);
+      try {
+        const idToken = await current.getIdToken();
+        const res = await fetch("/api/pre-orders/arrive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: row.id, arrived: String(arrived ?? "").trim(), idToken }),
+        });
+        const json = await res.json();
+        if (!json.ok) throw new Error(json.error || "Update failed");
+        load();
+        if (json.short > 0) {
+          setActionError(
+            `Booked in — ${json.short} short of what jobs had claimed, so those lines stay outstanding.`
+          );
+        }
+      } catch (e) {
+        setActionError(`Couldn't record that arrival. ${String(e.message || e)}`);
+      } finally {
+        setPending((p) => ({ ...p, [key]: false }));
+      }
+    },
+    [canReceive, load]
+  );
+
   const all = useMemo(
     () => [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])],
     [data]
@@ -162,19 +217,29 @@ export default function WarehousePage() {
 
   // One row per material line, with the job hung off it. Stock lines never
   // appear: nothing is arriving, it's already on the racks.
-  const lines = useMemo(
-    () =>
-      all.flatMap((h) =>
-        (stored[h.jobId] ?? h.materials ?? [])
-          .filter((m) => !m.fromStock)
-          .map((m) => ({
-            ...m,
-            jobId: h.jobId,
-            project: h.project || h.client || "",
-          }))
-      ),
-    [all, stored]
-  );
+  const lines = useMemo(() => {
+    const jobLines = all.flatMap((h) =>
+      (stored[h.jobId] ?? h.materials ?? [])
+        .filter((m) => !m.fromStock)
+        .map((m) => ({
+          ...m,
+          jobId: h.jobId,
+          project: h.project || h.client || "",
+        }))
+    );
+    // Only pre-orders Alice has actually placed. One still sitting at
+    // "to order" isn't on a truck, so it isn't the dock's business yet.
+    const preLines = preOrders
+      .filter((p) => p.state === "ordered" || p.state === "completed")
+      .map((p) => ({
+        ...p,
+        isPreOrder: true,
+        jobId: p.crm,
+        hasHandover: all.some((h) => h.jobId === p.crm),
+        project: p.project || "",
+      }));
+    return [...jobLines, ...preLines];
+  }, [all, stored, preOrders]);
 
   const cutoff = useMemo(() => Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000, []);
   const expected = lines.filter((m) => m.state === "ordered" || m.state === "part_received");
@@ -401,7 +466,8 @@ export default function WarehousePage() {
             </header>
 
             {g.lines.map((m) => {
-              const key = `${m.jobId}:${m.id}`;
+              const pre = Boolean(m.isPreOrder);
+              const key = pre ? `pre:${m.id}` : `${m.jobId}:${m.id}`;
               const busy = pending[key];
               const want = countOf(m.quantity);
               const had = countOf(m.receivedQty);
@@ -440,18 +506,43 @@ export default function WarehousePage() {
                       {size(m) && (
                         <span style={{ color: BRAND.sub, fontSize: 12 }}> · {size(m)}</span>
                       )}
+                      {pre && (
+                        <span
+                          title="Bought ahead of the job. Whatever's been claimed against it goes to those jobs, the rest onto the racks."
+                          style={{
+                            marginLeft: 6,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            letterSpacing: "0.03em",
+                            color: BRAND.amber,
+                            border: `1px solid ${BRAND.amber}`,
+                            borderRadius: 4,
+                            padding: "0 4px",
+                          }}
+                        >
+                          PRE-ORDER
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 12, color: BRAND.sub, marginTop: 2 }}>
                       {/* Which job it's for, for anyone who wants it — but
-                          second, because the dock works from the docket. */}
-                      <a
-                        href={`${HANDOVER_APP}/${encodeURIComponent(m.jobId)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
-                      >
-                        {m.jobId}
-                      </a>
+                          second, because the dock works from the docket. A
+                          pre-order may name a job nobody has written up yet, so
+                          there's nothing to open. */}
+                      {pre && !m.hasHandover ? (
+                        <span style={{ fontWeight: 600, color: BRAND.ink }} title="No handover under this number yet">
+                          {m.jobId}
+                        </span>
+                      ) : (
+                        <a
+                          href={`${HANDOVER_APP}/${encodeURIComponent(m.jobId)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
+                        >
+                          {m.jobId}
+                        </a>
+                      )}
                       {m.project ? ` · ${m.project}` : ""}
                       {m.expectedDate && (
                         <span style={{ color: late ? BRAND.red : BRAND.sub }}>
@@ -479,6 +570,50 @@ export default function WarehousePage() {
                   {m.state === "completed" ? (
                     <span style={{ color: BRAND.green, fontSize: 13, fontWeight: 500, marginLeft: "auto" }}>
                       ✓ Booked in
+                    </span>
+                  ) : pre ? (
+                    /* A pre-order arrives once, whole: what jobs have claimed
+                       goes to them and the rest onto the racks. There's no
+                       part-receipt to keep, so it's a count and a button. */
+                    <span
+                      style={{ display: "inline-flex", gap: 6, alignItems: "center", marginLeft: "auto" }}
+                    >
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder={String(m.quantity ?? "")}
+                        value={received[key] ?? ""}
+                        onChange={(e) => setReceived((r) => ({ ...r, [key]: e.target.value }))}
+                        disabled={busy || !canReceive}
+                        title="How many came off the truck. Leave it blank if the lot arrived."
+                        aria-label={`Arrived of ${m.quantity} for ${m.name || m.jobId}`}
+                        style={{
+                          width: 64,
+                          border: `1px solid ${received[key] ? BRAND.amber : BRAND.line}`,
+                          borderRadius: 6,
+                          padding: "6px 8px",
+                          fontSize: 14,
+                          fontFamily: "inherit",
+                        }}
+                      />
+                      <span style={{ fontSize: 12, color: BRAND.sub }}>of {m.quantity || "—"}</span>
+                      <button
+                        onClick={() => {
+                          preOrderArrived(m, received[key]);
+                          clear();
+                        }}
+                        disabled={busy || !canReceive}
+                        title="It's here — fills any job waiting on it, the rest goes to stock"
+                        style={{
+                          ...btn,
+                          background: BRAND.green,
+                          borderColor: BRAND.green,
+                          color: "#fff",
+                          opacity: busy || !canReceive ? 0.6 : 1,
+                        }}
+                      >
+                        Arrived
+                      </button>
                     </span>
                   ) : (
                     <span

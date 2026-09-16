@@ -15,8 +15,14 @@ import { useCapabilities } from "../../lib/useCapabilities.js";
 // schedules against. A job is only "in" when every line is.
 //
 // Purely procurement status — ordered it, delivered it? Where a material
-// physically is (stock, pre-orders, what stage a job's at) lives on the
-// Stock page instead.
+// physically is (stock, what stage a job's at) lives on the Stock page.
+//
+// Pre-orders sit in the same list. Jordan or Duncan flag material for a job
+// that hasn't been handed over yet, and until now that only showed on the
+// Stock page — so the thing most needing Alice's attention was the thing she
+// had to go looking for. They're tinted and badged so she can tell at a
+// glance that there's no handover behind them, and otherwise they behave like
+// any other line: order it, put the PO on, book it in.
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -76,8 +82,14 @@ function size(m) {
   return `${m.length} × ${m.width}${m.thickness ? ` × ${m.thickness}` : ""}`;
 }
 
+/** One key for both kinds of row, since they share every piece of state. */
+function keyOf(m) {
+  return m.isPreOrder ? `pre:${m.id}` : `${m.jobId}:${m.id}`;
+}
+
 export default function MaterialsPage() {
   const [data, setData] = useState(null);
+  const [preOrders, setPreOrders] = useState([]);
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -107,11 +119,19 @@ export default function MaterialsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/handovers", { cache: "no-store" });
+      // Both lists, together, so Refresh means the whole board. A pre-order
+      // failing to load shouldn't hide the jobs — the handovers are the part
+      // that must be right.
+      const [res, preRes] = await Promise.all([
+        fetch("/api/handovers", { cache: "no-store" }),
+        fetch("/api/pre-orders", { cache: "no-store" }).catch(() => null),
+      ]);
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Failed to load handovers");
       setData(json);
       setError(null);
+      const preJson = preRes ? await preRes.json().catch(() => null) : null;
+      if (preJson?.ok) setPreOrders(preJson.preOrders || []);
     } catch (e) {
       setError(String(e.message || e));
     } finally {
@@ -171,6 +191,100 @@ export default function MaterialsPage() {
     }
   }, [canEdit]);
 
+  // Same moves on a pre-order: order it, date it, put the PO on. The record
+  // lives in its own collection rather than inside a handover, because the
+  // job it's for may not have been written yet — so it's a different endpoint,
+  // not a different way of working.
+  const setPreOrder = useCallback(async (id, patch) => {
+    if (!canEdit) {
+      setActionError("This board is Alice's — you can see it, but not change it.");
+      return;
+    }
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    const claiming = patch.state === "ordered" || patch.state === "completed";
+    if (claiming && !current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return;
+    }
+    const idToken = current ? await current.getIdToken() : null;
+
+    const key = `pre:${id}`;
+    setPending((p) => ({ ...p, [key]: true }));
+    setActionError(null);
+    try {
+      const res = await fetch("/api/pre-orders/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, idToken, ...patch }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Update failed");
+      setPreOrders((prev) => prev.map((p) => (p.id === id ? { ...p, ...json.preOrder } : p)));
+    } catch (e) {
+      setActionError(`Couldn't update that pre-order. ${String(e.message || e)}`);
+    } finally {
+      setPending((p) => ({ ...p, [key]: false }));
+    }
+  }, [canEdit]);
+
+  /**
+   * A pre-order landing.
+   *
+   * Not the same as closing a job's line: jobs may have claimed some of it off
+   * their picking lists since it was raised, so those claims are filled first
+   * and the balance becomes stock. That arithmetic is the handover app's, done
+   * in one batch — all this does is say how many turned up.
+   */
+  const preOrderArrived = useCallback(async (po, arrived) => {
+    if (!canEdit) {
+      setActionError("This board is Alice's — you can see it, but not change it.");
+      return;
+    }
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return;
+    }
+    const key = `pre:${po.id}`;
+    setPending((p) => ({ ...p, [key]: true }));
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/pre-orders/arrive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: po.id, arrived: String(arrived ?? "").trim(), idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Update failed");
+      // Jobs, stock and the pre-order all moved at once, so reload rather than
+      // patching three lists and hoping they agree.
+      load();
+      const parts = [];
+      if (json.allocations?.length) {
+        parts.push(
+          `${json.allocations.reduce((s, a) => s + a.allocated, 0)} to ${[
+            ...new Set(json.allocations.map((a) => a.jobId)),
+          ].join(", ")}`
+        );
+      }
+      if (json.toStock > 0) parts.push(`${json.toStock} into stock`);
+      if (json.short > 0) parts.push(`${json.short} short — those job lines stay outstanding`);
+      if (parts.length) setActionError(`Booked in: ${parts.join(" · ")}.`);
+    } catch (e) {
+      setActionError(`Couldn't record that arrival. ${String(e.message || e)}`);
+    } finally {
+      setPending((p) => ({ ...p, [key]: false }));
+    }
+  }, [canEdit, load]);
+
+  // One call for either kind of row, so the cells below don't each have to
+  // know which they're rendering.
+  const patchRow = useCallback(
+    (row, patch) => (row.isPreOrder ? setPreOrder(row.id, patch) : setLine(row.jobId, row.id, patch)),
+    [setPreOrder, setLine]
+  );
+
   const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
   const q = query.trim().toLowerCase();
   const matching = q
@@ -185,7 +299,7 @@ export default function MaterialsPage() {
   // Flattened to one row per material line — Alice works line by line, not
   // job by job, so the list reads like the schedule board's rows rather than
   // a stack of per-job cards.
-  const allLines = matching.flatMap((h) =>
+  const jobLines = matching.flatMap((h) =>
     linesFor(h).map((m) => ({
       ...m,
       jobId: h.jobId,
@@ -193,6 +307,35 @@ export default function MaterialsPage() {
       fibreCement: h.fibreCement,
     }))
   );
+
+  // Pre-orders, as rows of the same list. Cancelled ones and ones already
+  // folded into general stock are finished with — the record stays on the
+  // Stock page, but there's nothing left for Alice to do about them.
+  const preOrderLines = preOrders
+    .filter((p) => p.state !== "cancelled" && p.state !== "moved_to_stock")
+    .filter(
+      (p) =>
+        !q ||
+        [p.crm, p.project, p.name, p.supplier, p.poNumber, p.note]
+          .join(" ")
+          .toLowerCase()
+          .includes(q)
+    )
+    .map((p) => ({
+      ...p,
+      isPreOrder: true,
+      // The CRM is typed by hand and may not be a job yet, which is the whole
+      // point of a pre-order — so it reads as the job number but doesn't
+      // promise there's a handover behind it.
+      jobId: p.crm,
+      hasHandover: all.some((h) => h.jobId === p.crm),
+      project: p.project || "",
+      state: p.state || "to_order",
+    }));
+
+  // Pre-orders first: they're the ones with nothing behind them yet, so
+  // they're the ones that get forgotten.
+  const allLines = [...preOrderLines, ...jobLines];
   // Part received is still outstanding: some of it is on a truck somewhere.
   const isOutstandingLine = (m) => effectiveState(m) !== "completed";
   const counts = {
@@ -392,27 +535,77 @@ export default function MaterialsPage() {
               </thead>
               <tbody>
                 {lines.map((m) => {
-                  const busy = pending[`${m.jobId}:${m.id}`];
+                  const key = keyOf(m);
+                  const busy = pending[key];
                   const state = effectiveState(m);
                   const done = state === "completed";
+                  const pre = Boolean(m.isPreOrder);
                   return (
-                    <tr key={`${m.jobId}:${m.id}`}>
+                    <tr
+                      key={key}
+                      // Tinted, so a row with no handover behind it doesn't read
+                      // as one that has.
+                      style={pre ? { background: "#fdf8ee" } : undefined}
+                    >
                       <td style={td}>
-                        <a
-                          href={`${HANDOVER_APP}/${encodeURIComponent(m.jobId)}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
-                        >
-                          {m.jobId}
-                        </a>
+                        {pre && !m.hasHandover ? (
+                          <span style={{ fontWeight: 600 }} title="No handover logged under this number yet">
+                            {m.jobId || "—"}
+                          </span>
+                        ) : (
+                          <a
+                            href={`${HANDOVER_APP}/${encodeURIComponent(m.jobId)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
+                          >
+                            {m.jobId}
+                          </a>
+                        )}
+                        {pre && (
+                          <span
+                            title={
+                              m.hasHandover
+                                ? `Pre-order — raised before the handover existed${m.loggedBy ? ` by ${m.loggedBy}` : ""}. The job is logged now.`
+                                : `Pre-ordered${m.loggedBy ? ` by ${m.loggedBy}` : ""} — no handover under this number yet. Order it anyway; it's wanted.`
+                            }
+                            style={{
+                              marginLeft: 5,
+                              fontSize: 10,
+                              fontWeight: 600,
+                              letterSpacing: "0.03em",
+                              color: BRAND.amber,
+                              border: `1px solid ${BRAND.amber}`,
+                              borderRadius: 4,
+                              padding: "0 4px",
+                            }}
+                          >
+                            PRE-ORDER
+                          </span>
+                        )}
                         {m.fibreCement && (
                           <span style={{ marginLeft: 5, fontSize: 10, color: BRAND.sub, border: `1px solid ${BRAND.line}`, borderRadius: 4, padding: "0 4px" }}>
                             FC
                           </span>
                         )}
                       </td>
-                      <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>{m.project || "—"}</td>
+                      <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>
+                        {m.project || "—"}
+                        {/* Who asked for it and why, since there's no handover
+                            to open and read. */}
+                        {pre && (m.loggedBy || m.note) && (
+                          <div style={{ fontSize: 11, color: BRAND.sub }}>
+                            {m.loggedBy ? m.loggedBy.split("@")[0] : ""}
+                            {m.loggedBy && m.note ? " · " : ""}
+                            {m.note || ""}
+                          </div>
+                        )}
+                        {pre && m.reserved > 0 && (
+                          <div style={{ fontSize: 11, color: BRAND.amber }}>
+                            {m.reserved} claimed by {[...new Set((m.reservedBy || []).map((r) => r.jobId))].join(", ")}
+                          </div>
+                        )}
+                      </td>
                       <td style={td}>{size(m)}</td>
                       <td style={{ ...td, textAlign: "right", whiteSpace: "normal" }}>
                         {m.quantity || "—"}
@@ -436,7 +629,6 @@ export default function MaterialsPage() {
                           <span style={{ color: BRAND.sub }}>—</span>
                         ) : (
                           (() => {
-                            const key = `${m.jobId}:${m.id}`;
                             const saved = String(m.poNumber ?? "");
                             const draft = po[key] ?? saved;
                             const changed = draft.trim() !== saved.trim();
@@ -448,7 +640,7 @@ export default function MaterialsPage() {
                               });
                             const save = () => {
                               if (!changed) return clear();
-                              setLine(m.jobId, m.id, { poNumber: draft.trim() });
+                              patchRow(m, { poNumber: draft.trim() });
                               clear();
                             };
                             return (
@@ -481,7 +673,7 @@ export default function MaterialsPage() {
                         <input
                           type="date"
                           value={m.expectedDate || ""}
-                          onChange={(e) => setLine(m.jobId, m.id, { expectedDate: e.target.value })}
+                          onChange={(e) => patchRow(m, { expectedDate: e.target.value })}
                           title={
                             m.fromStock
                               ? "Optional — set or update this even for stock, if there's any uncertainty on timing"
@@ -497,7 +689,103 @@ export default function MaterialsPage() {
                         />
                       </td>
                       <td style={{ ...td, textAlign: "right" }}>
-                        {m.fromStock ? (
+                        {pre ? (
+                          /* A pre-order runs the same course — order it, then
+                             book it in — but landing isn't just closing a line.
+                             Any job that has claimed some of it off its picking
+                             list gets filled first and the balance goes to
+                             stock, which the handover app works out in one go.
+                             So the last step is Arrived, not All in. */
+                          done ? (
+                            <span
+                              style={{ color: BRAND.green, fontSize: 12, fontWeight: 500 }}
+                              title={
+                                m.arrivedQty
+                                  ? `${m.arrivedQty} arrived — split between the jobs that claimed it and stock`
+                                  : "Arrived — split between the jobs that claimed it and stock"
+                              }
+                            >
+                              ✓ Arrived
+                            </span>
+                          ) : state === "to_order" ? (
+                            <button
+                              onClick={() => patchRow(m, { state: "ordered" })}
+                              disabled={busy || !canEdit}
+                              title="Ordered with the supplier — same as any other line"
+                              style={{ ...btn, opacity: busy ? 0.6 : 1 }}
+                            >
+                              Ordered
+                            </button>
+                          ) : (
+                            <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                              {(() => {
+                                const draft = received[key] ?? "";
+                                return (
+                                  <>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      placeholder={String(m.quantity ?? "")}
+                                      value={draft}
+                                      onChange={(e) =>
+                                        setReceived((r) => ({ ...r, [key]: e.target.value }))
+                                      }
+                                      disabled={busy || !canEdit}
+                                      title="How many turned up. Leave it blank if the lot came."
+                                      aria-label={`Arrived of ${m.quantity} for ${m.name}`}
+                                      style={{
+                                        width: 54,
+                                        border: `1px solid ${draft ? BRAND.amber : BRAND.line}`,
+                                        borderRadius: 6,
+                                        padding: "2px 6px",
+                                        fontSize: 12,
+                                        fontFamily: "inherit",
+                                      }}
+                                    />
+                                    <span style={{ fontSize: 11, color: BRAND.sub }}>
+                                      of {m.quantity || "—"}
+                                    </span>
+                                    <button
+                                      onClick={() => {
+                                        preOrderArrived(m, draft);
+                                        setReceived((r) => {
+                                          const next = { ...r };
+                                          delete next[key];
+                                          return next;
+                                        });
+                                      }}
+                                      disabled={busy || !canEdit}
+                                      title="It's here — fills any job that claimed it, the rest goes to stock"
+                                      style={{
+                                        ...btn,
+                                        background: BRAND.green,
+                                        borderColor: BRAND.green,
+                                        color: "#fff",
+                                        opacity: busy ? 0.6 : 1,
+                                      }}
+                                    >
+                                      Arrived
+                                    </button>
+                                  </>
+                                );
+                              })()}
+                              <button
+                                onClick={() => patchRow(m, { state: "to_order" })}
+                                disabled={busy || !canEdit}
+                                style={{
+                                  ...btn,
+                                  background: BRAND.red,
+                                  borderColor: BRAND.red,
+                                  color: "#fff",
+                                  opacity: busy ? 0.6 : 1,
+                                }}
+                                title="Back to to-order"
+                              >
+                                Undo
+                              </button>
+                            </span>
+                          )
+                        ) : m.fromStock ? (
                           done ? (
                             <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                               <span
@@ -553,7 +841,6 @@ export default function MaterialsPage() {
                                     ordered or delivered can't say 200 of 300 —
                                     which is the thing Duncan needs to know. */}
                                 {(() => {
-                                  const key = `${m.jobId}:${m.id}`;
                                   const stored = String(m.receivedQty ?? "");
                                   const draft = received[key] ?? stored;
                                   const changed = draft.trim() !== stored.trim();
