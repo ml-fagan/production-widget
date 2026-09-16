@@ -62,6 +62,14 @@ function wasteColour(percent) {
 const REFRESH_MS = 15 * 60 * 1000;
 const HANDOVER_APP = "https://decorhandover.lyphex.com";
 
+/** "16 Sep" — a date read at a glance rather than one being typed into. */
+function fmtDay(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+}
+
 export default function BoardPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -88,6 +96,11 @@ export default function BoardPage() {
   // Which job's material list is open. One at a time: it's a look-up, not
   // something to leave spread across the board.
   const [materialsOpen, setMaterialsOpen] = useState(null);
+  // Which job's note is open for writing, and which job's approval date has
+  // been clicked to reveal its picker. Both are one-at-a-time for the same
+  // reason as the material list: they're a detour, not a column.
+  const [commentOpen, setCommentOpen] = useState(null);
+  const [approvalOpen, setApprovalOpen] = useState(null);
   const [completeOpen, setCompleteOpen] = useState(null);
   const [completing, setCompleting] = useState(false);
 
@@ -397,7 +410,31 @@ export default function BoardPage() {
     fontFamily: "inherit",
     background: BRAND.card,
   };
-  const totalCols = 14 + PROCESS_COLUMNS.length;
+  // The first two columns stay put while the rest scrolls sideways. Twenty
+  // columns will never fit a screen at once; what actually hurt was scrolling
+  // out to the process steps and no longer knowing which row you were on.
+  const JOB_W = 150;
+  const PROJECT_W = 160;
+  const stickyJob = {
+    position: "sticky",
+    left: 0,
+    background: BRAND.card,
+    zIndex: 2,
+    width: JOB_W,
+    minWidth: JOB_W,
+  };
+  const stickyProject = {
+    position: "sticky",
+    left: JOB_W,
+    background: BRAND.card,
+    zIndex: 2,
+    width: PROJECT_W,
+    minWidth: PROJECT_W,
+    // A hairline where the frozen part ends, so it reads as an edge rather
+    // than as text sliding under text.
+    boxShadow: `1px 0 0 ${BRAND.line}`,
+  };
+  const totalCols = 11 + PROCESS_COLUMNS.length;
 
   return (
     <main
@@ -428,6 +465,12 @@ export default function BoardPage() {
           .print-table th, .print-table td {
             border: 1px solid #000 !important;
             white-space: normal !important;
+            /* Nothing scrolls on paper, so nothing needs pinning to the left
+               edge of a viewport that isn't there. */
+            position: static !important;
+            box-shadow: none !important;
+            max-width: none !important;
+            overflow: visible !important;
           }
           /* Cell inputs read like plain gridded text on paper, not form fields. */
           .print-table input, .print-table select {
@@ -570,16 +613,16 @@ export default function BoardPage() {
           <table className="print-table" style={{ borderCollapse: "collapse", width: "100%", minWidth: 1500 }}>
             <thead>
               <tr>
-                <th style={th}>Job</th>
-                <th style={th}>Project</th>
-                <th style={{ ...th, textAlign: "center" }}>Lumin</th>
-                <th style={{ ...th, textAlign: "center" }}>Box</th>
+                <th style={{ ...th, ...stickyJob, zIndex: 3 }}>Job</th>
+                <th style={{ ...th, ...stickyProject, zIndex: 3 }}>Project</th>
+                {/* Two ticks, one column: how it leaves the building. */}
+                <th style={{ ...th, textAlign: "center" }} title="Luminaire / Boxed">
+                  Pack
+                </th>
                 <th style={th}>Product</th>
-                <th style={th}>Approval</th>
                 <th style={th}>Committed</th>
                 <th style={th}>Actual</th>
-                <th style={{ ...th, textAlign: "center" }}>Lead (wks)</th>
-                <th style={th}>Material due</th>
+                <th style={{ ...th, textAlign: "center" }} title="Lead time in weeks">Lead</th>
                 {PROCESS_COLUMNS.map((c) => (
                   <th
                     key={c}
@@ -595,8 +638,8 @@ export default function BoardPage() {
                     {c}
                   </th>
                 ))}
-                <th style={th}>Priority</th>
-                <th style={th}>Comment</th>
+                <th style={th} title="Priority">Pri</th>
+                <th style={{ ...th, textAlign: "center" }}>Note</th>
                 <th style={th}>Material</th>
                 <th style={th}></th>
               </tr>
@@ -621,7 +664,7 @@ export default function BoardPage() {
                 return (
                   <Fragment key={row.jobId}>
                   <tr>
-                    <td style={td}>
+                    <td style={{ ...td, ...stickyJob }}>
                       <a
                         href={`${HANDOVER_APP}/${encodeURIComponent(row.jobId)}`}
                         target="_blank"
@@ -629,14 +672,6 @@ export default function BoardPage() {
                         style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
                       >
                         {row.jobId}
-                      </a>
-                      {" "}
-                      <a
-                        href={`${HANDOVER_APP}/${encodeURIComponent(row.jobId)}`}
-                        title="Open the handover record"
-                        style={{ color: BRAND.sub, textDecoration: "none", fontSize: 11 }}
-                      >
-                        handover
                       </a>
                       {" · "}
                       <a
@@ -648,51 +683,96 @@ export default function BoardPage() {
                       >
                         ticket
                       </a>
-                    </td>
-                    <td style={td}>{row.project || row.client || "—"}</td>
-                    <td style={{ ...td, textAlign: "center" }}>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(s.lumin)}
-                        onChange={(e) => save(row.jobId, { lumin: e.target.checked })}
-                      />
-                    </td>
-                    <td style={{ ...td, textAlign: "center" }}>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(s.box)}
-                        onChange={(e) => save(row.jobId, { box: e.target.checked })}
-                      />
-                    </td>
-                    <td style={td}>{row.product || "—"}</td>
-                    {["approvalDate", "committedDate", "actualDate"].map((field) => {
-                      const inherited =
-                        field === "approvalDate" && approvalFromHandover;
-                      return (
-                        <td style={td} key={field}>
+                      {/* Approval sat in a date picker of its own, 150px wide,
+                          for a date that is nearly always the handover's and
+                          almost never retyped. It reads better as a line under
+                          the job, and clicking it still opens the picker. */}
+                      <div style={{ fontSize: 11, color: BRAND.sub, marginTop: 1 }}>
+                        {approvalOpen === row.jobId ? (
                           <input
+                            autoFocus
                             type="date"
-                            value={
-                              (field === "approvalDate" ? approval : s[field]) || ""
-                            }
-                            onChange={(e) => save(row.jobId, { [field]: e.target.value })}
-                            style={{
-                              ...input,
-                              width: 130,
-                              // Tinted so a date nobody on this board typed
-                              // doesn't read as one that was.
-                              background: inherited ? "#f2f0ea" : input.background,
-                              color: inherited ? BRAND.sub : input.color,
-                            }}
-                            title={
-                              inherited
-                                ? "From the handover — change it here to set your own"
-                                : undefined
-                            }
+                            value={approval || ""}
+                            onChange={(e) => save(row.jobId, { approvalDate: e.target.value })}
+                            onBlur={() => setApprovalOpen(null)}
+                            style={{ ...input, width: 128, fontSize: 11, padding: "1px 4px" }}
                           />
-                        </td>
-                      );
-                    })}
+                        ) : (
+                          <button
+                            onClick={() => setApprovalOpen(row.jobId)}
+                            title={
+                              approvalFromHandover
+                                ? "Approved on the handover — click to set your own date"
+                                : "Approval date — click to change"
+                            }
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: 0,
+                              font: "inherit",
+                              color: approval ? BRAND.sub : "#b3afa6",
+                              cursor: "pointer",
+                              fontStyle: approvalFromHandover ? "italic" : "normal",
+                            }}
+                          >
+                            {approval ? `approved ${fmtDay(approval)}` : "no approval date"}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td
+                      style={{
+                        ...td,
+                        ...stickyProject,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        maxWidth: PROJECT_W,
+                      }}
+                      title={row.project || row.client || ""}
+                    >
+                      {row.project || row.client || "—"}
+                    </td>
+                    {/* Luminaire and Boxed were a column each for one tick
+                        apiece. Same two ticks, a third of the width. */}
+                    <td style={{ ...td, textAlign: "center" }}>
+                      <label
+                        title="Luminaire"
+                        style={{ fontSize: 11, color: BRAND.sub, marginRight: 6, cursor: "pointer" }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Boolean(s.lumin)}
+                          onChange={(e) => save(row.jobId, { lumin: e.target.checked })}
+                          style={{ verticalAlign: "middle", marginRight: 1 }}
+                        />
+                        L
+                      </label>
+                      <label title="Boxed" style={{ fontSize: 11, color: BRAND.sub, cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(s.box)}
+                          onChange={(e) => save(row.jobId, { box: e.target.checked })}
+                          style={{ verticalAlign: "middle", marginRight: 1 }}
+                        />
+                        B
+                      </label>
+                    </td>
+                    <td
+                      style={{ ...td, maxWidth: 136, overflow: "hidden", textOverflow: "ellipsis" }}
+                      title={row.product || ""}
+                    >
+                      {row.product || "—"}
+                    </td>
+                    {["committedDate", "actualDate"].map((field) => (
+                      <td style={td} key={field}>
+                        <input
+                          type="date"
+                          value={s[field] || ""}
+                          onChange={(e) => save(row.jobId, { [field]: e.target.value })}
+                          style={{ ...input, width: 104 }}
+                        />
+                      </td>
+                    ))}
                     <td style={{ ...td, textAlign: "center", background: leadShade(lead) }}>
                       <input
                         value={lead ?? ""}
@@ -711,33 +791,6 @@ export default function BoardPage() {
                         }
                       />
                     </td>
-                    <td style={{ ...td, color: late ? BRAND.red : BRAND.sub }}>
-                      {/* An empty cell meant two opposite things: everything's
-                          in, or something's outstanding with no date on it.
-                          Duncan reads this to know whether he can start. */}
-                      {row.materialAvailableDate ? (
-                        <span
-                          style={late ? { color: BRAND.red, fontWeight: 600 } : undefined}
-                          title={
-                            late
-                              ? `Material lands ${row.materialAvailableDate}, after the committed date ${s.committedDate}. The job cannot start on time.`
-                              : "When the last outstanding material is expected"
-                          }
-                        >
-                          {row.materialAvailableDate}
-                          {late ? " ⚠" : ""}
-                        </span>
-                      ) : row.materialOrder?.state === "arrived" ? (
-                        <span title="Every material is in">—</span>
-                      ) : (
-                        <span
-                          style={{ color: BRAND.red }}
-                          title="Material still outstanding, with no expected date entered"
-                        >
-                          no date
-                        </span>
-                      )}
-                    </td>
                     {PROCESS_COLUMNS.map((c) => {
                       const state = cellState(row, c);
                       const isMaterials = c.toLowerCase() === "materials";
@@ -755,8 +808,8 @@ export default function BoardPage() {
                           style={{
                             ...td,
                             padding: 0,
-                            width: 26,
-                            minWidth: 26,
+                            width: 24,
+                            minWidth: 24,
                             background: CELL_COLOURS[state].bg,
                             cursor:
                               state === "none" || isMaterials ? "default" : "pointer",
@@ -769,18 +822,32 @@ export default function BoardPage() {
                       <input
                         value={s.priority || ""}
                         onChange={(e) => save(row.jobId, { priority: e.target.value })}
-                        style={{ ...input, width: 70 }}
+                        style={{ ...input, width: 52, textAlign: "center" }}
                       />
                     </td>
-                    <td style={td}>
-                      <input
-                        value={s.comment || ""}
-                        onChange={(e) => save(row.jobId, { comment: e.target.value })}
-                        placeholder="—"
-                        style={{ ...input, width: 160 }}
-                      />
+                    {/* A 160px box on every row for something most rows never
+                        have. It opens underneath now, with room to write in. */}
+                    <td style={{ ...td, textAlign: "center" }}>
+                      <button
+                        onClick={() => {
+                          setCommentOpen(commentOpen === row.jobId ? null : row.jobId);
+                          setMaterialsOpen(null);
+                        }}
+                        title={s.comment || "Add a note"}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          font: "inherit",
+                          fontSize: 12,
+                          cursor: "pointer",
+                          color: s.comment ? BRAND.ink : "#b3afa6",
+                        }}
+                      >
+                        {s.comment ? "✎ note" : "+"}
+                      </button>
                     </td>
-                    <td style={{ ...td, minWidth: 170 }}>
+                    <td style={{ ...td, minWidth: 120 }}>
                       {(() => {
                         const status = materialStatus(row);
                         const colour =
@@ -791,10 +858,38 @@ export default function BoardPage() {
                               : status.tone === "amber"
                                 ? "#a86b12"
                                 : BRAND.sub;
+                        // The due date used to be a column of its own. It only
+                        // ever means something next to what's outstanding, so
+                        // it sits under it: "1 of 2 out · due 16 Sep".
+                        const due = row.materialAvailableDate ? (
+                          <span
+                            style={{ color: late ? BRAND.red : BRAND.sub, fontWeight: late ? 600 : 400 }}
+                            title={
+                              late
+                                ? `Material lands ${row.materialAvailableDate}, after the committed date ${s.committedDate}. The job cannot start on time.`
+                                : "When the last outstanding material is expected"
+                            }
+                          >
+                            due {fmtDay(row.materialAvailableDate)}
+                            {late ? " ⚠" : ""}
+                          </span>
+                        ) : status.tone === "green" ? null : (
+                          <span
+                            style={{ color: BRAND.red }}
+                            title="Material still outstanding, with no expected date entered"
+                          >
+                            no date
+                          </span>
+                        );
                         if (status.lines.length === 0) {
-                          return <span style={{ color: BRAND.sub }}>—</span>;
+                          return (
+                            <span style={{ color: BRAND.sub }}>
+                              — {due && <span style={{ fontSize: 11 }}>· {due}</span>}
+                            </span>
+                          );
                         }
                         return (
+                          <span style={{ display: "inline-block" }}>
                           <button
                             onClick={() =>
                               setMaterialsOpen(materialsOpen === row.jobId ? null : row.jobId)
@@ -817,6 +912,8 @@ export default function BoardPage() {
                               {materialsOpen === row.jobId ? "▾" : "▸"}
                             </span>
                           </button>
+                          {due && <div style={{ fontSize: 11 }}>{due}</div>}
+                          </span>
                         );
                       })()}
                     </td>
@@ -833,7 +930,7 @@ export default function BoardPage() {
                         }}
                         style={{ ...input, padding: "3px 8px", cursor: "pointer", background: BRAND.card }}
                       >
-                        Leftover stock
+                        Leftover
                       </button>
                       <button
                         onClick={() => {
@@ -850,10 +947,35 @@ export default function BoardPage() {
                           marginLeft: 6,
                         }}
                       >
-                        Mark despatched
+                        Despatch
                       </button>
                     </td>
                   </tr>
+                  {commentOpen === row.jobId && (
+                    <tr key={`${row.jobId}-comment`}>
+                      <td
+                        colSpan={totalCols}
+                        style={{ ...td, background: "#faf9f6", padding: "8px 14px" }}
+                      >
+                        <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <span style={{ color: BRAND.sub, fontSize: 12 }}>Note</span>
+                          <input
+                            autoFocus
+                            value={s.comment || ""}
+                            onChange={(e) => save(row.jobId, { comment: e.target.value })}
+                            placeholder="Anything the floor or the office needs to know about this job"
+                            style={{ ...input, flex: 1, maxWidth: 640, padding: "5px 8px" }}
+                          />
+                          <button
+                            onClick={() => setCommentOpen(null)}
+                            style={{ ...input, padding: "4px 10px", cursor: "pointer" }}
+                          >
+                            Done
+                          </button>
+                        </span>
+                      </td>
+                    </tr>
+                  )}
                   {/* The full picture, in its own row so opening it can't
                       change the height of the grid above. */}
                   {materialsOpen === row.jobId && (

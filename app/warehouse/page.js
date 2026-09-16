@@ -306,7 +306,10 @@ export default function WarehousePage() {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+      {/* Wide enough for the table this page exists for. It was capped at
+          1000px like a page of prose, which meant a horizontal scrollbar
+          on a screen with 900px of empty margin either side. */}
+      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",
