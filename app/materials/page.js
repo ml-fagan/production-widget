@@ -7,6 +7,7 @@ import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import PreOrderForm from "../PreOrderForm.js";
+import { splitMaterialName } from "../../lib/materialGroups.js";
 
 // Material orders board.
 //
@@ -85,6 +86,19 @@ function receivedLabel(m) {
 function size(m) {
   if (!m.length || !m.width) return "—";
   return `${m.length} × ${m.width}${m.thickness ? ` × ${m.thickness}` : ""}`;
+}
+
+/**
+ * The two halves of what a line is made of.
+ *
+ * Both a handover material and a pre-order now carry the finish and the
+ * substrate as separate fields, because Alice orders them separately. Older
+ * records only have the joined name, so it gets pulled back apart the same way
+ * the stock register does it.
+ */
+function halves(m) {
+  if (m.finish || m.substrate) return { finish: m.finish || "", substrate: m.substrate || "" };
+  return splitMaterialName(m.name || "");
 }
 
 /** One key for both kinds of row, since they share every piece of state. */
@@ -668,7 +682,8 @@ export default function MaterialsPage() {
                       <th style={th}>Project</th>
                       <th style={th}>Size</th>
                       <th style={{ ...th, textAlign: "right" }}>Qty</th>
-                      <th style={th}>Material</th>
+                      <th style={th}>Finish</th>
+                      <th style={th}>Substrate</th>
                       <th style={th}>Supplier</th>
                       <th style={th}>Status</th>
                       <th style={th}></th>
@@ -724,7 +739,12 @@ export default function MaterialsPage() {
                                 </div>
                               )}
                             </td>
-                            <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>{p.name || "—"}</td>
+                            <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>
+                              {halves(p).finish || "—"}
+                            </td>
+                            <td style={{ ...td, whiteSpace: "normal", minWidth: 100, color: BRAND.sub }}>
+                              {halves(p).substrate || "—"}
+                            </td>
                             <td style={{ ...td, color: BRAND.sub }}>{p.supplier || "—"}</td>
                             <td style={td}>
                               {state === "completed" ? (
@@ -779,7 +799,7 @@ export default function MaterialsPage() {
                           </tr>
                           {deleteId === p.id && (
                             <tr>
-                              <td colSpan={8} style={{ ...td, background: BRAND.bg }}>
+                              <td colSpan={9} style={{ ...td, background: BRAND.bg }}>
                                 <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
                                   <span style={{ color: BRAND.red }}>
                                     Type <strong>delete</strong> to permanently erase this pre-order:
@@ -860,7 +880,8 @@ export default function MaterialsPage() {
                   <th style={th}>Project</th>
                   <th style={th}>Size</th>
                   <th style={{ ...th, textAlign: "right" }}>Qty</th>
-                  <th style={th}>Material</th>
+                  <th style={th}>Finish</th>
+                  <th style={th}>Substrate</th>
                   <th style={th}>Supplier</th>
                   <th style={th}>PO</th>
                   <th style={th}>Expected</th>
@@ -951,7 +972,12 @@ export default function MaterialsPage() {
                           </div>
                         )}
                       </td>
-                      <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>{m.name || "—"}</td>
+                      <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>
+                        {halves(m).finish || "—"}
+                      </td>
+                      <td style={{ ...td, whiteSpace: "normal", minWidth: 100, color: BRAND.sub }}>
+                        {halves(m).substrate || "—"}
+                      </td>
                       <td style={{ ...td, color: BRAND.sub }}>{m.fromStock ? "Stock" : m.supplier || "—"}</td>
                       {/* The supplier's order number. Nothing in the job says
                           it, so it has to be typed once — here, where the order

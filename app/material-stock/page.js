@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
+import PickOne from "../PickOne.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { PROCESS_COLUMNS, CELL_COLOURS, cellState } from "../../lib/board.js";
 import { groupByFinish } from "../../lib/materialGroups.js";
@@ -930,57 +931,6 @@ function materialNameOf(finish, substrate) {
  * what keeps the names identical across the two apps, and the escape hatch is
  * what stops a one-off finish from being forced into the nearest wrong one.
  */
-function PickOne({ value, onChange, options, label, style }) {
-  const inList = options.includes(value);
-  const [custom, setCustom] = useState(Boolean(value) && !inList);
-
-  if (custom) {
-    return (
-      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-        <input
-          style={style}
-          value={value}
-          placeholder={label}
-          onChange={(e) => onChange(e.target.value)}
-        />
-        <button
-          type="button"
-          title={`Back to the ${label.toLowerCase()} list`}
-          onClick={() => {
-            setCustom(false);
-            onChange("");
-          }}
-          style={{ background: "none", border: "none", cursor: "pointer", color: "#6b6862" }}
-        >
-          ↩
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <select
-      style={style}
-      value={value}
-      onChange={(e) => {
-        if (e.target.value === "__other__") {
-          setCustom(true);
-          onChange("");
-          return;
-        }
-        onChange(e.target.value);
-      }}
-    >
-      <option value="">—</option>
-      {options.map((o) => (
-        <option key={o} value={o}>
-          {o}
-        </option>
-      ))}
-      <option value="__other__">Other…</option>
-    </select>
-  );
-}
 
 function AddStockForm({ brand, onSubmit, onCancel, saving, options }) {
   // Two halves rather than one free-text name, the same as the handover's

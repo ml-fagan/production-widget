@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import PickOne from "./PickOne.js";
 
 // Raising a pre-order: material wanted for a job that hasn't been handed
 // over yet. Lives on Alice's material orders board, since a pre-order is
@@ -12,7 +13,12 @@ import { useState } from "react";
 export default function PreOrderForm({ brand, onSubmit, onCancel, saving }) {
   const [crm, setCrm] = useState("");
   const [project, setProject] = useState("");
-  const [name, setName] = useState("");
+  // Named the way a handover names a material — the finish, then the board
+  // it's pressed on. Two fields rather than one line of free text, because
+  // Alice orders the face and the substrate from different people, and because
+  // a pre-order typed its own way never matches the stock it turns into.
+  const [finish, setFinish] = useState("");
+  const [substrate, setSubstrate] = useState("");
   const [length, setLength] = useState("");
   const [width, setWidth] = useState("");
   const [thickness, setThickness] = useState("");
@@ -20,6 +26,26 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving }) {
   const [supplier, setSupplier] = useState("");
   const [expectedDate, setExpectedDate] = useState("");
   const [note, setNote] = useState("");
+  // The same lists the handover offers, served by it rather than copied — see
+  // /api/materials/options.
+  const [options, setOptions] = useState({ finishes: [], substrates: [] });
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/materials/options", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((json) => {
+        if (active && json.ok) {
+          setOptions({ finishes: json.finishes || [], substrates: json.substrates || [] });
+        }
+      })
+      // Both pickers fall back to Other, so a failed fetch costs the list, not
+      // the ability to raise a pre-order.
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const input = {
     border: `1px solid ${brand.line}`,
@@ -31,7 +57,7 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving }) {
     boxSizing: "border-box",
   };
 
-  const valid = crm.trim() && name.trim();
+  const valid = crm.trim() && finish.trim();
 
   return (
     <div
@@ -57,10 +83,20 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving }) {
           <input style={input} value={supplier} onChange={(e) => setSupplier(e.target.value)} />
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px 80px 70px", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px 80px 80px 70px", gap: 8, marginBottom: 8 }}>
         <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>Material</label>
-          <input style={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Blackbutt NTV" />
+          <label style={{ fontSize: 11, color: brand.sub }}>Finish</label>
+          <PickOne value={finish} onChange={setFinish} options={options.finishes} label="Finish" style={input} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, color: brand.sub }}>Substrate</label>
+          <PickOne
+            value={substrate}
+            onChange={setSubstrate}
+            options={options.substrates}
+            label="Substrate"
+            style={input}
+          />
         </div>
         <div>
           <label style={{ fontSize: 11, color: brand.sub }}>Length</label>
@@ -96,7 +132,8 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving }) {
             onSubmit({
               crm: crm.trim(),
               project: project.trim(),
-              name: name.trim(),
+              finish: finish.trim(),
+              substrate: substrate.trim(),
               length,
               width,
               thickness,
