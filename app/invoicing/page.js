@@ -61,7 +61,14 @@ function fmtStamp(iso) {
 // without a unit label.
 function lineLabel(line) {
   const priced = line.amount !== "" && line.amount != null;
-  const unit = line.basis === "sheet" ? "sheets" : line.basis === "m2" ? "m²" : "";
+  const unit =
+    line.basis === "sheet"
+      ? "sheets"
+      : line.basis === "m2"
+        ? "m²"
+        : line.basis === "pack"
+          ? "packs"
+          : "";
   return { priced, text: priced ? `${line.amount}${unit ? ` ${unit}` : ""}` : "not priced" };
 }
 
@@ -456,7 +463,33 @@ export default function InvoicingPage() {
                               <td style={{ padding: "2px 10px 2px 0", color: BRAND.sub, fontFamily: "'SF Mono', ui-monospace, monospace", fontSize: 12 }}>
                                 {l.code || "—"}
                               </td>
-                              <td style={{ padding: "2px 10px 2px 0" }}>{l.name || "—"}</td>
+                              <td style={{ padding: "2px 10px 2px 0" }}>
+                                {l.name || "—"}
+                                {/* Not on the sales invoice in front of her —
+                                    this one has to be raised as a variation,
+                                    and nothing else on the line would say so.
+                                    Most often the packs: how many packs of
+                                    screws a job took isn't known until it's
+                                    been drawn, long after it was priced. */}
+                                {l.kind === "additional" && (
+                                  <span
+                                    title="Additional item — not on the original sales invoice"
+                                    style={{
+                                      marginLeft: 6,
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      letterSpacing: "0.03em",
+                                      color: BRAND.amber,
+                                      border: `1px solid ${BRAND.amber}`,
+                                      borderRadius: 4,
+                                      padding: "0 4px",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    ADDITIONAL
+                                  </span>
+                                )}
+                              </td>
                               <td style={{ padding: "2px 10px 2px 0", color: BRAND.sub }}>
                                 {l.quantity !== "" && l.quantity != null ? `× ${l.quantity}` : ""}
                               </td>
