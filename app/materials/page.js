@@ -112,6 +112,18 @@ function halves(m) {
   return splitMaterialName(m.name || "");
 }
 
+/**
+ * The same board, however it was typed. Finish, substrate and thickness — not
+ * the sheet size, because two sizes of the same board go on one order as two
+ * lines, and that is exactly the order worth combining.
+ */
+function batchKey(m) {
+  const { finish, substrate } = halves(m);
+  return [finish, substrate, m.thickness ?? ""]
+    .map((x) => String(x).trim().toLowerCase())
+    .join("|");
+}
+
 /** One key for both kinds of row, since they share every piece of state. */
 function keyOf(m) {
   return m.isPreOrder ? `pre:${m.id}` : `${m.jobId}:${m.id}`;
@@ -471,9 +483,17 @@ export default function MaterialsPage() {
 
   const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
   const q = query.trim().toLowerCase();
+  // Searched on the halves as well as the joined name: "Show the 3" on a
+  // shared board filters by the finish, and a line whose name was typed some
+  // other way would drop out of its own batch.
   const matching = q
     ? all.filter((h) =>
-        [h.jobId, h.project, h.client, ...(h.materials || []).map((m) => m.name)]
+        [
+          h.jobId,
+          h.project,
+          h.client,
+          ...(h.materials || []).flatMap((m) => [m.name, m.finish, m.substrate]),
+        ]
           .join(" ")
           .toLowerCase()
           .includes(q)
@@ -500,7 +520,7 @@ export default function MaterialsPage() {
     .filter(
       (p) =>
         !q ||
-        [p.crm, p.project, p.name, p.supplier, p.poNumber, p.note]
+        [p.crm, p.project, p.name, p.finish, p.substrate, p.supplier, p.poNumber, p.note]
           .join(" ")
           .toLowerCase()
           .includes(q)
@@ -542,7 +562,47 @@ export default function MaterialsPage() {
   };
   // The Pre-orders tab has a list of its own below, so the shared table stands
   // down for it.
-  const lines = view === "preorders" ? [] : allLines.filter((m) => bucketOf(m) === view);
+  const inView = view === "preorders" ? [] : allLines.filter((m) => bucketOf(m) === view);
+
+  // Kept together by job. A job needing three boards is three orders to place,
+  // but it is still one job, and a row of it sitting on its own three rows down
+  // reads like somebody else's. Order within the list is otherwise untouched.
+  const lines = (() => {
+    const byJob = new Map();
+    for (const m of inView) {
+      const key = String(m.jobId || "");
+      if (!byJob.has(key)) byJob.set(key, []);
+      byJob.get(key).push(m);
+    }
+    return [...byJob.values()].flat();
+  })();
+
+  /**
+   * The same board wanted by more than one job.
+   *
+   * Two jobs each pre-ordering Smartlook Tasmanian Oak on CharCore are two
+   * orders to two suppliers on two days, for one thing. Nothing in the record
+   * says so — each line only knows its own job — so it's worked out here and
+   * put in front of her while she can still act on it: anything not yet in,
+   * whichever tab she's on.
+   */
+  const batches = (() => {
+    const map = new Map();
+    for (const m of allLines) {
+      if (bucketOf(m) === "complete" || m.fromStock) continue;
+      const key = batchKey(m);
+      if (key.replace(/\|/g, "") === "") continue;
+      const group = map.get(key) ?? { key, finish: halves(m).finish, substrate: halves(m).substrate, rows: [] };
+      group.rows.push(m);
+      map.set(key, group);
+    }
+    // Two lines of one job is just a job with two sizes on it. It takes two
+    // jobs before there is anything to combine.
+    return [...map.values()].filter(
+      (g) => new Set(g.rows.map((r) => r.jobId)).size > 1
+    );
+  })();
+  const batchFor = (m) => batches.find((g) => g.key === batchKey(m)) || null;
 
 
   const btn = {
@@ -999,6 +1059,45 @@ export default function MaterialsPage() {
           </p>
         )}
 
+        {/* The same board, wanted by two jobs. Worth seeing before she places
+            either order rather than after both have shipped. */}
+        {view !== "preorders" && batches.length > 0 && (
+          <div
+            style={{
+              background: "#fdf8ee",
+              border: `1px solid ${BRAND.amber}`,
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 13,
+              marginBottom: 16,
+            }}
+          >
+            <strong style={{ color: BRAND.amber }}>
+              {batches.length === 1 ? "One material is" : `${batches.length} materials are`} wanted by
+              more than one job
+            </strong>
+            <span style={{ color: BRAND.sub }}> — could go on one order.</span>
+            {batches.map((g) => (
+              <div key={g.key} style={{ marginTop: 4 }}>
+                {g.finish}
+                {g.substrate ? ` on ${g.substrate}` : ""}:{" "}
+                {[...new Set(g.rows.map((r) => r.jobId))].join(", ")}
+                <button
+                  onClick={() => setQuery(g.finish)}
+                  style={{
+                    ...btn,
+                    marginLeft: 8,
+                    padding: "1px 8px",
+                    fontSize: 11,
+                  }}
+                >
+                  Show the {g.rows.length}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {lines.length > 0 && (
           <div
             style={{
@@ -1024,12 +1123,18 @@ export default function MaterialsPage() {
                 </tr>
               </thead>
               <tbody>
-                {lines.map((m) => {
+                {lines.map((m, i) => {
                   const key = keyOf(m);
                   const busy = pending[key];
                   const state = effectiveState(m);
                   const done = state === "completed";
                   const pre = Boolean(m.isPreOrder);
+                  // One job, several boards: said once and then left blank, so
+                  // the eye reads it as a block rather than as three unrelated
+                  // lines that happen to share a number.
+                  const sameJobAbove = i > 0 && lines[i - 1].jobId === m.jobId;
+                  const sameJobBelow = i + 1 < lines.length && lines[i + 1].jobId === m.jobId;
+                  const batch = batchFor(m);
                   return (
                     <tr
                       key={key}
@@ -1037,8 +1142,12 @@ export default function MaterialsPage() {
                       // as one that has.
                       style={pre ? { background: "#fdf8ee" } : undefined}
                     >
-                      <td style={td}>
-                        {pre && !m.hasHandover ? (
+                      <td style={{ ...td, borderBottom: sameJobBelow ? "none" : td.borderBottom }}>
+                        {sameJobAbove ? (
+                          <span style={{ color: "#cfcac0" }} title={`Still ${m.jobId}`}>
+                            ↳
+                          </span>
+                        ) : pre && !m.hasHandover ? (
                           <span style={{ fontWeight: 600 }} title="No handover logged under this number yet">
                             {m.jobId || "—"}
                           </span>
@@ -1052,7 +1161,7 @@ export default function MaterialsPage() {
                             {m.jobId}
                           </a>
                         )}
-                        {pre && (
+                        {pre && !sameJobAbove && (
                           <span
                             title={
                               m.hasHandover
@@ -1079,11 +1188,18 @@ export default function MaterialsPage() {
                           </span>
                         )}
                       </td>
-                      <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>
-                        {m.project || "—"}
+                      <td
+                        style={{
+                          ...td,
+                          whiteSpace: "normal",
+                          minWidth: 140,
+                          borderBottom: sameJobBelow ? "none" : td.borderBottom,
+                        }}
+                      >
+                        {sameJobAbove ? "" : m.project || "—"}
                         {/* Who asked for it and why, since there's no handover
                             to open and read. */}
-                        {pre && (m.loggedBy || m.note) && (
+                        {pre && !sameJobAbove && (m.loggedBy || m.note) && (
                           <div style={{ fontSize: 11, color: BRAND.sub }}>
                             {m.loggedBy ? m.loggedBy.split("@")[0] : ""}
                             {m.loggedBy && m.note ? " · " : ""}
@@ -1109,6 +1225,31 @@ export default function MaterialsPage() {
                       </td>
                       <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>
                         {halves(m).finish || "—"}
+                        {/* Another job wants this same board. Said on the line,
+                            because this is where she decides what to order. */}
+                        {batch && (
+                          <button
+                            onClick={() => setQuery(halves(m).finish)}
+                            title={`Also wanted by ${[...new Set(batch.rows.map((r) => r.jobId))]
+                              .filter((id) => id !== m.jobId)
+                              .join(", ")} — click to see them together`}
+                            style={{
+                              marginLeft: 6,
+                              background: "none",
+                              border: `1px solid ${BRAND.amber}`,
+                              borderRadius: 4,
+                              color: BRAND.amber,
+                              cursor: "pointer",
+                              fontSize: 10,
+                              fontWeight: 600,
+                              fontFamily: "inherit",
+                              padding: "0 4px",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {new Set(batch.rows.map((r) => r.jobId)).size} JOBS
+                          </button>
+                        )}
                       </td>
                       <td style={{ ...td, whiteSpace: "normal", minWidth: 100, color: BRAND.sub }}>
                         {halves(m).substrate || "—"}
