@@ -14,8 +14,14 @@ import { useState } from "react";
  * words: the stock register, and now the pre-order form.
  */
 export default function PickOne({ value, onChange, options, label, style }) {
-  const inList = options.includes(value);
-  const [custom, setCustom] = useState(Boolean(value) && !inList);
+  // Picking "Other…" is a decision and sticks; being off the list is a fact
+  // about the value, so it's worked out each render rather than remembered.
+  // The distinction matters because the list is fetched: on the first render
+  // it's empty, and a remembered "not in the list" left every filled-in value
+  // sitting in a free-text box once the list arrived a moment later.
+  const [chose, setChose] = useState(false);
+  const custom = chose || (Boolean(value) && options.length > 0 && !options.includes(value));
+  const setCustom = setChose;
 
   if (custom) {
     return (

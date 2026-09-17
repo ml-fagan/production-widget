@@ -319,7 +319,7 @@ export default function MaterialsPage() {
   // Raising one. Jordan or Duncan know a job's coming — a quote, a heads-up
   // from drafting — and the lead time should start now rather than when Mitch
   // gets round to writing the handover.
-  const addPreOrder = useCallback(async (entry) => {
+  const addPreOrder = useCallback(async (entries) => {
     const current = firebaseConfigured() ? auth().currentUser : null;
     if (!current) {
       setActionError("Sign in first so this is recorded against your name.");
@@ -329,14 +329,29 @@ export default function MaterialsPage() {
     setActionError(null);
     try {
       const idToken = await current.getIdToken();
-      const res = await fetch("/api/pre-orders/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...entry, idToken }),
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Save failed");
-      setPreOrders((prev) => [json.preOrder, ...prev]);
+      // A job needing three materials is three pre-orders: each is ordered,
+      // arrives and gets claimed on its own. The form asks once; this writes
+      // one record per line, in the order they were typed.
+      const saved = [];
+      for (const entry of entries) {
+        const res = await fetch("/api/pre-orders/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...entry, idToken }),
+        });
+        const json = await res.json();
+        if (!json.ok) {
+          // Whatever got in stays in — the rest is still on screen to retry.
+          if (saved.length) setPreOrders((prev) => [...saved.reverse(), ...prev]);
+          throw new Error(
+            saved.length
+              ? `${saved.length} saved, then "${entry.finish}" failed: ${json.error || "save failed"}`
+              : json.error || "Save failed"
+          );
+        }
+        saved.push(json.preOrder);
+      }
+      setPreOrders((prev) => [...saved.reverse(), ...prev]);
       return true;
     } catch (e) {
       setActionError(String(e.message || e));
@@ -733,8 +748,8 @@ export default function MaterialsPage() {
                 brand={BRAND}
                 saving={preOrderSaving}
                 onCancel={() => setShowPreOrder(false)}
-                onSubmit={async (entry) => {
-                  const ok = await addPreOrder(entry);
+                onSubmit={async (entries) => {
+                  const ok = await addPreOrder(entries);
                   if (ok) setShowPreOrder(false);
                 }}
               />
@@ -906,8 +921,8 @@ export default function MaterialsPage() {
                                     saving={preOrderSaving}
                                     initial={p}
                                     onCancel={() => setEditId(null)}
-                                    onSubmit={async (entry) => {
-                                      const ok = await updatePreOrder(p.id, entry);
+                                    onSubmit={async (entries) => {
+                                      const ok = await updatePreOrder(p.id, entries[0]);
                                       if (ok) setEditId(null);
                                     }}
                                   />
