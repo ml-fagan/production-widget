@@ -319,6 +319,9 @@ export default function MaterialsPage() {
         );
       }
       if (json.toStock > 0) parts.push(`${json.toStock} into stock`);
+      // The order stays open for the rest, so say so rather than letting a
+      // part delivery look like a finished one.
+      if (json.stillToCome > 0) parts.push(`${json.stillToCome} still to come from the supplier`);
       if (json.short > 0) parts.push(`${json.short} short — those job lines stay outstanding`);
       if (parts.length) setActionError(`Booked in: ${parts.join(" · ")}.`);
     } catch (e) {
@@ -911,6 +914,13 @@ export default function MaterialsPage() {
                               ) : state === "ordered" ? (
                                 <span style={{ color: BRAND.amber }}>
                                   On order{p.poNumber ? ` · PO ${p.poNumber}` : ""}
+                                  {/* A part delivery leaves it here, owing the
+                                      rest — the number she's chasing. */}
+                                  {countOf(p.receivedQty) > 0 && (
+                                    <div style={{ fontSize: 11 }}>
+                                      {receivedLabel(p)}
+                                    </div>
+                                  )}
                                 </span>
                               ) : (
                                 <span style={{ color: BRAND.sub }}>Waiting to be ordered</span>
@@ -1356,12 +1366,16 @@ export default function MaterialsPage() {
                             <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                               {(() => {
                                 const draft = received[key] ?? "";
+                                // What's still owed, so the box defaults to the
+                                // rest of a part-delivered order rather than to
+                                // the whole of it a second time.
+                                const owed = countOf(m.quantity) - countOf(m.receivedQty);
                                 return (
                                   <>
                                     <input
                                       type="number"
                                       min="0"
-                                      placeholder={String(m.quantity ?? "")}
+                                      placeholder={String(owed > 0 ? owed : m.quantity ?? "")}
                                       value={draft}
                                       onChange={(e) =>
                                         setReceived((r) => ({ ...r, [key]: e.target.value }))

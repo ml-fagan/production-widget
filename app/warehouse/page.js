@@ -196,11 +196,12 @@ export default function WarehousePage() {
         const json = await res.json();
         if (!json.ok) throw new Error(json.error || "Update failed");
         load();
-        if (json.short > 0) {
-          setActionError(
-            `Booked in — ${json.short} short of what jobs had claimed, so those lines stay outstanding.`
-          );
-        }
+        // Said plainly, because "arrived" no longer means "finished": a part
+        // delivery leaves the order open for the rest.
+        const bits = [];
+        if (json.stillToCome > 0) bits.push(`${json.stillToCome} still to come`);
+        if (json.short > 0) bits.push(`${json.short} short of what jobs had claimed`);
+        if (bits.length) setActionError(`Booked in — ${bits.join(" · ")}.`);
       } catch (e) {
         setActionError(`Couldn't record that arrival. ${String(e.message || e)}`);
       } finally {
@@ -584,7 +585,13 @@ export default function WarehousePage() {
                       <input
                         type="number"
                         min="0"
-                        placeholder={String(m.quantity ?? "")}
+                        // What's still owed: a pre-order that came in two
+                        // drops shouldn't offer the whole order again.
+                        placeholder={String(
+                          countOf(m.quantity) - countOf(m.receivedQty) > 0
+                            ? countOf(m.quantity) - countOf(m.receivedQty)
+                            : m.quantity ?? ""
+                        )}
                         value={received[key] ?? ""}
                         onChange={(e) => setReceived((r) => ({ ...r, [key]: e.target.value }))}
                         disabled={busy || !canReceive}
