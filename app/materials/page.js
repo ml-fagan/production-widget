@@ -87,10 +87,20 @@ function countOf(value) {
   return found ? found.reduce((sum, n) => sum + Number(n), 0) : 0;
 }
 
+/**
+ * How many to buy: what the nest needs plus whatever spare was asked for.
+ *
+ * The handover app works this out and sends it down; the fallback is for a
+ * record that predates spare existing, where the quantity was the whole story.
+ */
+function orderQty(m) {
+  return m.orderQty != null ? countOf(m.orderQty) : countOf(m.quantity) + countOf(m.spare);
+}
+
 /** "200 of 300 in · 100 to come", for a line that arrived in more than one drop. */
 function receivedLabel(m) {
   const had = countOf(m.receivedQty);
-  const want = countOf(m.quantity);
+  const want = orderQty(m);
   if (!had) return "";
   return want > had ? `${had} of ${want} in · ${want - had} to come` : `${had} in`;
 }
@@ -1285,7 +1295,15 @@ export default function MaterialsPage() {
                       </td>
                       <td style={td}>{size(m)}</td>
                       <td style={{ ...td, textAlign: "right", whiteSpace: "normal" }}>
-                        {m.quantity || "—"}
+                        {/* What to buy, not what the nest needs — they differ
+                            whenever spare was asked for, and buying is what
+                            this board is for. */}
+                        {orderQty(m) || m.quantity || "—"}
+                        {countOf(m.spare) > 0 && (
+                          <div style={{ fontSize: 11, color: BRAND.sub }}>
+                            {countOf(m.quantity)} + {countOf(m.spare)} spare
+                          </div>
+                        )}
                         {/* The short version of a part delivery, where the eye
                             lands rather than out in the status column. */}
                         {receivedLabel(m) && !done && (
@@ -1442,7 +1460,7 @@ export default function MaterialsPage() {
                                 // What's still owed, so the box defaults to the
                                 // rest of a part-delivered order rather than to
                                 // the whole of it a second time.
-                                const owed = countOf(m.quantity) - countOf(m.receivedQty);
+                                const owed = orderQty(m) - countOf(m.receivedQty);
                                 return (
                                   <>
                                     <input
@@ -1615,7 +1633,7 @@ export default function MaterialsPage() {
                                         }}
                                       />
                                       <span style={{ fontSize: 11, color: BRAND.sub }}>
-                                        of {m.quantity || "—"}
+                                        of {orderQty(m) || m.quantity || "—"}
                                       </span>
                                       {/* An explicit way to commit it. Relying
                                           on the blur alone meant typing a

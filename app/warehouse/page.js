@@ -67,6 +67,11 @@ function size(m) {
   return `${m.length} × ${m.width}${m.thickness ? ` × ${m.thickness}` : ""}`;
 }
 
+/** What was bought: the nest's count plus any spare asked for. */
+function orderQty(m) {
+  return m.orderQty != null ? countOf(m.orderQty) : countOf(m.quantity) + countOf(m.spare);
+}
+
 /** Today at midnight, so "due today" doesn't read as late at 9am. */
 function startOfToday() {
   const d = new Date();
@@ -473,7 +478,7 @@ export default function WarehousePage() {
               const pre = Boolean(m.isPreOrder);
               const key = pre ? `pre:${m.id}` : `${m.jobId}:${m.id}`;
               const busy = pending[key];
-              const want = countOf(m.quantity);
+              const want = orderQty(m);
               const had = countOf(m.receivedQty);
               const savedQty = String(m.receivedQty ?? "");
               const draft = received[key] ?? savedQty;
@@ -562,7 +567,7 @@ export default function WarehousePage() {
                   </div>
 
                   <div style={{ fontSize: 13, minWidth: 110 }}>
-                    <strong>{m.quantity || "—"}</strong>
+                    <strong>{orderQty(m) || m.quantity || "—"}</strong>
                     <span style={{ color: BRAND.sub }}> expected</span>
                     {had > 0 && m.state !== "completed" && (
                       <div style={{ fontSize: 12, color: BRAND.amber }}>
@@ -588,8 +593,8 @@ export default function WarehousePage() {
                         // What's still owed: a pre-order that came in two
                         // drops shouldn't offer the whole order again.
                         placeholder={String(
-                          countOf(m.quantity) - countOf(m.receivedQty) > 0
-                            ? countOf(m.quantity) - countOf(m.receivedQty)
+                          orderQty(m) - countOf(m.receivedQty) > 0
+                            ? orderQty(m) - countOf(m.receivedQty)
                             : m.quantity ?? ""
                         )}
                         value={received[key] ?? ""}
@@ -606,7 +611,9 @@ export default function WarehousePage() {
                           fontFamily: "inherit",
                         }}
                       />
-                      <span style={{ fontSize: 12, color: BRAND.sub }}>of {m.quantity || "—"}</span>
+                      <span style={{ fontSize: 12, color: BRAND.sub }}>
+                        of {orderQty(m) || m.quantity || "—"}
+                      </span>
                       <button
                         onClick={() => {
                           preOrderArrived(m, received[key]);
@@ -660,7 +667,9 @@ export default function WarehousePage() {
                           fontFamily: "inherit",
                         }}
                       />
-                      <span style={{ fontSize: 12, color: BRAND.sub }}>of {m.quantity || "—"}</span>
+                      <span style={{ fontSize: 12, color: BRAND.sub }}>
+                        of {orderQty(m) || m.quantity || "—"}
+                      </span>
                       {changed && (
                         <button
                           onClick={savePart}

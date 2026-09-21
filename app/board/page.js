@@ -1339,7 +1339,12 @@ function LeftoverPanel({ row, step, saving, onNo, onYes, onSubmit, onCancel }) {
             <th style={{ fontWeight: 500, padding: "2px 12px 2px 0" }}>Size</th>
             <th style={{ fontWeight: 500, padding: "2px 12px 2px 0" }}>Material</th>
             <th style={{ fontWeight: 500, padding: "2px 12px 2px 0" }}>Ordered qty</th>
-            <th style={{ fontWeight: 500 }}>Leftover</th>
+            {/* What was asked for spare, as a reminder of roughly what should
+                be there. Deliberately not filled into the box: four spare come
+                back as five when a panel comes off the nest, or as none when
+                two get damaged, and what goes on the racks is what's counted. */}
+            <th style={{ fontWeight: 500, padding: "2px 12px 2px 0" }}>Spare ordered</th>
+            <th style={{ fontWeight: 500 }}>Leftover — count it</th>
           </tr>
         </thead>
         <tbody>
@@ -1349,7 +1354,12 @@ function LeftoverPanel({ row, step, saving, onNo, onYes, onSubmit, onCancel }) {
                 {m.length && m.width ? `${m.length} × ${m.width}${m.thickness ? ` × ${m.thickness}` : ""}` : "—"}
               </td>
               <td style={{ padding: "2px 12px 2px 0" }}>{m.name}</td>
-              <td style={{ padding: "2px 12px 2px 0", color: "#6b6862" }}>{m.quantity || "—"}</td>
+              <td style={{ padding: "2px 12px 2px 0", color: "#6b6862" }}>
+                {m.orderQty ?? m.quantity ?? "—"}
+              </td>
+              <td style={{ padding: "2px 12px 2px 0", color: "#a86b12" }}>
+                {Number(m.spare) > 0 ? m.spare : "—"}
+              </td>
               <td style={{ padding: "2px 0" }}>
                 <input
                   type="number"
