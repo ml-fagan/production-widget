@@ -2,6 +2,11 @@ import { downloadScheduleBuffer } from "../../../lib/graph.js";
 import { parseSchedule } from "../../../lib/parseSchedule.js";
 import { fetchLoggedHandovers, splitByScheduled } from "../../../lib/handovers.js";
 import { tokenForCrm } from "../../../lib/token.js";
+import {
+  fetchProductionTasks,
+  buildAsanaLookup,
+  checkAgainstAsana,
+} from "../../../lib/asana.js";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,9 +21,25 @@ export const revalidate = 0;
 
 const TRACKER_BASE = process.env.TRACKER_BASE_URL || "";
 
-export async function GET() {
+export async function GET(req) {
+  // The Asana cross-check is only worth its round trip on the page that shows
+  // it, and this route feeds five. The production schedule asks for it; the
+  // ordering and stock boards don't, and shouldn't wait on Asana to load.
+  const wantsAsana = new URL(req.url).searchParams.get("asana") === "1";
   try {
     const handovers = await fetchLoggedHandovers();
+
+    // Jobs dated on the board never had this: the check lived in the schedule
+    // route, which only ever sees the spreadsheet, so a board job showed a
+    // blank where every other row showed a tick. Same lookup, same rule —
+    // Asana's due date against the date the job is committed to.
+    const asana = wantsAsana
+      ? await fetchProductionTasks()
+          .then((tasks) => ({ lookup: buildAsanaLookup(tasks) }))
+          // A cross-check, not the source of truth: the queue still answers if
+          // Asana is unreachable or ASANA_TOKEN isn't set.
+          .catch((err) => ({ lookup: null, error: String(err.message || err) }))
+      : null;
 
     // The schedule is only needed to work out what's already scheduled. If it
     // can't be read, still return the handovers rather than nothing — an
@@ -41,6 +62,19 @@ export async function GET() {
       clientLink: TRACKER_BASE
         ? `${TRACKER_BASE.replace(/\/$/, "")}/p/${tokenForCrm(h.jobId)}`
         : null,
+      asanaCheck: !asana
+        ? null
+        : asana.lookup
+          ? checkAgainstAsana(
+              {
+                crm: h.jobId,
+                // What the row shows as Dispatch: the date it actually went,
+                // or the date it's committed to until then.
+                dispatch: h.schedule?.actualDate || h.schedule?.committedDate || null,
+              },
+              asana.lookup
+            )
+          : { status: "warn", reason: "asana_unavailable", error: asana.error },
     }));
 
     const { awaiting, scheduled } = splitByScheduled(withLinks, jobs);

@@ -103,7 +103,7 @@ export default function Page() {
   // the feed still works exactly as before if the handover app is unreachable.
   const loadHandovers = useCallback(async () => {
     try {
-      const res = await fetch("/api/handovers", { cache: "no-store" });
+      const res = await fetch("/api/handovers?asana=1", { cache: "no-store" });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error);
       setHandovers([...(json.awaiting || []), ...(json.scheduled || [])]);
@@ -175,9 +175,10 @@ export default function Page() {
           committed && !actual && new Date(committed + "T00:00:00") < today
         ),
         fromBoard: true,
-        // Built server-side in /api/handovers, where LINK_SECRET lives.
+        // Both built server-side in /api/handovers, where LINK_SECRET and the
+        // Asana token live.
         clientLink: h.clientLink || null,
-        asanaCheck: null,
+        asanaCheck: h.asanaCheck || null,
       };
     });
 
