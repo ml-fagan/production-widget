@@ -7,6 +7,7 @@ import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import PreOrderForm from "../PreOrderForm.js";
+import LineEditor from "../LineEditor.js";
 import { splitMaterialName } from "../../lib/materialGroups.js";
 
 // Material orders board.
@@ -153,6 +154,9 @@ export default function MaterialsPage() {
   const [preOrderSaving, setPreOrderSaving] = useState(false);
   // Which pre-order is open for correcting, if any.
   const [editId, setEditId] = useState(null);
+  // Which line on the ordering board is open for correcting — either kind.
+  const [editLine, setEditLine] = useState(null);
+  const [lineSaving, setLineSaving] = useState(false);
   // Which pre-order has its delete-confirm row open, and what's typed in it.
   const [deleteId, setDeleteId] = useState(null);
   const [deleteText, setDeleteText] = useState("");
@@ -476,6 +480,61 @@ export default function MaterialsPage() {
       setPending((p) => ({ ...p, [key]: false }));
     }
   }, []);
+
+  /**
+   * Correcting what a line is for, from the board it's ordered from.
+   *
+   * The two kinds are stored in different places — a picking-list line lives
+   * inside its handover, a pre-order in its own record — but they describe the
+   * same thing, so one form feeds both and the endpoint is the only
+   * difference. Both refuse once the line has been ordered.
+   */
+  const saveLine = useCallback(async (row, patch) => {
+    if (!canEdit) {
+      setActionError("This board is Alice's — you can see it, but not change it.");
+      return;
+    }
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so the change is recorded against your name.");
+      return;
+    }
+    setLineSaving(true);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch(
+        row.isPreOrder ? "/api/pre-orders/update" : "/api/material-line",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            row.isPreOrder
+              ? { id: row.id, idToken, ...patch }
+              : { jobId: row.jobId, lineId: row.id, idToken, ...patch }
+          ),
+        }
+      );
+      const json = await res.json();
+      if (!json.ok) {
+        throw new Error(
+          json.error === "already_ordered"
+            ? "It's been ordered — the line is what the supplier was asked for now."
+            : json.error || "Save failed"
+        );
+      }
+      if (row.isPreOrder) {
+        setPreOrders((prev) => prev.map((p) => (p.id === row.id ? { ...p, ...json.preOrder } : p)));
+      } else {
+        setStored((st) => ({ ...st, [row.jobId]: json.materials }));
+      }
+      setEditLine(null);
+    } catch (e) {
+      setActionError(String(e.message || e));
+    } finally {
+      setLineSaving(false);
+    }
+  }, [canEdit]);
 
   // One call for either kind of row, so the cells below don't each have to
   // know which they're rendering.
@@ -1146,8 +1205,10 @@ export default function MaterialsPage() {
                   const sameJobBelow = i + 1 < lines.length && lines[i + 1].jobId === m.jobId;
                   const batch = batchFor(m);
                   return (
+                    // Two rows while the editor is open beneath it, so the row
+                    // itself never changes shape.
+                    <Fragment key={key}>
                     <tr
-                      key={key}
                       // Tinted, so a row with no handover behind it doesn't read
                       // as one that has.
                       style={pre ? { background: "#fdf8ee" } : undefined}
@@ -1335,6 +1396,18 @@ export default function MaterialsPage() {
                         />
                       </td>
                       <td style={{ ...td, textAlign: "right" }}>
+                        {/* Correctable until it's ordered, and only until
+                            then — after that the line is what a supplier was
+                            asked for. Stock lines aren't being bought. */}
+                        {state === "to_order" && !m.fromStock && canEdit && (
+                          <button
+                            onClick={() => setEditLine(editLine === key ? null : key)}
+                            title="Put this line right — the board, the size, the count, the supplier"
+                            style={{ ...btn, marginRight: 6 }}
+                          >
+                            {editLine === key ? "Close" : "Edit"}
+                          </button>
+                        )}
                         {pre ? (
                           /* A pre-order runs the same course — order it, then
                              book it in — but landing isn't just closing a line.
@@ -1621,8 +1694,31 @@ export default function MaterialsPage() {
                             )}
                           </span>
                         )}
+                        {/* Who put it on order and when. It was in the record
+                            all along; nobody could see it without opening the
+                            handover. */}
+                        {m.orderedAt && state !== "to_order" && (
+                          <div style={{ fontSize: 11, color: BRAND.sub, marginTop: 2 }}>
+                            ordered {fmtDay(m.orderedAt)}
+                            {m.orderedBy ? ` · ${m.orderedBy.split("@")[0]}` : ""}
+                          </div>
+                        )}
                       </td>
                     </tr>
+                    {editLine === key && (
+                      <tr>
+                        <td colSpan={10} style={{ ...td, background: "#faf9f6", whiteSpace: "normal" }}>
+                          <LineEditor
+                            brand={BRAND}
+                            line={{ ...m, ...halves(m) }}
+                            saving={lineSaving}
+                            onCancel={() => setEditLine(null)}
+                            onSave={(patch) => saveLine(m, patch)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
