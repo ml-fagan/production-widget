@@ -365,6 +365,21 @@ export default function MaterialStockPage() {
   const q = query.trim().toLowerCase();
   const matchingBalances = q ? balances.filter((b) => (b.name || "").toLowerCase().includes(q)) : balances;
   const onHand = matchingBalances.filter((b) => b.total > 0);
+  /**
+   * Materials the register says we have less than none of.
+   *
+   * It happens when a job draws stock that was never entered — or was entered
+   * under a different name, which is the same thing to a ledger: "Blackbutt
+   * NTV" drawn against a card that says "Blackbutt". The balance goes negative
+   * and, because the boxes only show what's on hand, the material disappears
+   * from the page entirely.
+   *
+   * That is the worst thing it could do. Duncan logs five sheets back off a
+   * job, they land in a balance of minus twenty-eight, and nobody can see
+   * either number. So they're listed, plainly, with what's been logged against
+   * them — a register that's wrong is worth knowing about.
+   */
+  const overdrawn = matchingBalances.filter((b) => b.total < 0);
   const finishGroups = useMemo(
     () => groupByFinish(onHand, available),
     // onHand is rebuilt each render from balances and the filter, so depend on
@@ -576,12 +591,76 @@ export default function MaterialStockPage() {
               />
             )}
 
-            {!loading && finishGroups.length === 0 && (
+            {!loading && finishGroups.length === 0 && overdrawn.length === 0 && (
               <p style={{ fontSize: 13, color: BRAND.sub }}>
                 {balances.length === 0
                   ? "No material logged yet — leftovers from Duncan's board will show up here, or add some yourself."
                   : "Nothing on hand matches that filter."}
               </p>
+            )}
+
+            {overdrawn.length > 0 && (
+              <div
+                style={{
+                  background: "#fbeceb",
+                  border: `1px solid ${BRAND.red}`,
+                  borderRadius: 10,
+                  padding: "10px 14px",
+                  marginBottom: 12,
+                  fontSize: 13,
+                }}
+              >
+                <strong style={{ color: BRAND.red }}>
+                  {overdrawn.length === 1 ? "One material has" : `${overdrawn.length} materials have`} been
+                  drawn for jobs without ever being entered here
+                </strong>
+                <div style={{ color: BRAND.sub, marginTop: 2 }}>
+                  The register can&apos;t show a negative box, so these would otherwise vanish off the
+                  page — along with anything logged back against them. Usually it means the stock went
+                  on a rack card under a different name, or was never added.
+                </div>
+                {overdrawn.map((b) => {
+                  const sig = signature(b);
+                  const drawn = b.entries.filter((e) => Number(e.quantity) < 0);
+                  const back = b.entries.filter((e) => Number(e.quantity) > 0);
+                  return (
+                    <div key={sig} style={{ marginTop: 6 }}>
+                      <strong>{b.name || "—"}</strong>{" "}
+                      <span style={{ color: BRAND.sub }}>
+                        {[b.length, b.width, b.thickness].filter(Boolean).join(" × ")}
+                      </span>{" "}
+                      <span style={{ color: BRAND.red, fontWeight: 600 }}>{b.total}</span>
+                      <span style={{ color: BRAND.sub }}>
+                        {" "}— {drawn.reduce((n, e) => n + Math.abs(Number(e.quantity) || 0), 0)} drawn
+                        {back.length > 0 &&
+                          `, ${back.reduce((n, e) => n + (Number(e.quantity) || 0), 0)} logged back`}
+                        {back.length > 0 &&
+                          ` (${[...new Set(back.map((e) => e.jobId).filter(Boolean))].join(", ") || "no job"})`}
+                      </span>
+                      <button
+                        onClick={() => setExpanded((x) => ({ ...x, [sig]: !x[sig] }))}
+                        style={{ ...miniBtn, marginLeft: 8 }}
+                      >
+                        {expanded[sig] ? "Hide" : `History (${b.entries.length})`}
+                      </button>
+                      {expanded[sig] && (
+                        <div style={{ marginTop: 4, color: BRAND.sub, fontSize: 12 }}>
+                          {b.entries.map((e) => (
+                            <div key={e.id}>
+                              {Number(e.quantity) > 0 ? "+" : ""}
+                              {e.quantity} · {e.source || "manual"}
+                              {e.jobId ? ` · ${e.jobId}` : ""}
+                              {e.loggedBy ? ` · ${e.loggedBy}` : ""}
+                              {e.loggedAt ? ` · ${fmtStamp(e.loggedAt)}` : ""}
+                              {e.note ? ` · ${e.note}` : ""}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
 
             {/* One box per finish, several across. Everything under a finish —

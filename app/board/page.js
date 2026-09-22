@@ -1130,6 +1130,11 @@ export default function BoardPage() {
                 <th style={th}>Job name</th>
                 <th style={th}>Completed</th>
                 <th style={th}>By</th>
+                {/* The figure had no heading at all, which left a percentage
+                    sitting on its own meaning nothing. */}
+                <th style={th} title="Bought, less what was billed as area, less what went back on the shelf">
+                  Wastage
+                </th>
                 <th style={th}></th>
               </tr>
             </thead>
