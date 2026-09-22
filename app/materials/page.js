@@ -49,6 +49,11 @@ const VIEWS = [
   { key: "outstanding", label: "Outstanding" },
   { key: "ordered", label: "Ordered" },
   { key: "complete", label: "All in — completed orders" },
+  // Material that was never bought for this job — it was already on a rack.
+  // Not an order, so it doesn't belong in the three above; still Alice's,
+  // because she's the one who knows what's on the floor and what it was
+  // promised to.
+  { key: "stock", label: "From stock" },
   // Last, because it's the start of the list's life rather than a stage of
   // it: raised here, and from that moment it's sitting in Outstanding with
   // everything else waiting to be ordered.
@@ -675,6 +680,9 @@ export default function MaterialsPage() {
    * still on a truck somewhere.
    */
   const bucketOf = (m) => {
+    // Nothing was ordered, so none of the ordering stages apply: a stock line
+    // is either still to be fetched off the rack or it's been confirmed.
+    if (m.fromStock) return "stock";
     const state = effectiveState(m);
     if (state === "completed") return "complete";
     if (state === "ordered" || state === "part_received") return "ordered";
@@ -694,22 +702,32 @@ export default function MaterialsPage() {
   const counts = {
     outstanding: allLines.filter((m) => bucketOf(m) === "outstanding").length,
     ordered: allLines.filter((m) => bucketOf(m) === "ordered").length,
-    complete: allLines.filter((m) => bucketOf(m) === "complete" && isPurchase(m)).length,
+    complete: allLines.filter((m) => bucketOf(m) === "complete").length,
+    // What's still to be fetched and confirmed. The confirmed ones are listed
+    // under it, but a count of them is a count of finished work.
+    stock: allLines.filter((m) => bucketOf(m) === "stock" && effectiveState(m) !== "completed")
+      .length,
     preorders: preOrderLines.length,
   };
   // The Pre-orders tab has a list of its own below, so the shared table stands
   // down for it.
   const inView =
-    view === "preorders"
-      ? []
-      : allLines.filter((m) => bucketOf(m) === view && (view !== "complete" || isPurchase(m)));
+    view === "preorders" ? [] : allLines.filter((m) => bucketOf(m) === view);
 
   // Kept together by job. A job needing three boards is three orders to place,
   // but it is still one job, and a row of it sitting on its own three rows down
   // reads like somebody else's. Order within the list is otherwise untouched.
   const lines = (() => {
+    // On the stock tab, what still needs fetching comes before what's done.
+    const ordered =
+      view === "stock"
+        ? [...inView].sort((a, b) => {
+            const done = (m) => (effectiveState(m) === "completed" ? 1 : 0);
+            return done(a) - done(b);
+          })
+        : inView;
     const byJob = new Map();
-    for (const m of inView) {
+    for (const m of ordered) {
       const key = String(m.jobId || "");
       if (!byJob.has(key)) byJob.set(key, []);
       byJob.get(key).push(m);
@@ -860,7 +878,9 @@ export default function MaterialsPage() {
               {view === "preorders"
                 ? "Material wanted for a job that hasn't been handed over yet"
                 : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${
-                    view === "outstanding"
+                    view === "stock"
+                      ? "material promised off the racks — fetch it and confirm"
+                      : view === "outstanding"
                       ? "order each one, then mark it Ordered"
                       : view === "ordered"
                         ? "waiting on the supplier — tick each one as it lands"
@@ -1252,7 +1272,9 @@ export default function MaterialsPage() {
           <p style={{ fontSize: 13, color: BRAND.sub }}>
             {all.length === 0
               ? "Nothing handed over yet."
-              : view === "outstanding"
+              : view === "stock"
+                ? "No job is taking anything off the racks."
+                : view === "outstanding"
                 ? "Nothing left to order."
                 : view === "ordered"
                   ? "Nothing on order — everything's either still to buy or already in."
@@ -1497,7 +1519,125 @@ export default function MaterialsPage() {
           </div>
         )}
 
-        {view !== "complete" && lines.length > 0 && (
+        {/* Stock assigned to jobs: what's been promised off the racks, whether
+            it's been fetched yet, and who confirmed it. Alice needs this even
+            though there's nothing to buy — it's material spoken for, and the
+            only other place it shows is as a reserved figure against a
+            material rather than against a job. */}
+        {view === "stock" && lines.length > 0 && (
+          <div
+            style={{
+              overflowX: "auto",
+              background: BRAND.card,
+              border: `1px solid ${BRAND.line}`,
+              borderRadius: 10,
+            }}
+          >
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <thead>
+                <tr>
+                  <th style={th}>Job</th>
+                  <th style={th}>Project</th>
+                  <th style={th}>Material</th>
+                  <th style={{ ...th, textAlign: "right" }}>Qty</th>
+                  <th style={th}>Confirmed</th>
+                  <th style={{ ...th, textAlign: "right" }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((m, i) => {
+                  const key = keyOf(m);
+                  const busy = pending[key];
+                  const done = effectiveState(m) === "completed";
+                  const { finish, substrate } = halves(m);
+                  const sameJobAbove = i > 0 && lines[i - 1].jobId === m.jobId;
+                  const sameJobBelow = i + 1 < lines.length && lines[i + 1].jobId === m.jobId;
+                  const cell = { ...td, borderBottom: sameJobBelow ? "none" : td.borderBottom };
+                  return (
+                    <tr key={key}>
+                      <td style={cell}>
+                        {sameJobAbove ? (
+                          <span style={{ color: "#cfcac0" }}>↳</span>
+                        ) : (
+                          <a
+                            href={`${HANDOVER_APP}/${encodeURIComponent(m.jobId)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
+                          >
+                            {m.jobId}
+                          </a>
+                        )}
+                      </td>
+                      <td style={{ ...cell, whiteSpace: "normal", minWidth: 140 }}>
+                        {sameJobAbove ? "" : m.project || "—"}
+                      </td>
+                      <td style={{ ...cell, whiteSpace: "normal", minWidth: 160 }}>
+                        {finish || m.name || "—"}
+                        {substrate && <span style={{ color: BRAND.sub }}> on {substrate}</span>}
+                        <div style={{ fontSize: 11, color: BRAND.sub }}>{size(m)}</div>
+                      </td>
+                      <td style={{ ...cell, textAlign: "right" }}>
+                        {orderQty(m) || m.quantity || "—"}
+                      </td>
+                      <td style={{ ...cell, color: BRAND.sub, whiteSpace: "nowrap" }}>
+                        {done && m.completedAt ? (
+                          <>
+                            {fmtStamp(m.completedAt)}
+                            {m.completedBy && (
+                              <div style={{ fontSize: 11 }}>{m.completedBy.split("@")[0]}</div>
+                            )}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td style={{ ...cell, textAlign: "right" }}>
+                        {done ? (
+                          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                            <span style={{ color: BRAND.green, fontSize: 12, fontWeight: 500 }}>
+                              ✓ In stock
+                            </span>
+                            <button
+                              onClick={() => setLine(m.jobId, m.id, { state: "to_order" })}
+                              disabled={busy || !canEdit}
+                              style={{
+                                ...btn,
+                                background: BRAND.red,
+                                borderColor: BRAND.red,
+                                color: "#fff",
+                                opacity: busy ? 0.6 : 1,
+                              }}
+                            >
+                              Undo
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
+                            disabled={busy || !canEdit}
+                            title="It's on the rack and it's this job's — confirmed"
+                            style={{
+                              ...btn,
+                              background: BRAND.green,
+                              borderColor: BRAND.green,
+                              color: "#fff",
+                              opacity: busy ? 0.6 : 1,
+                            }}
+                          >
+                            Confirm stock
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {view !== "complete" && view !== "stock" && lines.length > 0 && (
           <div
             style={{
               overflowX: "auto",
