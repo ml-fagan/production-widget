@@ -202,6 +202,10 @@ export default function MaterialsPage() {
   // of them quote theirs back when you ring about a late delivery.
   const [oc, setOc] = useState({});
   const [pending, setPending] = useState({});
+  // Which shared-material group is expanded, if any. Opening one lists its
+  // lines outright rather than filtering the board — the lines are usually in
+  // different tabs, and a filter can only ever show you the one you're on.
+  const [batchOpen, setBatchOpen] = useState(null);
   const [showPreOrder, setShowPreOrder] = useState(false);
   const [preOrderSaving, setPreOrderSaving] = useState(false);
   // Which pre-order is open for correcting, if any.
@@ -1336,7 +1340,9 @@ export default function MaterialsPage() {
           </div>
         )}
 
-        {view !== "preorders" && batches.length > 0 && (
+        {/* Only on Outstanding: this is a prompt about what to buy, and the
+            other tabs are about what's already been bought. */}
+        {view === "outstanding" && batches.length > 0 && (
           <div
             style={{
               background: "#fdf8ee",
@@ -1352,23 +1358,75 @@ export default function MaterialsPage() {
               more than one job
             </strong>
             <span style={{ color: BRAND.sub }}> — could go on one order.</span>
-            {batches.map((g) => (
-              <div key={g.key} style={{ marginTop: 4 }}>
-                {[g.finish, g.substrate].filter(Boolean).join(" on ")}:{" "}
-                {[...new Set(g.rows.map((r) => r.jobId))].join(", ")}
-                <button
-                  onClick={() => setQuery(g.term)}
-                  style={{
-                    ...btn,
-                    marginLeft: 8,
-                    padding: "1px 8px",
-                    fontSize: 11,
-                  }}
-                >
-                  Show the {g.rows.length}
-                </button>
-              </div>
-            ))}
+            {batches.map((g) => {
+              const open = batchOpen === g.key;
+              return (
+                <div key={g.key} style={{ marginTop: 4 }}>
+                  {[g.finish, g.substrate].filter(Boolean).join(" on ")}:{" "}
+                  {[...new Set(g.rows.map((r) => r.jobId))].join(", ")}
+                  <button
+                    onClick={() => setBatchOpen(open ? null : g.key)}
+                    style={{ ...btn, marginLeft: 8, padding: "1px 8px", fontSize: 11 }}
+                  >
+                    {open ? "Hide" : `Show the ${g.rows.length}`}
+                  </button>
+                  {/* Listed here rather than filtered into the table below,
+                      because the lines are rarely all in one tab: one job has
+                      ordered its share and the other hasn't, and a filter on
+                      Outstanding would quietly show only half of it. */}
+                  {open && (
+                    <table
+                      style={{
+                        borderCollapse: "collapse",
+                        fontSize: 12,
+                        marginTop: 6,
+                        background: BRAND.card,
+                        border: `1px solid ${BRAND.line}`,
+                        borderRadius: 6,
+                      }}
+                    >
+                      <tbody>
+                        {g.rows.map((r) => (
+                          <tr key={keyOf(r)}>
+                            <td style={{ padding: "3px 12px 3px 8px", fontWeight: 600 }}>
+                              {r.jobId}
+                              {r.isPreOrder && (
+                                <span style={{ marginLeft: 5, fontSize: 10, color: BRAND.amber }}>
+                                  pre-order
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ padding: "3px 12px 3px 0" }}>{r.project || "—"}</td>
+                            <td style={{ padding: "3px 12px 3px 0", color: BRAND.sub }}>
+                              {size(r)}
+                            </td>
+                            <td style={{ padding: "3px 12px 3px 0", textAlign: "right" }}>
+                              {orderQty(r) || r.quantity || "—"}
+                            </td>
+                            <td style={{ padding: "3px 12px 3px 0", color: BRAND.sub }}>
+                              {r.supplier || "—"}
+                            </td>
+                            {/* Which tab it's sitting in, so "the other one is
+                                already on order" is visible from here. */}
+                            <td style={{ padding: "3px 8px 3px 0" }}>
+                              {bucketOf(r) === "outstanding" ? (
+                                <span style={{ color: BRAND.amber }}>still to order</span>
+                              ) : bucketOf(r) === "ordered" ? (
+                                <span style={{ color: BRAND.sub }}>
+                                  on order{r.poNumber ? ` · PO ${r.poNumber}` : ""}
+                                </span>
+                              ) : (
+                                <span style={{ color: BRAND.green }}>in</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -1787,12 +1845,15 @@ export default function MaterialsPage() {
                         {halves(m).finish || "—"}
                         {/* Another job wants this same board. Said on the line,
                             because this is where she decides what to order. */}
-                        {batch && (
+                        {batch && view === "outstanding" && (
                           <button
-                            onClick={() => setQuery(batch.term)}
+                            onClick={() => {
+                              setBatchOpen(batchOpen === batch.key ? null : batch.key);
+                              window.scrollTo({ top: 0, behavior: "smooth" });
+                            }}
                             title={`Also wanted by ${[...new Set(batch.rows.map((r) => r.jobId))]
                               .filter((id) => id !== m.jobId)
-                              .join(", ")} — click to see them together`}
+                              .join(", ")} — click to list them`}
                             style={{
                               marginLeft: 6,
                               background: "none",
