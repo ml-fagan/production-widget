@@ -63,7 +63,13 @@ const VIEWS = [
   // Not an order, so it doesn't belong in the three above; still Alice's,
   // because she's the one who knows what's on the floor and what it was
   // promised to.
-  { key: "stock", label: "From stock" },
+  //
+  // "Off the rack" rather than "From stock": this is how a line was filled,
+  // not a view of the register. The Stock tab two controls away is the
+  // register, and two near-identical names next to each other meant reading
+  // the table to find out which one you'd clicked. The key stays "stock" —
+  // it's internal, and the state behind it hasn't changed.
+  { key: "stock", label: "Off the rack" },
   // Last, because it's the start of the list's life rather than a stage of
   // it: raised here, and from that moment it's sitting in Outstanding with
   // everything else waiting to be ordered.
@@ -717,10 +723,17 @@ export default function MaterialsPage() {
     outstanding: allLines.filter((m) => bucketOf(m) === "outstanding").length,
     ordered: allLines.filter((m) => bucketOf(m) === "ordered").length,
     complete: allLines.filter((m) => bucketOf(m) === "complete").length,
-    // What's still to be fetched and confirmed. The confirmed ones are listed
-    // under it, but a count of them is a count of finished work.
-    stock: allLines.filter((m) => bucketOf(m) === "stock" && effectiveState(m) !== "completed")
-      .length,
+    // Every line filled off a rack, confirmed or not — the same rule as the
+    // three tabs beside it, so the number on a tab is the number of rows under
+    // it. It used to count only what still needed confirming, which read as
+    // "Off the rack (0)" above ten rows of confirmed material: a tab
+    // apparently empty and a table apparently full. How many still need
+    // fetching is worth knowing, so it moved to the subtitle, where it can say
+    // what it means.
+    stock: allLines.filter((m) => bucketOf(m) === "stock").length,
+    stockToConfirm: allLines.filter(
+      (m) => bucketOf(m) === "stock" && effectiveState(m) !== "completed"
+    ).length,
     preorders: preOrderLines.length,
   };
   // The Pre-orders tab has a list of its own below, so the shared table stands
@@ -893,7 +906,12 @@ export default function MaterialsPage() {
                 ? "Material wanted for a job that hasn't been handed over yet"
                 : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${
                     view === "stock"
-                      ? "material promised off the racks — fetch it and confirm"
+                      ? // Only ask for work when there is some. The line used
+                        // to say "fetch it and confirm" over a table where
+                        // every row was already ticked.
+                        counts.stockToConfirm > 0
+                        ? `filled off the racks · ${counts.stockToConfirm} still to fetch and confirm`
+                        : "filled off the racks · all confirmed, nothing to fetch"
                       : view === "outstanding"
                       ? "order each one, then mark it Ordered"
                       : view === "ordered"
@@ -1292,7 +1310,7 @@ export default function MaterialsPage() {
                 ? "Nothing left to order."
                 : view === "ordered"
                   ? "Nothing on order — everything's either still to buy or already in."
-                  : "No completed orders yet — stock fetched off the racks isn't listed here."}
+                  : "No completed orders yet — material filled off the racks isn't listed here."}
           </p>
         )}
 
@@ -1526,8 +1544,11 @@ export default function MaterialsPage() {
                         <div style={{ fontSize: 11, color: BRAND.sub }}>{size(m)}</div>
                       </td>
                       <td style={{ ...cell, textAlign: "right" }}>{orderQty(m) || m.quantity || "—"}</td>
+                      {/* Nobody supplied it — it came off a rack. Saying so in
+                          the supplier column, rather than "Stock", keeps the
+                          register out of a question about buying. */}
                       <td style={{ ...cell, color: BRAND.sub }}>
-                        {m.fromStock ? "Stock" : m.supplier || "—"}
+                        {m.fromStock ? "Off the rack" : m.supplier || "—"}
                       </td>
                       <td style={cell}>{m.poNumber || "—"}</td>
                       <td style={cell}>{m.ocNumber || "—"}</td>
@@ -1587,11 +1608,11 @@ export default function MaterialsPage() {
           </div>
         )}
 
-        {/* Stock assigned to jobs: what's been promised off the racks, whether
-            it's been fetched yet, and who confirmed it. Alice needs this even
-            though there's nothing to buy — it's material spoken for, and the
-            only other place it shows is as a reserved figure against a
-            material rather than against a job. */}
+        {/* Lines filled off a rack rather than bought: what's been promised to
+            a job, whether it's been fetched yet, and who confirmed it. Alice
+            needs this even though there's nothing to buy — it's material spoken
+            for, and the only other place it shows is as a reserved figure
+            against a material rather than against a job. */}
         {view === "stock" && lines.length > 0 && (
           <div
             style={{
@@ -1885,7 +1906,9 @@ export default function MaterialsPage() {
                       <td style={{ ...td, whiteSpace: "normal", minWidth: 100, color: BRAND.sub }}>
                         {halves(m).substrate || "—"}
                       </td>
-                      <td style={{ ...td, color: BRAND.sub }}>{m.fromStock ? "Stock" : m.supplier || "—"}</td>
+                      <td style={{ ...td, color: BRAND.sub }}>
+                        {m.fromStock ? "Off the rack" : m.supplier || "—"}
+                      </td>
                       {/* The supplier's order number. Nothing in the job says
                           it, so it has to be typed once — here, where the order
                           is placed — and from then on it's what the warehouse
