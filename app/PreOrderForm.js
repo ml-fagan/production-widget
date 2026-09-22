@@ -35,6 +35,10 @@ const blankRow = () => ({
 
 export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initial = null }) {
   const [crm, setCrm] = useState(initial?.crm ?? "");
+  // Bought for the racks rather than for a job: a run of something because
+  // it's cheaper by the pallet, or because we always need it. Still an order —
+  // supplier, PO, a delivery to book in — it just has no CRM to sit under.
+  const [forStock, setForStock] = useState(Boolean(initial?.forStock));
   const [project, setProject] = useState(initial?.project ?? "");
   const [expectedDate, setExpectedDate] = useState(initial?.expectedDate ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
@@ -99,12 +103,13 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initia
   // A line with no finish is a line nobody filled in — the last empty one left
   // behind after adding it by accident. It's dropped rather than refused.
   const filled = rows.filter((r) => r.finish.trim());
-  const valid = crm.trim() && filled.length > 0;
+  const valid = (crm.trim() || forStock) && filled.length > 0;
 
   const submit = () =>
     onSubmit(
       filled.map((r) => ({
-        crm: crm.trim(),
+        crm: forStock ? "" : crm.trim(),
+        forStock,
         project: project.trim(),
         finish: r.finish.trim(),
         substrate: r.substrate.trim(),
@@ -131,7 +136,25 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initia
       <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: 8, marginBottom: 12 }}>
         <div>
           <label style={label}>CRM</label>
-          <input style={input} value={crm} onChange={(e) => setCrm(e.target.value)} placeholder="e.g. 20488-1" />
+          <input
+            style={{ ...input, background: forStock ? "#f5f3ef" : input.background }}
+            value={forStock ? "" : crm}
+            disabled={forStock}
+            onChange={(e) => setCrm(e.target.value)}
+            placeholder={forStock ? "for stock" : "e.g. 20488-1"}
+          />
+          <label
+            style={{ ...label, display: "block", marginTop: 4, cursor: "pointer" }}
+            title="A bulk buy for the racks. It's ordered and booked in like any other, and all of it goes to stock when it lands."
+          >
+            <input
+              type="checkbox"
+              checked={forStock}
+              onChange={(e) => setForStock(e.target.checked)}
+              style={{ verticalAlign: "middle", marginRight: 4 }}
+            />
+            For stock — no job
+          </label>
         </div>
         <div>
           <label style={label}>Project (optional)</label>

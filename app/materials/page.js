@@ -662,8 +662,8 @@ export default function MaterialsPage() {
       // The CRM is typed by hand and may not be a job yet, which is the whole
       // point of a pre-order — so it reads as the job number but doesn't
       // promise there's a handover behind it.
-      jobId: p.crm,
-      hasHandover: all.some((h) => h.jobId === p.crm),
+      jobId: p.crm || "Stock",
+      hasHandover: Boolean(p.crm) && all.some((h) => h.jobId === p.crm),
       project: p.project || "",
       state: p.state || "to_order",
     }));
@@ -1443,7 +1443,7 @@ export default function MaterialsPage() {
                               padding: "0 4px",
                             }}
                           >
-                            PRE-ORDER
+                            {m.forStock ? "FOR STOCK" : "PRE-ORDER"}
                           </span>
                         )}
                       </td>

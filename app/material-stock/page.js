@@ -402,6 +402,76 @@ export default function MaterialStockPage() {
     []
   );
 
+  /**
+   * The job's own picking-list line for this material, if it has one.
+   *
+   * Drawing stock and ticking "In stock" on a handover are two people moving
+   * the same sheets, and they used to know nothing about each other: she'd
+   * draw them here, the schedule would draw them again when Duncan dated the
+   * job, and the register would be short twice over. So a draw looks for the
+   * line first and goes through it — confirming it and stamping it drawn, so
+   * the schedule leaves it alone.
+   *
+   * Matched on the name and the size as the register stores them. A line
+   * that's already been drawn doesn't count: those sheets are gone.
+   */
+  const lineForDraw = useCallback(
+    (jobId, b) => {
+      const job = jobs.find((h) => h.jobId === jobId);
+      if (!job) return null;
+      const size = (x) =>
+        [dimension(x.length), dimension(x.width), dimension(x.thickness)].join("|");
+      return (
+        (job.materials || []).find(
+          (m) =>
+            m.fromStock &&
+            !m.stockDrawnAt &&
+            String(m.name || "").trim().toLowerCase() ===
+              String(b.name || "").trim().toLowerCase() &&
+            size(m) === size(b)
+        ) || null
+      );
+    },
+    [jobs]
+  );
+
+  /** Drawing through the line, so it can only happen once. */
+  const drawAgainstLine = useCallback(async (jobId, lineId, quantity, note) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return false;
+    }
+    setSaving(true);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/draw-stock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, lineId, quantity, note, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        throw new Error(
+          json.error === "already_drawn"
+            ? "That line has already been drawn — the sheets are off the register."
+            : json.error || "Save failed"
+        );
+      }
+      // The ledger, the job and the claim all moved at once.
+      load();
+      loadAvailable();
+      loadJobs();
+      return true;
+    } catch (e) {
+      setActionError(String(e.message || e));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [load, loadAvailable, loadJobs]);
+
   const balances = useMemo(() => balancesFrom(entries), [entries]);
   const q = query.trim().toLowerCase();
   const matchingBalances = q ? balances.filter((b) => (b.name || "").toLowerCase().includes(q)) : balances;
@@ -868,17 +938,29 @@ export default function MaterialStockPage() {
                               jobs={jobs}
                               saving={saving}
                               onCancel={() => setUseRow(null)}
+                              lineFor={(jobId) => lineForDraw(jobId, b)}
                               onSubmit={async (patch) => {
-                                const ok = await submit({
-                                  name: b.name,
-                                  length: b.length,
-                                  width: b.width,
-                                  thickness: b.thickness,
-                                  quantity: -Math.abs(patch.quantity),
-                                  jobId: patch.jobId,
-                                  project: patch.project,
-                                  note: patch.note,
-                                });
+                                // Through the job's own line where there is
+                                // one, so the schedule doesn't draw the same
+                                // sheets again a day later.
+                                const line = patch.jobId ? lineForDraw(patch.jobId, b) : null;
+                                const ok = line
+                                  ? await drawAgainstLine(
+                                      patch.jobId,
+                                      line.id,
+                                      Math.abs(patch.quantity),
+                                      patch.note
+                                    )
+                                  : await submit({
+                                      name: b.name,
+                                      length: b.length,
+                                      width: b.width,
+                                      thickness: b.thickness,
+                                      quantity: -Math.abs(patch.quantity),
+                                      jobId: patch.jobId,
+                                      project: patch.project,
+                                      note: patch.note,
+                                    });
                                 if (ok) setUseRow(null);
                               }}
                             />
@@ -1300,7 +1382,7 @@ function JobPicker({ brand, jobs, value, onChange, placeholder }) {
   );
 }
 
-function UseStockForm({ brand, max, jobs, onSubmit, onCancel, saving }) {
+function UseStockForm({ brand, max, jobs, onSubmit, onCancel, saving, lineFor }) {
   const [quantity, setQuantity] = useState("");
   const [job, setJob] = useState(null);
   const [note, setNote] = useState("");
@@ -1315,6 +1397,7 @@ function UseStockForm({ brand, max, jobs, onSubmit, onCancel, saving }) {
 
   const qty = Number(quantity) || 0;
   const valid = qty > 0 && qty <= max;
+  const matched = job && lineFor ? lineFor(job.jobId) : null;
 
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", marginTop: 10, paddingTop: 10, borderTop: `1px solid ${brand.line}` }}>
@@ -1330,6 +1413,15 @@ function UseStockForm({ brand, max, jobs, onSubmit, onCancel, saving }) {
         <label style={{ fontSize: 11, color: brand.sub, display: "block" }}>Note (optional)</label>
         <input style={{ ...input, width: "100%", boxSizing: "border-box" }} value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
+      {/* When the job's picking list already asks for this material, the
+          draw goes through that line rather than beside it — so the schedule
+          doesn't take the same sheets off again when Duncan dates the job. */}
+      {matched && (
+        <div style={{ fontSize: 11, color: brand.green, flexBasis: "100%", order: 9 }}>
+          {job.jobId} has this on its picking list as In stock — confirming that line and marking it
+          drawn, so it can only come off the register once.
+        </div>
+      )}
       <button
         disabled={!valid || saving}
         onClick={() =>
