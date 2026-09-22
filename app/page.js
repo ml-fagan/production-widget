@@ -18,6 +18,16 @@ const BRAND = {
 };
 
 // Auto-refresh cadence while the window is open (ms). 15 min.
+// A tab nobody is looking at doesn't need reading for. Every board refreshes
+// when it's focused, so a hidden one loses nothing by sitting still — and a
+// browser left open over a weekend stops costing anything.
+function pollWhenVisible(run, everyMs) {
+  return setInterval(() => {
+    if (typeof document !== "undefined" && document.hidden) return;
+    run();
+  }, everyMs);
+}
+
 const REFRESH_MS = 15 * 60 * 1000;
 
 // Pending generated links, remembered per-browser only (personal convenience
@@ -123,7 +133,7 @@ export default function Page() {
   useEffect(() => {
     load();
     loadHandovers();
-    const id = setInterval(() => {
+    const id = pollWhenVisible(() => {
       load();
       loadHandovers();
     }, REFRESH_MS);

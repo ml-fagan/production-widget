@@ -32,11 +32,22 @@ const BRAND = {
   red: "#a3312c",
 };
 
-// Fifteen minutes like the other boards. Five had this page reading every
-// handover, every leftover and every pre-order twelve times an hour per
-// person, which was two thirds of a day's free Firestore quota from one tab —
-// and a delivery that landed four minutes ago is not news.
-const REFRESH_MS = 15 * 60 * 1000;
+// Hourly. Material takes days to come in after it's ordered, so nothing on
+// this page changes on a scale that a five-minute poll could catch — and the
+// page reads every handover, every leftover and every pre-order each time it
+// does. What actually keeps it current is the dock opening the tab when a
+// truck arrives, which refreshes it on focus, and the Refresh button.
+// A tab nobody is looking at doesn't need reading for. Every board refreshes
+// when it's focused, so a hidden one loses nothing by sitting still — and a
+// browser left open over a weekend stops costing anything.
+function pollWhenVisible(run, everyMs) {
+  return setInterval(() => {
+    if (typeof document !== "undefined" && document.hidden) return;
+    run();
+  }, everyMs);
+}
+
+const REFRESH_MS = 60 * 60 * 1000;
 const HANDOVER_APP = "https://decorhandover.lyphex.com";
 // How far back "just arrived" reaches. Long enough that a morning delivery is
 // still on screen at knock-off, short enough that the list stays a list.
@@ -128,7 +139,7 @@ export default function WarehousePage() {
 
   useEffect(() => {
     load();
-    const id = setInterval(load, REFRESH_MS);
+    const id = pollWhenVisible(load, REFRESH_MS);
     const onFocus = () => load();
     window.addEventListener("focus", onFocus);
     return () => {
