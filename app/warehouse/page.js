@@ -32,7 +32,11 @@ const BRAND = {
   red: "#a3312c",
 };
 
-const REFRESH_MS = 5 * 60 * 1000;
+// Fifteen minutes like the other boards. Five had this page reading every
+// handover, every leftover and every pre-order twelve times an hour per
+// person, which was two thirds of a day's free Firestore quota from one tab —
+// and a delivery that landed four minutes ago is not news.
+const REFRESH_MS = 15 * 60 * 1000;
 const HANDOVER_APP = "https://decorhandover.lyphex.com";
 // How far back "just arrived" reaches. Long enough that a morning delivery is
 // still on screen at knock-off, short enough that the list stays a list.
