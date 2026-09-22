@@ -60,6 +60,19 @@ function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" });
 }
 
+/** "22 Sept, 10:27 am" — the way Duncan's completed list writes a stamp. */
+function fmtStamp(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString("en-AU", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function fmtDay(value) {
   if (!value) return "";
   const d = new Date(value);
@@ -1321,7 +1334,154 @@ export default function MaterialsPage() {
           </div>
         )}
 
-        {lines.length > 0 && (
+        {/* Finished orders are a record, not a worklist: what was bought, from
+            whom, under which number, when it was placed, when it turned up and
+            how long that took — one line each, the way the schedule board
+            lists completed jobs. The working tabs keep the boxes and buttons;
+            there's nothing left to do to these. */}
+        {view === "complete" && lines.length > 0 && (
+          <div
+            style={{
+              overflowX: "auto",
+              background: BRAND.card,
+              border: `1px solid ${BRAND.line}`,
+              borderRadius: 10,
+            }}
+          >
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <thead>
+                <tr>
+                  <th style={th}>Job</th>
+                  <th style={th}>Project</th>
+                  <th style={th}>Material</th>
+                  <th style={{ ...th, textAlign: "right" }}>Qty</th>
+                  <th style={th}>Supplier</th>
+                  <th style={th}>PO</th>
+                  <th style={th} title="The supplier's own order confirmation or sales number">
+                    OC
+                  </th>
+                  <th style={th}>Ordered</th>
+                  <th style={th}>Arrived</th>
+                  <th style={{ ...th, textAlign: "right" }}>Lead</th>
+                  <th style={th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((m, i) => {
+                  const key = keyOf(m);
+                  const busy = pending[key];
+                  const pre = Boolean(m.isPreOrder);
+                  const { finish, substrate } = halves(m);
+                  const days = leadDays(m);
+                  const sameJobAbove = i > 0 && lines[i - 1].jobId === m.jobId;
+                  const sameJobBelow = i + 1 < lines.length && lines[i + 1].jobId === m.jobId;
+                  const cell = { ...td, borderBottom: sameJobBelow ? "none" : td.borderBottom };
+                  return (
+                    <tr key={key} style={pre ? { background: "#fdf8ee" } : undefined}>
+                      <td style={cell}>
+                        {sameJobAbove ? (
+                          <span style={{ color: "#cfcac0" }}>↳</span>
+                        ) : pre && !m.hasHandover ? (
+                          <span style={{ fontWeight: 600 }}>{m.jobId}</span>
+                        ) : (
+                          <a
+                            href={`${HANDOVER_APP}/${encodeURIComponent(m.jobId)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
+                          >
+                            {m.jobId}
+                          </a>
+                        )}
+                        {pre && !sameJobAbove && (
+                          <span
+                            style={{
+                              marginLeft: 5,
+                              fontSize: 10,
+                              fontWeight: 600,
+                              color: BRAND.amber,
+                              border: `1px solid ${BRAND.amber}`,
+                              borderRadius: 4,
+                              padding: "0 4px",
+                            }}
+                          >
+                            PRE-ORDER
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ ...cell, whiteSpace: "normal", minWidth: 130 }}>
+                        {sameJobAbove ? "" : m.project || "—"}
+                      </td>
+                      <td style={{ ...cell, whiteSpace: "normal", minWidth: 160 }}>
+                        {finish || m.name || "—"}
+                        {substrate && (
+                          <span style={{ color: BRAND.sub }}> on {substrate}</span>
+                        )}
+                        <div style={{ fontSize: 11, color: BRAND.sub }}>{size(m)}</div>
+                      </td>
+                      <td style={{ ...cell, textAlign: "right" }}>{orderQty(m) || m.quantity || "—"}</td>
+                      <td style={{ ...cell, color: BRAND.sub }}>
+                        {m.fromStock ? "Stock" : m.supplier || "—"}
+                      </td>
+                      <td style={cell}>{m.poNumber || "—"}</td>
+                      <td style={cell}>{m.ocNumber || "—"}</td>
+                      {/* A stock line was never ordered from anybody — it was
+                          fetched off a rack and confirmed, so there's no lead
+                          to quote and a zero would be a lie. */}
+                      <td style={{ ...cell, color: BRAND.sub, whiteSpace: "nowrap" }}>
+                        {m.fromStock || !m.orderedAt ? (
+                          "—"
+                        ) : (
+                          <>
+                            {fmtStamp(m.orderedAt)}
+                            {m.orderedBy && (
+                              <div style={{ fontSize: 11 }}>{m.orderedBy.split("@")[0]}</div>
+                            )}
+                          </>
+                        )}
+                      </td>
+                      <td style={{ ...cell, color: BRAND.sub, whiteSpace: "nowrap" }}>
+                        {m.completedAt ? (
+                          <>
+                            {fmtStamp(m.completedAt)}
+                            {m.completedBy && (
+                              <div style={{ fontSize: 11 }}>{m.completedBy.split("@")[0]}</div>
+                            )}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td style={{ ...cell, textAlign: "right", whiteSpace: "nowrap" }}>
+                        {m.fromStock ? (
+                          <span style={{ color: BRAND.sub }}>stock</span>
+                        ) : days === null ? (
+                          <span style={{ color: BRAND.sub }}>—</span>
+                        ) : (
+                          <strong>{days} {days === 1 ? "day" : "days"}</strong>
+                        )}
+                      </td>
+                      <td style={{ ...cell, textAlign: "right" }}>
+                        {!pre && (
+                          <button
+                            onClick={() => setLine(m.jobId, m.id, { state: "ordered" })}
+                            disabled={busy || !canEdit}
+                            title="Put it back on order — booked in by mistake"
+                            style={{ ...btn, color: BRAND.sub, opacity: busy ? 0.6 : 1 }}
+                          >
+                            Undo
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {view !== "complete" && lines.length > 0 && (
           <div
             style={{
               overflowX: "auto",
