@@ -7,7 +7,7 @@ import SignIn from "../SignIn.js";
 import PickOne from "../PickOne.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { PROCESS_COLUMNS, CELL_COLOURS, cellState } from "../../lib/board.js";
-import { groupByFinish } from "../../lib/materialGroups.js";
+import { groupByFinish, dimension, splitMaterialName } from "../../lib/materialGroups.js";
 
 // Stock — everything about where material physically is, outside the
 // ordered/delivered checklist on Material orders: what's on hand in the
@@ -38,9 +38,11 @@ const HANDOVER_APP = "https://decorhandover.lyphex.com";
 function signature(e) {
   return [
     String(e.name || "").trim().toLowerCase(),
-    String(e.length ?? "").trim(),
-    String(e.width ?? "").trim(),
-    String(e.thickness ?? "").trim(),
+    // Read as numbers, so "9mm" and "9" are one shelf rather than two —
+    // see `dimension`.
+    String(dimension(e.length)),
+    String(dimension(e.width)),
+    String(dimension(e.thickness)),
   ].join("|");
 }
 
@@ -196,6 +198,10 @@ export default function MaterialStockPage() {
   const [section, setSection] = useState("hand");
   const [user, setUser] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  // What "Enter what's on the rack" puts into the Add form: the material the
+  // register is short of, so squaring it is a quantity rather than six fields
+  // retyped from a red line two inches above.
+  const [addInitial, setAddInitial] = useState(null);
   const [useRow, setUseRow] = useState(null); // signature of the row being drawn down
   const [expanded, setExpanded] = useState({});
   const [saving, setSaving] = useState(false);
@@ -360,6 +366,41 @@ export default function MaterialStockPage() {
       setSaving(false);
     }
   }, []);
+
+  /**
+   * Accepting that a negative balance is never going to be filled.
+   *
+   * Sheets were drawn for a job that the register never held — because they
+   * went on a rack card under another name, or were never entered at all. If
+   * nobody is going to enter them now, the honest close is not to hide the
+   * line but to post the correction: a balancing entry, with a note saying
+   * what it is, which brings the material to zero and leaves the whole story
+   * in its history. A ledger squares up; it doesn't forget.
+   */
+  const writeOff = useCallback(
+    async (b) => {
+      const short = -Number(b.total) || 0;
+      if (short <= 0) return;
+      if (
+        !window.confirm(
+          `Write off ${short} × ${b.name}?\n\nThis doesn't put anything on the racks — it records that ${short} were drawn for jobs that the register never held, and brings it to zero.`
+        )
+      ) {
+        return;
+      }
+      await submit({
+        name: b.name,
+        length: b.length,
+        width: b.width,
+        thickness: b.thickness,
+        quantity: short,
+        note: "Written off — drawn for jobs without ever being entered here",
+      });
+    },
+    // submit is defined above and stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   const balances = useMemo(() => balancesFrom(entries), [entries]);
   const q = query.trim().toLowerCase();
@@ -579,14 +620,23 @@ export default function MaterialStockPage() {
             </div>
 
             {showAdd && (
+              /* key so the form remounts with whatever it's been handed. */
               <AddStockForm
+                key={addInitial ? `${addInitial.finish}|${addInitial.thickness}` : "blank"}
                 brand={BRAND}
                 options={options}
                 saving={saving}
-                onCancel={() => setShowAdd(false)}
+                initial={addInitial}
+                onCancel={() => {
+                  setShowAdd(false);
+                  setAddInitial(null);
+                }}
                 onSubmit={async (entry) => {
                   const ok = await submit({ ...entry, quantity: Math.abs(entry.quantity) });
-                  if (ok) setShowAdd(false);
+                  if (ok) {
+                    setShowAdd(false);
+                    setAddInitial(null);
+                  }
                 }}
               />
             )}
@@ -642,6 +692,35 @@ export default function MaterialStockPage() {
                         style={{ ...miniBtn, marginLeft: 8 }}
                       >
                         {expanded[sig] ? "Hide" : `History (${b.entries.length})`}
+                      </button>
+                      {/* The two ways out: the sheets are on a rack and were
+                          never entered, or they aren't and never were. */}
+                      <button
+                        onClick={() => {
+                          const { finish, substrate } = splitMaterialName(b.name);
+                          setAddInitial({
+                            finish,
+                            substrate,
+                            length: String(dimension(b.length) ?? ""),
+                            width: String(dimension(b.width) ?? ""),
+                            thickness: String(dimension(b.thickness) ?? ""),
+                            quantity: String(-Number(b.total) || ""),
+                          });
+                          setShowAdd(true);
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                        title="They're on a rack — enter what's actually there"
+                        style={{ ...miniBtn, marginLeft: 6, color: BRAND.green, borderColor: BRAND.green }}
+                      >
+                        Enter what&apos;s on the rack
+                      </button>
+                      <button
+                        onClick={() => writeOff(b)}
+                        disabled={saving}
+                        title="They aren't there — record the correction and bring it to zero"
+                        style={{ ...miniBtn, marginLeft: 6, color: BRAND.sub }}
+                      >
+                        Write it off
                       </button>
                       {expanded[sig] && (
                         <div style={{ marginTop: 4, color: BRAND.sub, fontSize: 12 }}>
@@ -721,7 +800,7 @@ export default function MaterialStockPage() {
                             <span style={{ fontSize: 13 }}>{b.substrate || "—"}</span>
                             {b.thickness ? (
                               <span style={{ fontSize: 13, color: BRAND.sub }}>
-                                {b.thickness}mm
+                                {dimension(b.thickness)}mm
                               </span>
                             ) : null}
                             <span
@@ -1014,19 +1093,19 @@ function materialNameOf(finish, substrate) {
  * what stops a one-off finish from being forced into the nearest wrong one.
  */
 
-function AddStockForm({ brand, onSubmit, onCancel, saving, options }) {
+function AddStockForm({ brand, onSubmit, onCancel, saving, options, initial = null }) {
   // Two halves rather than one free-text name, the same as the handover's
   // picking list. If Alice types "Tas Oak" while Mitch picks "Smartlook
   // Tasmanian Oak", the register holds material his job can't find.
-  const [finish, setFinish] = useState("");
-  const [substrate, setSubstrate] = useState("");
+  const [finish, setFinish] = useState(initial?.finish ?? "");
+  const [substrate, setSubstrate] = useState(initial?.substrate ?? "");
   const name = materialNameOf(finish, substrate);
-  const [length, setLength] = useState("");
-  const [width, setWidth] = useState("");
-  const [thickness, setThickness] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [location, setLocation] = useState("");
-  const [note, setNote] = useState("");
+  const [length, setLength] = useState(initial?.length ?? "");
+  const [width, setWidth] = useState(initial?.width ?? "");
+  const [thickness, setThickness] = useState(initial?.thickness ?? "");
+  const [quantity, setQuantity] = useState(initial?.quantity ?? "");
+  const [location, setLocation] = useState(initial?.location ?? "");
+  const [note, setNote] = useState(initial?.note ?? "");
 
   const input = {
     border: `1px solid ${brand.line}`,
