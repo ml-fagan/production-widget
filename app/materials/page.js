@@ -664,7 +664,18 @@ export default function MaterialsPage() {
       if (bucketOf(m) === "complete" || m.fromStock) continue;
       const key = batchKey(m);
       if (key.replace(/\|/g, "") === "") continue;
-      const group = map.get(key) ?? { key, finish: halves(m).finish, substrate: halves(m).substrate, rows: [] };
+      const { finish, substrate } = halves(m);
+      const group = map.get(key) ?? {
+        key,
+        finish,
+        substrate,
+        // What to type into the filter to see this group — a board is named
+        // by its finish, but plenty are only a substrate: Versilux, FC sheet,
+        // anything sold raw. Filtering on the finish alone searched for an
+        // empty string and the button did nothing.
+        term: finish || substrate,
+        rows: [],
+      };
       group.rows.push(m);
       map.set(key, group);
     }
@@ -1158,11 +1169,10 @@ export default function MaterialsPage() {
             <span style={{ color: BRAND.sub }}> — could go on one order.</span>
             {batches.map((g) => (
               <div key={g.key} style={{ marginTop: 4 }}>
-                {g.finish}
-                {g.substrate ? ` on ${g.substrate}` : ""}:{" "}
+                {[g.finish, g.substrate].filter(Boolean).join(" on ")}:{" "}
                 {[...new Set(g.rows.map((r) => r.jobId))].join(", ")}
                 <button
-                  onClick={() => setQuery(g.finish)}
+                  onClick={() => setQuery(g.term)}
                   style={{
                     ...btn,
                     marginLeft: 8,
@@ -1318,7 +1328,7 @@ export default function MaterialsPage() {
                             because this is where she decides what to order. */}
                         {batch && (
                           <button
-                            onClick={() => setQuery(halves(m).finish)}
+                            onClick={() => setQuery(batch.term)}
                             title={`Also wanted by ${[...new Set(batch.rows.map((r) => r.jobId))]
                               .filter((id) => id !== m.jobId)
                               .join(", ")} — click to see them together`}
