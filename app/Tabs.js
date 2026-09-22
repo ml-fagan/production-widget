@@ -21,6 +21,15 @@ const TABS = [
     title: "Every finish we buy, and who supplies it — what everything else picks from",
   },
   { key: "invoicing", label: "Invoicing", href: "/invoicing" },
+  // Last of this app's own boards, because it's about the boards rather than
+  // the work — but on the strip, because a suggestion box nobody passes is a
+  // suggestion box nobody uses.
+  {
+    key: "requests",
+    label: "Requests",
+    href: "/requests",
+    title: "Ask for something these screens don't do yet",
+  },
   // A different app, but part of the same flow, so it behaves like the other
   // tabs and navigates in place. Only the reference link opens a new tab.
   {
