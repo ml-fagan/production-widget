@@ -1165,8 +1165,15 @@ export default function BoardPage() {
                 <th style={th}>By</th>
                 {/* The figure had no heading at all, which left a percentage
                     sitting on its own meaning nothing. */}
-                <th style={th} title="Bought, less what was billed as area, less what went back on the shelf">
+                <th style={th} title="What was bought, less what was billed, less what went back on the racks — the material that ended up in the bin">
                   Wastage
+                </th>
+                {/* Kept apart from waste on purpose: a sheet back on the rack
+                    is over-ordering, not waste. One's a cutting problem and
+                    one's an ordering problem, and adding them together hides
+                    both. */}
+                <th style={th} title="Whole sheets and offcuts logged back to stock — over-ordered rather than wasted, and still ours">
+                  Leftover
                 </th>
                 <th style={th}></th>
               </tr>
@@ -1188,13 +1195,19 @@ export default function BoardPage() {
                       <span
                         style={{ color: wasteColour(row.wastage.percent), fontWeight: 500 }}
                         title={[
-                          `${row.wastage.orderedM2} m² ordered`,
-                          `${row.wastage.chargedM2} m² charged`,
-                          `${row.wastage.leftoverM2} m² back to stock`,
-                          `${row.wastage.wasteM2} m² unaccounted`,
+                          `${row.wastage.orderedM2} m² bought`,
+                          `less ${row.wastage.chargedM2} m² charged`,
+                          `less ${row.wastage.leftoverM2} m² back on the racks`,
+                          `= ${row.wastage.wasteM2} m² in the bin`,
                         ].join(" · ")}
                       >
                         {row.wastage.percent}%
+                        {/* The area itself under the percentage: a percent of
+                            a small job and a percent of a big one are not the
+                            same amount of material. */}
+                        <div style={{ fontSize: 11, fontWeight: 400, color: BRAND.sub }}>
+                          {row.wastage.wasteM2} m²
+                        </div>
                       </span>
                     ) : (
                       <span
@@ -1203,6 +1216,17 @@ export default function BoardPage() {
                       >
                         —
                       </span>
+                    )}
+                  </td>
+                  <td style={td}>
+                    {row.wastage ? (
+                      <span
+                        title={`${row.wastage.leftoverM2} m² of what was bought went back on the racks for the next job`}
+                      >
+                        {row.wastage.leftoverM2} m²
+                      </span>
+                    ) : (
+                      <span style={{ color: BRAND.sub }}>—</span>
                     )}
                   </td>
                   <td style={td}>
