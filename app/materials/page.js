@@ -105,6 +105,27 @@ function receivedLabel(m) {
   return want > had ? `${had} of ${want} in · ${want - had} to come` : `${had} in`;
 }
 
+/**
+ * How long a line took: the day it was marked ordered to the day it was marked
+ * in.
+ *
+ * Both stamps were already on the record and neither was ever shown, so
+ * "how long does PFP actually take?" was a question you answered by
+ * remembering. Null when either end is missing — plenty of lines predate the
+ * stamps, and a made-up number is worse than a dash.
+ *
+ * It measures our experience of the supplier, not their promise: the clock
+ * starts when Alice places it and stops when the dock books it in, which is
+ * the number that matters when Duncan asks whether he can commit to a date.
+ */
+function leadDays(m) {
+  if (!m.orderedAt || !m.completedAt) return null;
+  const from = new Date(m.orderedAt).getTime();
+  const to = new Date(m.completedAt).getTime();
+  if (Number.isNaN(from) || Number.isNaN(to) || to < from) return null;
+  return Math.round((to - from) / 86400000);
+}
+
 function size(m) {
   if (!m.length || !m.width) return "—";
   return `${m.length} × ${m.width}${m.thickness ? ` × ${m.thickness}` : ""}`;
@@ -707,6 +728,45 @@ export default function MaterialsPage() {
   })();
   const batchFor = (m) => batches.find((g) => g.key === batchKey(m)) || null;
 
+  /**
+   * How long material actually takes, by supplier.
+   *
+   * Every completed line with both stamps on it, averaged — overall and per
+   * supplier, slowest first, because the useful question is which of them to
+   * order from earlier rather than what the average across all of them is.
+   */
+  const leadReview = (() => {
+    const done = allLines
+      .filter((m) => bucketOf(m) === "complete" && !m.fromStock)
+      .map((m) => ({ ...m, days: leadDays(m) }))
+      .filter((m) => m.days !== null);
+    if (done.length === 0) return { lines: 0, average: 0, bySupplier: [], longest: null };
+
+    const mean = (xs) => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
+    const groups = new Map();
+    for (const m of done) {
+      const supplier = (m.supplier || "").trim() || "No supplier named";
+      const list = groups.get(supplier) ?? [];
+      list.push(m.days);
+      groups.set(supplier, list);
+    }
+    const slowest = done.reduce((a, b) => (b.days > a.days ? b : a));
+    return {
+      lines: done.length,
+      average: mean(done.map((m) => m.days)),
+      longest: { days: slowest.days, name: halves(slowest).finish || slowest.name || slowest.jobId },
+      bySupplier: [...groups.entries()]
+        .map(([supplier, days]) => ({
+          supplier,
+          lines: days.length,
+          average: mean(days),
+          min: Math.min(...days),
+          max: Math.max(...days),
+        }))
+        .sort((a, b) => b.average - a.average),
+    };
+  })();
+
 
   const btn = {
     border: `1px solid ${BRAND.line}`,
@@ -1172,6 +1232,59 @@ export default function MaterialsPage() {
 
         {/* The same board, wanted by two jobs. Worth seeing before she places
             either order rather than after both have shipped. */}
+        {/* What the suppliers actually do, as opposed to what they say. Only
+            on the completed tab: a lead time is a finished thing, and the two
+            working lists are about what hasn't finished. */}
+        {view === "complete" && leadReview.lines > 0 && (
+          <div
+            style={{
+              background: BRAND.card,
+              border: `1px solid ${BRAND.line}`,
+              borderRadius: 10,
+              padding: "12px 14px",
+              fontSize: 13,
+              marginBottom: 16,
+            }}
+          >
+            <strong>
+              {leadReview.average} {leadReview.average === 1 ? "day" : "days"} average
+            </strong>
+            <span style={{ color: BRAND.sub }}>
+              {" "}
+              from ordered to in, across {leadReview.lines}{" "}
+              {leadReview.lines === 1 ? "line" : "lines"}
+              {leadReview.longest && (
+                <>
+                  {" "}
+                  · longest {leadReview.longest.days} days ({leadReview.longest.name})
+                </>
+              )}
+            </span>
+            {leadReview.bySupplier.length > 1 && (
+              <table style={{ borderCollapse: "collapse", marginTop: 8, fontSize: 12 }}>
+                <tbody>
+                  {leadReview.bySupplier.map((r) => (
+                    <tr key={r.supplier}>
+                      <td style={{ padding: "2px 14px 2px 0" }}>{r.supplier}</td>
+                      <td style={{ padding: "2px 14px 2px 0", fontWeight: 600 }}>
+                        {r.average} {r.average === 1 ? "day" : "days"}
+                      </td>
+                      <td style={{ padding: "2px 0", color: BRAND.sub }}>
+                        {r.lines} {r.lines === 1 ? "order" : "orders"} · {r.min}–{r.max} days
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div style={{ color: BRAND.sub, fontSize: 11, marginTop: 6 }}>
+              Counted from the day a line was marked Ordered to the day it was booked in, so it&apos;s
+              what we actually wait rather than what was quoted. Lines ordered before the stamps
+              existed aren&apos;t counted.
+            </div>
+          </div>
+        )}
+
         {view !== "preorders" && batches.length > 0 && (
           <div
             style={{
@@ -1808,6 +1921,28 @@ export default function MaterialsPage() {
                           <div style={{ fontSize: 11, color: BRAND.sub, marginTop: 2 }}>
                             ordered {fmtDay(m.orderedAt)}
                             {m.orderedBy ? ` · ${m.orderedBy.split("@")[0]}` : ""}
+                            {/* And when it actually turned up, which is the
+                                other half of every lead time question. */}
+                            {done && m.completedAt && (
+                              <>
+                                {" → in "}
+                                {fmtDay(m.completedAt)}
+                                {leadDays(m) !== null && (
+                                  <strong style={{ color: BRAND.ink }}>
+                                    {" "}
+                                    · {leadDays(m)} {leadDays(m) === 1 ? "day" : "days"}
+                                  </strong>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        )}
+                        {/* Booked in before anyone marked it ordered — no lead
+                            to work out, but the arrival is still worth saying. */}
+                        {done && !m.orderedAt && m.completedAt && (
+                          <div style={{ fontSize: 11, color: BRAND.sub, marginTop: 2 }}>
+                            in {fmtDay(m.completedAt)}
+                            {m.completedBy ? ` · ${m.completedBy.split("@")[0]}` : ""}
                           </div>
                         )}
                       </td>
