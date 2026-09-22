@@ -680,15 +680,29 @@ export default function MaterialsPage() {
     if (state === "ordered" || state === "part_received") return "ordered";
     return "outstanding";
   };
+  /**
+   * Completed is a record of what we bought, so material fetched off a rack
+   * isn't in it.
+   *
+   * A stock line is confirmed rather than ordered — no supplier, no PO, no
+   * lead time, nothing to review. Ten of them under two real orders made the
+   * list read as noise. They still need confirming, so they stay in
+   * Outstanding until somebody ticks them; after that the job's own record is
+   * where they live.
+   */
+  const isPurchase = (m) => !m.fromStock;
   const counts = {
     outstanding: allLines.filter((m) => bucketOf(m) === "outstanding").length,
     ordered: allLines.filter((m) => bucketOf(m) === "ordered").length,
-    complete: allLines.filter((m) => bucketOf(m) === "complete").length,
+    complete: allLines.filter((m) => bucketOf(m) === "complete" && isPurchase(m)).length,
     preorders: preOrderLines.length,
   };
   // The Pre-orders tab has a list of its own below, so the shared table stands
   // down for it.
-  const inView = view === "preorders" ? [] : allLines.filter((m) => bucketOf(m) === view);
+  const inView =
+    view === "preorders"
+      ? []
+      : allLines.filter((m) => bucketOf(m) === view && (view !== "complete" || isPurchase(m)));
 
   // Kept together by job. A job needing three boards is three orders to place,
   // but it is still one job, and a row of it sitting on its own three rows down
@@ -750,9 +764,12 @@ export default function MaterialsPage() {
    */
   const leadReview = (() => {
     const done = allLines
-      .filter((m) => bucketOf(m) === "complete" && !m.fromStock)
+      .filter((m) => bucketOf(m) === "complete" && isPurchase(m))
       .map((m) => ({ ...m, days: leadDays(m) }))
-      .filter((m) => m.days !== null);
+      // Ordered and booked in the same day is somebody catching the record up
+      // after the fact, not a supplier delivering within the hour. Counting
+      // those as nought-day leads halves the average and tells you nothing.
+      .filter((m) => m.days !== null && m.days > 0);
     if (done.length === 0) return { lines: 0, average: 0, bySupplier: [], longest: null };
 
     const mean = (xs) => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
@@ -1239,7 +1256,7 @@ export default function MaterialsPage() {
                 ? "Nothing left to order."
                 : view === "ordered"
                   ? "Nothing on order — everything's either still to buy or already in."
-                  : "Nothing fully in yet."}
+                  : "No completed orders yet — stock fetched off the racks isn't listed here."}
           </p>
         )}
 
@@ -1291,9 +1308,8 @@ export default function MaterialsPage() {
               </table>
             )}
             <div style={{ color: BRAND.sub, fontSize: 11, marginTop: 6 }}>
-              Counted from the day a line was marked Ordered to the day it was booked in, so it&apos;s
-              what we actually wait rather than what was quoted. Lines ordered before the stamps
-              existed aren&apos;t counted.
+              Ordered to booked in — what we wait, not what was quoted. Stock, same-day catch-ups
+              and anything ordered before the stamps existed aren&apos;t counted.
             </div>
           </div>
         )}
