@@ -49,8 +49,13 @@ export default function Tabs({ current, counts = {}, tabs = null }) {
     <nav
       style={{
         display: "flex",
-        gap: 4,
+        alignItems: "flex-end",
+        gap: 3,
         marginBottom: 16,
+        // The line every tab sits on. The one you're looking at breaks it,
+        // which is the whole trick: its own bottom edge is painted in the page
+        // colour over this, so it reads as the open folder rather than one of
+        // the closed ones behind it.
         borderBottom: "1px solid #e5e1d8",
         flexWrap: "wrap",
       }}
@@ -67,15 +72,29 @@ export default function Tabs({ current, counts = {}, tabs = null }) {
             title={tab.title}
             style={{
               fontSize: 13,
-              padding: "8px 12px",
               textDecoration: "none",
-              color: active ? "#1c1b19" : "#6b6862",
-              fontWeight: active ? 600 : 400,
-              borderBottom: active ? "2px solid #408152" : "2px solid transparent",
-              marginBottom: -1,
+              whiteSpace: "nowrap",
               // Only the reference link is pushed to the far end; two "auto"
               // margins would leave the first one hogging all the space.
               marginLeft: tab.rightAligned ? "auto" : undefined,
+              // The acoustic reference isn't one of this app's boards, so it
+              // stays a plain link rather than growing a folder tab.
+              ...(tab.external
+                ? { padding: "8px 4px", color: "#6b6862" }
+                : {
+                    padding: active ? "9px 14px 8px" : "7px 13px 6px",
+                    border: "1px solid #e5e1d8",
+                    borderRadius: "8px 8px 0 0",
+                    marginBottom: -1,
+                    color: active ? "#1c1b19" : "#6b6862",
+                    fontWeight: active ? 600 : 400,
+                    // The open tab is the page's own colour and covers the
+                    // line; the closed ones are tinted, sit a little lower and
+                    // keep their bottom edge, so they read as behind it.
+                    background: active ? "#f5f3ef" : "#eceae4",
+                    borderBottom: active ? "1px solid #f5f3ef" : "1px solid #e5e1d8",
+                    borderTop: active ? "2px solid #408152" : "1px solid #e5e1d8",
+                  }),
             }}
           >
             {tab.label}
