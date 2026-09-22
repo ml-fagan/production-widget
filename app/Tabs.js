@@ -21,15 +21,6 @@ const TABS = [
     title: "Every finish we buy, and who supplies it — what everything else picks from",
   },
   { key: "invoicing", label: "Invoicing", href: "/invoicing" },
-  // Last of this app's own boards, because it's about the boards rather than
-  // the work — but on the strip, because a suggestion box nobody passes is a
-  // suggestion box nobody uses.
-  {
-    key: "requests",
-    label: "Requests",
-    href: "/requests",
-    title: "Ask for something these screens don't do yet",
-  },
   // A different app, but part of the same flow, so it behaves like the other
   // tabs and navigates in place. Only the reference link opens a new tab.
   {
@@ -38,6 +29,17 @@ const TABS = [
     href: "https://decorhandover.lyphex.com",
     title: "Create or edit a handover",
   },
+  // Below the line, off to the side: the two things that aren't the work. A
+  // folder tab says "a place your job takes you"; these aren't that. Requests
+  // is about the app itself, so it sits with the reference link rather than
+  // among the boards, where it would read as another thing to check.
+  {
+    key: "requests",
+    label: "Request a change",
+    href: "/requests",
+    quiet: true,
+    title: "Ask for something these screens don't do yet",
+  },
   // Reference tool, not part of this app — opens in a new tab so nobody loses
   // their place in the schedule. Never renders active, since no page passes this key.
   {
@@ -45,7 +47,7 @@ const TABS = [
     label: "Acoustic data",
     href: "https://acoustics.lyphex.com",
     external: true,
-    rightAligned: true,
+    quiet: true,
     title: "Tested NRC and absorption coefficients — opens in a new tab",
   },
 ];
@@ -54,6 +56,9 @@ export default function Tabs({ current, counts = {}, tabs = null }) {
   // A board this person can't use is a board in the way. The floor gets the
   // two schedules; everyone else gets the lot.
   const visible = tabs ? TABS.filter((t) => tabs.includes(t.key) || t.external) : TABS;
+  // Only the first of the quiet links gets pushed to the far end; the rest
+  // follow it. Two "auto" margins would leave the first one hogging the space.
+  const firstQuiet = visible.findIndex((t) => t.quiet);
   return (
     <nav
       style={{
@@ -69,7 +74,7 @@ export default function Tabs({ current, counts = {}, tabs = null }) {
         flexWrap: "wrap",
       }}
     >
-      {visible.map((tab) => {
+      {visible.map((tab, i) => {
         const active = tab.key === current;
         const count = counts[tab.key];
         return (
@@ -83,13 +88,15 @@ export default function Tabs({ current, counts = {}, tabs = null }) {
               fontSize: 13,
               textDecoration: "none",
               whiteSpace: "nowrap",
-              // Only the reference link is pushed to the far end; two "auto"
-              // margins would leave the first one hogging all the space.
-              marginLeft: tab.rightAligned ? "auto" : undefined,
-              // The acoustic reference isn't one of this app's boards, so it
-              // stays a plain link rather than growing a folder tab.
-              ...(tab.external
-                ? { padding: "8px 4px", color: "#6b6862" }
+              // The quiet links aren't boards, so they stay plain links rather
+              // than growing folder tabs. The one you're on just darkens.
+              ...(tab.quiet
+                ? {
+                    padding: "8px 4px",
+                    marginLeft: i === firstQuiet ? "auto" : 12,
+                    color: active ? "#1c1b19" : "#6b6862",
+                    fontWeight: active ? 600 : 400,
+                  }
                 : {
                     padding: active ? "9px 14px 8px" : "7px 13px 6px",
                     border: "1px solid #e5e1d8",
@@ -112,7 +119,9 @@ export default function Tabs({ current, counts = {}, tabs = null }) {
                 ↗
               </span>
             )}
-            {count > 0 && (
+            {/* A count belongs on work. The quiet links aren't work, so they
+                don't get to nag. */}
+            {count > 0 && !tab.quiet && (
               <span
                 style={{
                   marginLeft: 6,

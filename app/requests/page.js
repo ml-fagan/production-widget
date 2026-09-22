@@ -58,6 +58,9 @@ export default function RequestsPage() {
   const [replyTo, setReplyTo] = useState(null);
   const [reply, setReply] = useState("");
   const [showDone, setShowDone] = useState(false);
+  // Deleting is one click away, not none — the second click is the answer to
+  // "did you mean that one?"
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   useEffect(() => {
     if (!firebaseConfigured()) return;
@@ -150,10 +153,11 @@ export default function RequestsPage() {
         >
           <div>
             <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.01em" }}>
-              Requests
+              Request a change
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-              Anything you want these screens to do that they don&apos;t. Michael reads them.
+              About these screens, not the work on them — anything you want them to do that they
+              don&apos;t. Michael reads them.
             </p>
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
@@ -291,6 +295,7 @@ export default function RequestsPage() {
 
         {shown.map((r) => {
           const status = STATUS[r.status] || STATUS.new;
+          const closedStatus = r.status === "done" || r.status === "declined";
           return (
             <section
               key={r.id}
@@ -335,9 +340,17 @@ export default function RequestsPage() {
               )}
 
               {canAnswer && (
-                <div style={{ marginTop: 10 }}>
+                <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
                   {replyTo === r.id ? (
-                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "flex-start",
+                        flexWrap: "wrap",
+                        width: "100%",
+                      }}
+                    >
                       <input
                         autoFocus
                         value={reply}
@@ -374,15 +387,48 @@ export default function RequestsPage() {
                       </button>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => {
-                        setReplyTo(r.id);
-                        setReply(r.reply || "");
-                      }}
-                      style={{ ...btn, color: BRAND.blue }}
-                    >
-                      Answer
-                    </button>
+                    <>
+                      <button
+                        onClick={() => {
+                          setReplyTo(r.id);
+                          setReply(r.reply || "");
+                          setConfirmDelete(null);
+                        }}
+                        style={{ ...btn, color: BRAND.blue }}
+                      >
+                        Answer
+                      </button>
+                      {/* Only once it's been dealt with. An open request is
+                          somebody still waiting on you. */}
+                      {closedStatus &&
+                        (confirmDelete === r.id ? (
+                          <>
+                            <span style={{ fontSize: 12, color: BRAND.sub, alignSelf: "center" }}>
+                              Clear it for good?
+                            </span>
+                            <button
+                              onClick={async () => {
+                                const ok = await send({ action: "delete", id: r.id });
+                                if (ok) setConfirmDelete(null);
+                              }}
+                              disabled={saving}
+                              style={{ ...btn, color: BRAND.red, borderColor: BRAND.red }}
+                            >
+                              {saving ? "Clearing…" : "Yes, delete"}
+                            </button>
+                            <button onClick={() => setConfirmDelete(null)} style={btn}>
+                              Keep it
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDelete(r.id)}
+                            style={{ ...btn, color: BRAND.sub }}
+                          >
+                            Delete
+                          </button>
+                        ))}
+                    </>
                   )}
                 </div>
               )}
