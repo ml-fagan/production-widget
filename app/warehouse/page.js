@@ -256,7 +256,10 @@ export default function WarehousePage() {
   const q = query.trim().toLowerCase();
   const matches = (m) =>
     !q ||
-    [m.poNumber, m.supplier, m.jobId, m.project, m.name].join(" ").toLowerCase().includes(q);
+    [m.poNumber, m.ocNumber, m.supplier, m.jobId, m.project, m.name]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
 
   const shown = (view === "expected" ? expected : arrived).filter(matches);
 
@@ -268,8 +271,15 @@ export default function WarehousePage() {
     for (const m of shown) {
       const po = String(m.poNumber || "").trim();
       const key = po ? `po:${po.toLowerCase()}` : `sup:${(m.supplier || "").toLowerCase()}`;
-      const group = byKey.get(key) ?? { key, po, supplier: m.supplier || "", lines: [] };
+      const group = byKey.get(key) ?? {
+        key,
+        po,
+        supplier: m.supplier || "",
+        ocNumber: m.ocNumber || "",
+        lines: [],
+      };
       if (!group.supplier && m.supplier) group.supplier = m.supplier;
+      if (!group.ocNumber && m.ocNumber) group.ocNumber = m.ocNumber;
       group.lines.push(m);
       byKey.set(key, group);
     }
@@ -419,7 +429,7 @@ export default function WarehousePage() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Type the PO number off the docket — or a supplier, job or material"
+          placeholder="Type the number off the docket — ours or theirs, or a supplier, job or material"
           style={{
             width: "100%",
             border: `1px solid ${BRAND.line}`,
@@ -469,6 +479,11 @@ export default function WarehousePage() {
                 {g.po ? `PO ${g.po}` : "No PO number"}
               </span>
               <span style={{ fontSize: 13, color: BRAND.sub }}>{g.supplier || "Supplier not named"}</span>
+              {/* Some suppliers put their own number on the docket and not
+                  ours, so it's worth having both in front of the dock. */}
+              {g.ocNumber && (
+                <span style={{ fontSize: 12, color: BRAND.sub }}>their ref {g.ocNumber}</span>
+              )}
               <span style={{ fontSize: 12, color: BRAND.sub, marginLeft: "auto" }}>
                 {g.lines.length} {g.lines.length === 1 ? "line" : "lines"}
               </span>

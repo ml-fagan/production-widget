@@ -159,6 +159,9 @@ export default function MaterialsPage() {
   // Same idea for the PO number: typed here, read out the back when the truck
   // arrives, so it's the one thing tying a docket to a job.
   const [po, setPo] = useState({});
+  // The supplier's own number for the order — their OC. Ours is the PO; half
+  // of them quote theirs back when you ring about a late delivery.
+  const [oc, setOc] = useState({});
   const [pending, setPending] = useState({});
   const [showPreOrder, setShowPreOrder] = useState(false);
   const [preOrderSaving, setPreOrderSaving] = useState(false);
@@ -564,7 +567,13 @@ export default function MaterialsPage() {
           h.jobId,
           h.project,
           h.client,
-          ...(h.materials || []).flatMap((m) => [m.name, m.finish, m.substrate]),
+          ...(h.materials || []).flatMap((m) => [
+            m.name,
+            m.finish,
+            m.substrate,
+            m.poNumber,
+            m.ocNumber,
+          ]),
         ]
           .join(" ")
           .toLowerCase()
@@ -593,7 +602,17 @@ export default function MaterialsPage() {
     .filter(
       (p) =>
         !q ||
-        [p.crm, p.project, p.name, p.finish, p.substrate, p.supplier, p.poNumber, p.note]
+        [
+          p.crm,
+          p.project,
+          p.name,
+          p.finish,
+          p.substrate,
+          p.supplier,
+          p.poNumber,
+          p.ocNumber,
+          p.note,
+        ]
           .join(" ")
           .toLowerCase()
           .includes(q)
@@ -995,6 +1014,7 @@ export default function MaterialsPage() {
                               ) : state === "ordered" ? (
                                 <span style={{ color: BRAND.amber }}>
                                   On order{p.poNumber ? ` · PO ${p.poNumber}` : ""}
+                                  {p.ocNumber ? ` · their ${p.ocNumber}` : ""}
                                   {/* A part delivery leaves it here, owing the
                                       rest — the number she's chasing. */}
                                   {countOf(p.receivedQty) > 0 && (
@@ -1083,7 +1103,7 @@ export default function MaterialsPage() {
                           )}
                           {deleteId === p.id && (
                             <tr>
-                              <td colSpan={9} style={{ ...td, background: BRAND.bg }}>
+                              <td colSpan={10} style={{ ...td, background: BRAND.bg }}>
                                 <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
                                   <span style={{ color: BRAND.red }}>
                                     Type <strong>delete</strong> to permanently erase this pre-order:
@@ -1208,6 +1228,9 @@ export default function MaterialsPage() {
                   <th style={th}>Substrate</th>
                   <th style={th}>Supplier</th>
                   <th style={th}>PO</th>
+                  <th style={th} title="The supplier's own order confirmation or sales number">
+                    OC
+                  </th>
                   <th style={th}>Expected</th>
                   <th style={th}>Status</th>
                 </tr>
@@ -1400,6 +1423,53 @@ export default function MaterialsPage() {
                                 placeholder="PO"
                                 title="Purchase order number — what the warehouse will see on the docket"
                                 aria-label={`PO number for ${m.name || m.jobId}`}
+                                style={{
+                                  width: 90,
+                                  border: `1px solid ${changed ? BRAND.amber : BRAND.line}`,
+                                  borderRadius: 6,
+                                  padding: "2px 6px",
+                                  fontSize: 12,
+                                  fontFamily: "inherit",
+                                }}
+                              />
+                            );
+                          })()
+                        )}
+                      </td>
+                      {/* Theirs, beside ours. Same rules: typed once where the
+                          order is placed, and read by whoever has to chase it. */}
+                      <td style={td}>
+                        {m.fromStock ? (
+                          <span style={{ color: BRAND.sub }}>—</span>
+                        ) : (
+                          (() => {
+                            const saved = String(m.ocNumber ?? "");
+                            const draft = oc[key] ?? saved;
+                            const changed = draft.trim() !== saved.trim();
+                            const clear = () =>
+                              setOc((p) => {
+                                const next = { ...p };
+                                delete next[key];
+                                return next;
+                              });
+                            const save = () => {
+                              if (!changed) return clear();
+                              patchRow(m, { ocNumber: draft.trim() });
+                              clear();
+                            };
+                            return (
+                              <input
+                                value={draft}
+                                onChange={(e) => setOc((p) => ({ ...p, [key]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") save();
+                                  if (e.key === "Escape") clear();
+                                }}
+                                onBlur={save}
+                                disabled={busy || !canEdit}
+                                placeholder="OC"
+                                title="The supplier's own number for this order — what they quote back when you ring"
+                                aria-label={`Supplier OC for ${m.name || m.jobId}`}
                                 style={{
                                   width: 90,
                                   border: `1px solid ${changed ? BRAND.amber : BRAND.line}`,
@@ -1744,7 +1814,7 @@ export default function MaterialsPage() {
                     </tr>
                     {editLine === key && (
                       <tr>
-                        <td colSpan={10} style={{ ...td, background: "#faf9f6", whiteSpace: "normal" }}>
+                        <td colSpan={11} style={{ ...td, background: "#faf9f6", whiteSpace: "normal" }}>
                           <LineEditor
                             brand={BRAND}
                             line={{ ...m, ...halves(m) }}
