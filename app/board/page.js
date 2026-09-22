@@ -154,6 +154,32 @@ export default function BoardPage() {
     };
   }, [load, loadStock]);
 
+  /**
+   * What the register holds of a material, by name and size.
+   *
+   * A line ticked "In stock" is a promise that the sheets are on a rack: Alice
+   * orders nothing and the job is scheduled as if the material is there. When
+   * the register disagrees — because the stock was never entered, or went on a
+   * card under another name — the first anybody hears of it is the morning the
+   * job is cut. The ledger is right here, so it may as well say so.
+   */
+  const stockBalance = useCallback(
+    (m) => {
+      const num = (v) => {
+        const found = String(v ?? "").match(/-?\d+(?:\.\d+)?/);
+        return found ? Number(found[0]) : "";
+      };
+      const size = (e) => [num(e.length), num(e.width), num(e.thickness)].join("|");
+      const name = String(m.name || "").trim().toLowerCase();
+      return stockEntries
+        .filter(
+          (e) => String(e.name || "").trim().toLowerCase() === name && size(e) === size(m)
+        )
+        .reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+    },
+    [stockEntries]
+  );
+
   // Only "used" entries (negative) assigned to this exact job — a leftover
   // logged *from* this job is the opposite direction and isn't "fetch this".
   const stockForJob = useCallback(
@@ -506,7 +532,12 @@ export default function BoardPage() {
         <div className="no-print" style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
           <SignIn user={user} brand={BRAND} />
           <button
-            onClick={load}
+            // The stock ledger too, since the board now reads it to check
+            // what's ticked as stock — refreshing half of it was confusing.
+            onClick={() => {
+              load();
+              loadStock();
+            }}
             style={{ ...input, padding: "6px 12px", fontSize: 13, cursor: "pointer" }}
           >
             {loading ? "Refreshing…" : "Refresh"}
@@ -1018,7 +1049,9 @@ export default function BoardPage() {
                                     {done
                                       ? `✓ in${m.fromStock ? " (stock)" : ""}`
                                       : m.fromStock
-                                        ? "on the shelf — fetch and confirm"
+                                        ? stockBalance(m) > 0
+                                          ? "on the shelf — fetch and confirm"
+                                          : "ticked as stock, but the register hasn't got it"
                                         : state === "part_received"
                                           ? `part received${m.expectedDate ? `, rest ${m.expectedDate}` : ""}`
                                           : state === "ordered"
