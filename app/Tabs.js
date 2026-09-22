@@ -14,6 +14,12 @@ const TABS = [
     title: "Deliveries expected — tick one off as it comes through the door",
   },
   { key: "stock", label: "Stock", href: "/material-stock" },
+  {
+    key: "materiallist",
+    label: "Material list",
+    href: "/material-list",
+    title: "Every finish we buy, and who supplies it — what everything else picks from",
+  },
   { key: "invoicing", label: "Invoicing", href: "/invoicing" },
   // A different app, but part of the same flow, so it behaves like the other
   // tabs and navigates in place. Only the reference link opens a new tab.

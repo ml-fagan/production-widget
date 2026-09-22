@@ -581,6 +581,7 @@ export default function MaterialsPage() {
       jobId: h.jobId,
       project: h.project || h.client || "",
       fibreCement: h.fibreCement,
+      materialNote: h.materialNote || "",
     }))
   );
 
@@ -1290,6 +1291,14 @@ export default function MaterialsPage() {
                         {sameJobAbove ? "" : m.project || "—"}
                         {/* Who asked for it and why, since there's no handover
                             to open and read. */}
+                        {/* Mitch's note about ordering this job — said once,
+                            under the job it belongs to rather than against a
+                            line, because that's what it's about. */}
+                        {!sameJobAbove && m.materialNote && (
+                          <div style={{ fontSize: 11, color: BRAND.amber, marginTop: 2 }}>
+                            {m.materialNote}
+                          </div>
+                        )}
                         {pre && !sameJobAbove && (m.loggedBy || m.note) && (
                           <div style={{ fontSize: 11, color: BRAND.sub }}>
                             {m.loggedBy ? m.loggedBy.split("@")[0] : ""}

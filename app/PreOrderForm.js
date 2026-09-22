@@ -164,6 +164,7 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initia
               onChange={(v) => setRow(r.key, "finish", v)}
               options={options.finishes}
               label="Finish"
+              listOnly
               style={input}
             />
           </div>
@@ -174,6 +175,7 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initia
               onChange={(v) => setRow(r.key, "substrate", v)}
               options={options.substrates}
               label="Substrate"
+              listOnly
               style={input}
             />
           </div>

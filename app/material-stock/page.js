@@ -1057,6 +1057,7 @@ function AddStockForm({ brand, onSubmit, onCancel, saving, options }) {
             onChange={setFinish}
             options={options.finishes}
             label="Finish"
+            listOnly
           />
         </div>
         <div>
@@ -1067,6 +1068,7 @@ function AddStockForm({ brand, onSubmit, onCancel, saving, options }) {
             onChange={setSubstrate}
             options={options.substrates}
             label="Substrate"
+            listOnly
           />
         </div>
         <div>

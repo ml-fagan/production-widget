@@ -40,14 +40,19 @@ function nearMatches(value, options) {
     .slice(0, 4);
 }
 
-export default function PickOne({ value, onChange, options, label, style }) {
+export default function PickOne({ value, onChange, options, label, style, listOnly = false }) {
   // Picking "Other…" is a decision and sticks; being off the list is a fact
   // about the value, so it's worked out each render rather than remembered.
   // The distinction matters because the list is fetched: on the first render
   // it's empty, and a remembered "not in the list" left every filled-in value
   // sitting in a free-text box once the list arrived a moment later.
   const [chose, setChose] = useState(false);
-  const custom = chose || (Boolean(value) && options.length > 0 && !options.includes(value));
+  // Ordering picks from the list and nothing else — that's what keeps one
+  // product from becoming two names. Somewhere a value predates the list, or
+  // was typed before this rule; it still shows, so nothing is silently
+  // rewritten, it just can't be typed afresh here.
+  const custom =
+    !listOnly && (chose || (Boolean(value) && options.length > 0 && !options.includes(value)));
   const setCustom = setChose;
 
   if (custom) {
@@ -124,12 +129,17 @@ export default function PickOne({ value, onChange, options, label, style }) {
       }}
     >
       <option value="">—</option>
+      {/* A value from before the list, or from before it was locked down:
+          shown so the row still reads as what it is. */}
+      {value && !options.includes(value) && (
+        <option value={value}>{value} (not on the list)</option>
+      )}
       {options.map((o) => (
         <option key={o} value={o}>
           {o}
         </option>
       ))}
-      <option value="__other__">Other…</option>
+      {!listOnly && <option value="__other__">Other…</option>}
     </select>
   );
 }

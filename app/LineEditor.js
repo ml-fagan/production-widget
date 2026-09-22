@@ -79,6 +79,7 @@ export default function LineEditor({ brand, line, saving, onCancel, onSave }) {
             onChange={setFinish}
             options={options.finishes}
             label="Finish"
+            listOnly
             style={input}
           />
         </div>
@@ -89,6 +90,7 @@ export default function LineEditor({ brand, line, saving, onCancel, onSave }) {
             onChange={setSubstrate}
             options={options.substrates}
             label="Substrate"
+            listOnly
             style={input}
           />
         </div>
