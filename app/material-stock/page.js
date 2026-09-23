@@ -797,6 +797,55 @@ export default function MaterialStockPage() {
     () => new Map([...byLocation].map(([code, rows]) => [code, bayLoad(rows)])),
     [byLocation]
   );
+
+  /**
+   * Adding material straight onto a bay.
+   *
+   * The same entry the Add stock form has always written — finish, substrate,
+   * sizes, quantity, all from the same lists — so what lands on the On hand
+   * tab is an ordinary register entry and nothing about it is special for
+   * having been typed on the plan. The only difference is that the bay is
+   * already answered.
+   *
+   * Two writes, in this order: the ledger first, because that's the record of
+   * what we hold and it has to be true whatever happens next, then where it
+   * sits. If the second fails the sheets are still on the register and the
+   * material shows up under "not on the map yet", which is a nuisance. The
+   * other way round would be a bay claiming sheets nobody owns.
+   */
+  const addToBay = useCallback(
+    async (bayCodeIn, entry) => {
+      const added = Number(entry.quantity) || 0;
+      // Read before adding: `row.total` is what was here already, and the
+      // arithmetic below splits that, not the new figure.
+      const row = placedRows.find((r) => signature(r) === signature(entry));
+      const existing = row ? placedFor(row) : [];
+
+      const ok = await submit({ ...entry, location: bayCodeIn });
+      if (!ok) return false;
+
+      // All of it on one bay stays "all of it" — no number to go stale when
+      // sheets are drawn later.
+      const onlyHere =
+        existing.length === 0 ||
+        (existing.length === 1 && existing[0].bay === bayCodeIn);
+      const list = onlyHere
+        ? [{ bay: bayCodeIn, quantity: null }]
+        : (() => {
+            const next = existing.map((p) => ({ bay: p.bay, quantity: p.quantity }));
+            const already = next.find((p) => p.bay === bayCodeIn);
+            if (already) already.quantity += added;
+            else next.push({ bay: bayCodeIn, quantity: added });
+            return next;
+          })();
+      await savePlacements(entry, list);
+      return true;
+    },
+    // submit, savePlacements and placedFor are stable callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [placedRows, placedFor]
+  );
+
   // Material on a rack that nobody has told the map about. Worth showing,
   // because it's the list that makes the map finish itself.
   const unplaced = useMemo(
@@ -1624,6 +1673,8 @@ export default function MaterialStockPage() {
             loads={bayLoads}
             capacities={capacities}
             onCapacities={saveCapacities}
+            options={options}
+            onAdd={addToBay}
           />
         )}
       </div>
@@ -1652,16 +1703,21 @@ function FactoryLayout({
   placedFor,
   capacities,
   onCapacities,
+  options,
+  onAdd,
 }) {
   const load = (code) => bayLoad(byLocation.get(code));
   const state = (code) => bayState(code, byLocation.get(code), capacities);
   // A proposed spread, held until somebody agrees to it. Nothing moves on the
   // strength of the app's arithmetic alone.
   const [spread, setSpread] = useState(null);
-  // A proposal belongs to the bay it was worked out from; picking another one
-  // leaves it meaningless.
+  const [adding, setAdding] = useState(false);
+  // A proposal belongs to the bay it was worked out from, and a half-typed
+  // pallet belongs to the rack you were standing at. Picking another one
+  // leaves both meaningless.
   useEffect(() => {
     setSpread(null);
+    setAdding(false);
   }, [bay]);
 
   const bayStyle = (code) => {
@@ -1979,9 +2035,46 @@ function FactoryLayout({
           </p>
         ) : (
           <>
-            <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 2px" }}>
-              {bay} <span style={{ fontWeight: 400, color: BRAND.sub }}>· {describeLocation(bay)}</span>
-            </h2>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 10,
+                flexWrap: "wrap",
+                margin: "0 0 2px",
+              }}
+            >
+              <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>
+                {bay}{" "}
+                <span style={{ fontWeight: 400, color: BRAND.sub }}>
+                  · {describeLocation(bay)}
+                </span>
+              </h2>
+              {/* Standing at the rack with a pallet in front of you: say what
+                  it is and it's on the register, here. */}
+              {canPlace && (
+                <button
+                  onClick={() => setAdding((v) => !v)}
+                  style={{ ...miniBtn, color: BRAND.blue }}
+                >
+                  {adding ? "Cancel" : "+ Add material here"}
+                </button>
+              )}
+            </div>
+
+            {adding && canPlace && (
+              <AddStockForm
+                brand={BRAND}
+                options={options}
+                saving={saving}
+                bay={bay}
+                onCancel={() => setAdding(false)}
+                onSubmit={async (entry) => {
+                  const ok = await onAdd(bay, entry);
+                  if (ok) setAdding(false);
+                }}
+              />
+            )}
             {/* How full, in one line and one bar. Several materials on one bay
                 is normal — 280 of a board and 50 of something else stacked on
                 the twenty that were left — so the figure that matters is the
@@ -2540,7 +2633,7 @@ function materialNameOf(finish, substrate) {
  * what stops a one-off finish from being forced into the nearest wrong one.
  */
 
-function AddStockForm({ brand, onSubmit, onCancel, saving, options, initial = null }) {
+function AddStockForm({ brand, onSubmit, onCancel, saving, options, initial = null, bay = null }) {
   // Two halves rather than one free-text name, the same as the handover's
   // picking list. If Alice types "Tas Oak" while Mitch picks "Smartlook
   // Tasmanian Oak", the register holds material his job can't find.
@@ -2616,8 +2709,24 @@ function AddStockForm({ brand, onSubmit, onCancel, saving, options, initial = nu
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
         <div>
-          <label style={{ fontSize: 11, color: brand.sub }}>Where it is (optional)</label>
-          <input style={input} value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Rack 3, near CNC" />
+          <label style={{ fontSize: 11, color: brand.sub }}>Where it is {bay ? "" : "(optional)"}</label>
+          {/* Opened from a bay on the plan, the question is already answered —
+              and a box that could disagree with the square you clicked is a
+              box that eventually will. */}
+          {bay ? (
+            <div
+              style={{
+                ...input,
+                background: brand.bg,
+                fontWeight: 600,
+                lineHeight: "20px",
+              }}
+            >
+              {bay}
+            </div>
+          ) : (
+            <input style={input} value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Rack 3, near CNC" />
+          )}
         </div>
         <div>
           <label style={{ fontSize: 11, color: brand.sub }}>Note (optional)</label>
@@ -2634,7 +2743,7 @@ function AddStockForm({ brand, onSubmit, onCancel, saving, options, initial = nu
               width,
               thickness,
               quantity: Number(quantity) || 0,
-              location: location.trim(),
+              location: bay || location.trim(),
               note: note.trim(),
             })
           }
@@ -2650,7 +2759,7 @@ function AddStockForm({ brand, onSubmit, onCancel, saving, options, initial = nu
             opacity: !name.trim() || !Number(quantity) || saving ? 0.6 : 1,
           }}
         >
-          {saving ? "Saving…" : "Add"}
+          {saving ? "Saving…" : bay ? `Add to ${bay}` : "Add"}
         </button>
         <button
           onClick={onCancel}
