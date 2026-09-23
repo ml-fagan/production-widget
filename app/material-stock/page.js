@@ -7,7 +7,7 @@ import SignIn from "../SignIn.js";
 import PickOne from "../PickOne.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { PROCESS_COLUMNS, CELL_COLOURS, cellState } from "../../lib/board.js";
-import { groupByFinish, dimension, splitMaterialName } from "../../lib/materialGroups.js";
+import { groupByProduct, dimension, splitMaterialName } from "../../lib/materialGroups.js";
 
 // Stock — everything about where material physically is, outside the
 // ordered/delivered checklist on Material orders: what's on hand in the
@@ -501,8 +501,8 @@ export default function MaterialStockPage() {
    * them — a register that's wrong is worth knowing about.
    */
   const overdrawn = matchingBalances.filter((b) => b.total < 0);
-  const finishGroups = useMemo(
-    () => groupByFinish(onHand, available),
+  const productGroups = useMemo(
+    () => groupByProduct(onHand, available),
     // onHand is rebuilt each render from balances and the filter, so depend on
     // what actually decides it rather than on the array identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -721,7 +721,7 @@ export default function MaterialStockPage() {
               />
             )}
 
-            {!loading && finishGroups.length === 0 && overdrawn.length === 0 && (
+            {!loading && productGroups.length === 0 && overdrawn.length === 0 && (
               <p style={{ fontSize: 13, color: BRAND.sub }}>
                 {balances.length === 0
                   ? "No material logged yet — leftovers from Duncan's board will show up here, or add some yourself."
@@ -834,9 +834,9 @@ export default function MaterialStockPage() {
                 alignItems: "start",
               }}
             >
-              {finishGroups.map((group) => (
+              {productGroups.map((group) => (
                 <section
-                  key={group.finish}
+                  key={group.key}
                   style={{
                     background: BRAND.card,
                     border: `1px solid ${BRAND.line}`,
@@ -844,6 +844,8 @@ export default function MaterialStockPage() {
                     padding: "12px 14px",
                   }}
                 >
+                  {/* The product: what you'd order. Substrate and thickness
+                      say it once here rather than on every size below. */}
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                     <span style={{ fontWeight: 600, fontSize: 14 }}>{group.finish}</span>
                     <span
@@ -857,14 +859,26 @@ export default function MaterialStockPage() {
                       {group.free} free
                     </span>
                   </div>
-                  {/* Only worth a line when some of it is spoken for. */}
+                  <div style={{ fontSize: 12, color: BRAND.sub, marginTop: 1 }}>
+                    {[
+                      group.thickness !== "" ? `${group.thickness}mm` : "",
+                      group.substrate,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "no substrate recorded"}
+                  </div>
+                  {/* Only worth a line when some of it is spoken for. Each
+                      claim counted once, however many sizes it sits across. */}
                   {group.reserved > 0 && (
-                    <div style={{ fontSize: 12, color: BRAND.red, marginTop: 2 }}>
-                      {group.onHand} on hand · {group.reserved} reserved
+                    <div style={{ fontSize: 12, color: BRAND.sub, marginTop: 2 }}>
+                      {group.onHand} on hand · {group.reserved} spoken for ·{" "}
+                      {group.rows.length} {group.rows.length === 1 ? "size" : "sizes"}
                     </div>
                   )}
 
-                  <div style={{ maxHeight: 300, overflowY: "auto", marginTop: 8 }}>
+                  {/* No scroll box: a product is held in a handful of sizes,
+                      and a scrollbar over two rows hid one of them. */}
+                  <div style={{ marginTop: 8 }}>
                     {group.rows.map((b) => {
                       const key = signature(b);
                       return (
@@ -876,13 +890,15 @@ export default function MaterialStockPage() {
                             marginTop: 8,
                           }}
                         >
+                          {/* The size is the row. It's what gets ordered, what
+                              gets picked, and — with two sizes of one board on
+                              a rack — the only thing telling these apart. */}
                           <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                            <span style={{ fontSize: 13 }}>{b.substrate || "—"}</span>
-                            {b.thickness ? (
-                              <span style={{ fontSize: 13, color: BRAND.sub }}>
-                                {dimension(b.thickness)}mm
-                              </span>
-                            ) : null}
+                            <span style={{ fontSize: 13, fontWeight: 600 }}>
+                              {b.length && b.width
+                                ? `${dimension(b.length)} × ${dimension(b.width)}`
+                                : "size not recorded"}
+                            </span>
                             <span
                               style={{
                                 marginLeft: "auto",
@@ -891,27 +907,30 @@ export default function MaterialStockPage() {
                                 color: b.free > 0 ? BRAND.green : BRAND.sub,
                               }}
                             >
-                              {b.free}
+                              {b.free} free
                             </span>
                           </div>
-                          {b.length && b.width ? (
-                            <div style={{ fontSize: 12, color: BRAND.sub }}>
-                              {b.length} × {b.width}
-                              {b.location ? ` · ${b.location}` : ""}
-                            </div>
-                          ) : b.location ? (
-                            <div style={{ fontSize: 12, color: BRAND.sub }}>{b.location}</div>
-                          ) : null}
-
-                          {/* The whole point of the colour: these sheets are on
-                              the floor but already belong to a job, and the job
-                              number is what makes that actionable. */}
                           {b.reserved > 0 && (
-                            <div style={{ fontSize: 12, color: BRAND.red, fontWeight: 500 }}>
-                              {b.reserved} reserved
-                              {b.reservedBy.length ? ` · ${b.reservedBy.join(", ")}` : ""}
+                            <div style={{ fontSize: 12, color: BRAND.sub }}>
+                              {b.total} on hand · {b.reserved} spoken for
                             </div>
                           )}
+
+                          {/* The whole point of the colour: these sheets are on
+                              the floor but already belong to a job. The job
+                              number is what makes that actionable, and the
+                              quantity is what makes the total above add up
+                              rather than ask to be trusted. */}
+                          {b.reserved > 0 && (b.claims?.length || b.reservedBy.length) && (
+                            <div style={{ fontSize: 12, color: BRAND.red, fontWeight: 500 }}>
+                              {b.claims?.length
+                                ? b.claims.map((c) => `${c.jobId} (${c.quantity})`).join(" · ")
+                                : b.reservedBy.join(", ")}
+                            </div>
+                          )}
+                          {b.location ? (
+                            <div style={{ fontSize: 12, color: BRAND.sub }}>{b.location}</div>
+                          ) : null}
 
                           <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
                             <button onClick={() => setUseRow(useRow === key ? null : key)} style={miniBtn}>
