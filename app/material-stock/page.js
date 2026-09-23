@@ -214,6 +214,8 @@ export default function MaterialStockPage() {
   const [addInitial, setAddInitial] = useState(null);
   const [useRow, setUseRow] = useState(null); // signature of the row being drawn down
   const [expanded, setExpanded] = useState({});
+  const [noteEdit, setNoteEdit] = useState(null); // id of the entry whose note is open
+  const [noteDraft, setNoteDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState({});
 
@@ -328,6 +330,45 @@ export default function MaterialStockPage() {
     },
     []
   );
+
+  /**
+   * Rewrites the note on one entry.
+   *
+   * Notes were written once and fixed for good, which meant the only ways to
+   * correct "check the colour before use" were to clear the material and
+   * re-enter it, or to log a movement that never happened to carry the new
+   * wording. Neither is a thing a register should ask for.
+   *
+   * Only the note: the quantity and who logged it are the ledger, and the
+   * ledger stays append-only. The edit stamps its own name, so the card can
+   * say who changed it without taking the original line off anybody.
+   */
+  const saveNote = useCallback(async (id, note) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return false;
+    }
+    setSaving(true);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/material-stock/note", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, note, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Couldn't save that note");
+      setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...json.entry } : e)));
+      return true;
+    } catch (e) {
+      setActionError(String(e.message || e));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, []);
 
   /**
    * Removes a material from the register entirely — every entry behind its
@@ -1024,8 +1065,71 @@ export default function MaterialStockPage() {
                                         : "Manual"}
                                   {e.jobId ? ` · ${e.jobId}` : ""}
                                   {e.note ? ` · ${e.note}` : ""}
+                                  {/* The note is the one part of an entry
+                                      that can change: it's what somebody
+                                      wanted the next person to know, and the
+                                      next person may need telling something
+                                      else. The numbers stay put. */}
+                                  {noteEdit === e.id ? (
+                                    <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                                      <input
+                                        autoFocus
+                                        value={noteDraft}
+                                        onChange={(ev) => setNoteDraft(ev.target.value)}
+                                        placeholder="What should the next person know?"
+                                        style={{
+                                          flex: 1,
+                                          border: `1px solid ${BRAND.line}`,
+                                          borderRadius: 6,
+                                          padding: "3px 6px",
+                                          fontSize: 11,
+                                          fontFamily: "inherit",
+                                          minWidth: 0,
+                                        }}
+                                      />
+                                      <button
+                                        onClick={async () => {
+                                          const ok = await saveNote(e.id, noteDraft);
+                                          if (ok) setNoteEdit(null);
+                                        }}
+                                        disabled={saving}
+                                        style={{
+                                          ...miniBtn,
+                                          color: BRAND.green,
+                                          borderColor: BRAND.green,
+                                        }}
+                                      >
+                                        {saving ? "Saving…" : "Save"}
+                                      </button>
+                                      <button onClick={() => setNoteEdit(null)} style={miniBtn}>
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => {
+                                        setNoteEdit(e.id);
+                                        setNoteDraft(e.note || "");
+                                      }}
+                                      title={e.note ? "Change this note" : "Add a note to this entry"}
+                                      style={{
+                                        ...miniBtn,
+                                        marginLeft: 6,
+                                        padding: "0 6px",
+                                        color: BRAND.blue,
+                                      }}
+                                    >
+                                      {e.note ? "Edit note" : "Add note"}
+                                    </button>
+                                  )}
                                   <div>
                                     {e.loggedBy} · {fmtStamp(e.loggedAt)}
+                                    {/* Whoever wrote the note last, when it
+                                        isn't whoever logged the entry. The
+                                        original line stays theirs. */}
+                                    {e.noteEditedAt
+                                      ? ` · note edited by ${String(e.noteEditedBy || "").split("@")[0]} ${fmtStamp(e.noteEditedAt)}`
+                                      : ""}
                                   </div>
                                 </div>
                               ))}
