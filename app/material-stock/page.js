@@ -262,6 +262,9 @@ export default function MaterialStockPage() {
   const [placements, setPlacements] = useState([]); // where each material's sheets sit
   const [capacities, setCapacities] = useState(DEFAULT_CAPACITIES); // sheets per section
   const [placeRow, setPlaceRow] = useState(null); // signature of the row being put on a bay
+  // Which thickness is face up in a stack. One at a time, and only where a
+  // material is held in more than one.
+  const [openProduct, setOpenProduct] = useState(null);
   const [bay, setBay] = useState(null); // the location being looked at on the plan
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState({});
@@ -728,6 +731,45 @@ export default function MaterialStockPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [balances, q, available]
   );
+
+  /**
+   * The products, stacked by material.
+   *
+   * A card is a product — finish, substrate, thickness — because that's what
+   * you order and what you can cut a job from. But Versilux SE in 6mm and in
+   * 9mm are the same material to anybody looking for it, and they were two
+   * cards at opposite ends of a five-across grid. So the thicknesses stack
+   * under one heading, face up, and you open the one you want.
+   *
+   * The heading's total is across thicknesses, which is not a number you can
+   * cut from — it answers "have we got any Versilux at all", and the figure
+   * that decides anything is on the thickness under it.
+   */
+  const stacks = useMemo(() => {
+    const map = new Map();
+    for (const group of productGroups) {
+      const key = `${group.finish.toLowerCase()}|${String(group.substrate).toLowerCase()}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          finish: group.finish,
+          substrate: group.substrate,
+          products: [],
+          onHand: 0,
+          free: 0,
+        });
+      }
+      const stack = map.get(key);
+      stack.products.push(group);
+      stack.onHand += group.onHand;
+      stack.free += group.free;
+    }
+    for (const stack of map.values()) {
+      // Thinnest first, the way a board list is read.
+      stack.products.sort((a, b) => Number(a.thickness || 0) - Number(b.thickness || 0));
+    }
+    return [...map.values()];
+  }, [productGroups]);
 
   /**
    * The same register, laid out as the building.
@@ -1210,9 +1252,9 @@ export default function MaterialStockPage() {
                 alignItems: "start",
               }}
             >
-              {productGroups.map((group) => (
+              {stacks.map((stack) => (
                 <section
-                  key={group.key}
+                  key={stack.key}
                   style={{
                     background: BRAND.card,
                     border: `1px solid ${BRAND.line}`,
@@ -1220,32 +1262,95 @@ export default function MaterialStockPage() {
                     padding: "12px 14px",
                   }}
                 >
-                  {/* The product: what you'd order. Substrate and thickness
-                      say it once here rather than on every size below. */}
+                  {/* The material, said once. Versilux SE in 6mm and in 9mm
+                      used to be two cards at opposite ends of the page. */}
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span style={{ fontWeight: 600, fontSize: 14 }}>{group.finish}</span>
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>{stack.finish}</span>
                     <span
                       style={{
                         marginLeft: "auto",
                         fontSize: 13,
                         fontWeight: 600,
-                        color: group.free > 0 ? BRAND.green : BRAND.sub,
+                        color: stack.free > 0 ? BRAND.green : BRAND.sub,
                       }}
                     >
-                      {group.free} free
+                      {stack.free} free
                     </span>
                   </div>
+                  {/* Plenty of these are a board with no face on it —
+                      Versilux, Villabord — where the finish is the whole name
+                      and "no substrate recorded" is just noise. */}
                   <div style={{ fontSize: 12, color: BRAND.sub, marginTop: 1 }}>
                     {[
-                      group.thickness !== "" ? `${group.thickness}mm` : "",
-                      group.substrate,
+                      stack.substrate,
+                      stack.products.length > 1 ? `${stack.products.length} thicknesses` : "",
                     ]
                       .filter(Boolean)
-                      .join(" · ") || "no substrate recorded"}
+                      .join(" · ")}
                   </div>
+
+                  {stack.products.map((group) => {
+                  // One thickness in the pile. On its own it's just the card;
+                  // with others it's a face-up card you pick to see the rest,
+                  // because 6mm and 9mm are different material and the number
+                  // that matters is each one's own.
+                  const single = stack.products.length === 1;
+                  const open = single || openProduct === group.key;
+                  return (
+                  <div key={group.key} style={{ marginTop: 8 }}>
+                  {!single && (
+                    <button
+                      onClick={() => setOpenProduct(open ? null : group.key)}
+                      style={{
+                        display: "flex",
+                        width: "100%",
+                        alignItems: "baseline",
+                        gap: 8,
+                        // Each side named rather than a shorthand with one
+                        // side overridden: React warns when the two are mixed
+                        // on an element whose style changes, and it's right —
+                        // which of them wins is order-dependent.
+                        borderTop: `1px solid ${open ? BRAND.line : "transparent"}`,
+                        borderLeft: `1px solid ${open ? BRAND.line : "transparent"}`,
+                        borderRight: `1px solid ${open ? BRAND.line : "transparent"}`,
+                        borderBottom: `1px solid ${BRAND.line}`,
+                        borderRadius: open ? "8px 8px 0 0" : 8,
+                        background: open ? BRAND.card : "#f7f5f0",
+                        padding: "6px 8px",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        textAlign: "left",
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>
+                        {group.thickness !== "" ? `${group.thickness}mm` : "no thickness"}
+                      </span>
+                      <span style={{ fontSize: 11, color: BRAND.sub }}>
+                        {group.rows.length} {group.rows.length === 1 ? "size" : "sizes"}
+                      </span>
+                      <span
+                        style={{
+                          marginLeft: "auto",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: group.free > 0 ? BRAND.green : BRAND.sub,
+                        }}
+                      >
+                        {group.free} free
+                      </span>
+                      <span aria-hidden="true" style={{ fontSize: 10, color: BRAND.sub }}>
+                        {open ? "▾" : "▸"}
+                      </span>
+                    </button>
+                  )}
+                  {single && (
+                    <div style={{ fontSize: 12, color: BRAND.sub }}>
+                      {group.thickness !== "" ? `${group.thickness}mm` : "no thickness"}
+                    </div>
+                  )}
                   {/* Only worth a line when some of it is spoken for. Each
                       claim counted once, however many sizes it sits across. */}
-                  {group.reserved > 0 && (
+                  {open && group.reserved > 0 && (
                     <div style={{ fontSize: 12, color: BRAND.sub, marginTop: 2 }}>
                       {group.onHand} on hand · {group.reserved} spoken for ·{" "}
                       {group.rows.length} {group.rows.length === 1 ? "size" : "sizes"}
@@ -1254,7 +1359,7 @@ export default function MaterialStockPage() {
 
                   {/* No scroll box: a product is held in a handful of sizes,
                       and a scrollbar over two rows hid one of them. */}
-                  <div style={{ marginTop: 8 }}>
+                  <div style={{ marginTop: 8, display: open ? "block" : "none" }}>
                     {group.rows.map((b) => {
                       const key = signature(b);
                       return (
@@ -1631,6 +1736,9 @@ export default function MaterialStockPage() {
                       );
                     })}
                   </div>
+                  </div>
+                  );
+                  })}
                 </section>
               ))}
             </div>
