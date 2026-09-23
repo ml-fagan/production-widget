@@ -8,6 +8,7 @@ import PickOne from "../PickOne.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { PROCESS_COLUMNS, CELL_COLOURS, cellState } from "../../lib/board.js";
 import { groupByProduct, dimension, splitMaterialName } from "../../lib/materialGroups.js";
+import { useCapabilities } from "../../lib/useCapabilities.js";
 
 // Stock — everything about where material physically is, outside the
 // ordered/delivered checklist on Material orders: what's on hand in the
@@ -207,6 +208,19 @@ export default function MaterialStockPage() {
   const [trackBy, setTrackBy] = useState("project");
   const [section, setSection] = useState("hand");
   const [user, setUser] = useState(null);
+  const caps = useCapabilities(user);
+  /**
+   * Keeping the register — adding, using, clearing — against counting what's
+   * on the rack.
+   *
+   * They're different jobs done by different people. Alice decides what we
+   * hold and what a job takes; the warehouse walks round and says what's
+   * actually there. The second is the only thing the floor gets here, so the
+   * rest doesn't render for them: a row of buttons that all refuse is worse
+   * than no buttons.
+   */
+  const canKeep = caps.materials;
+  const canCount = caps.materials || caps.receiving;
   const [showAdd, setShowAdd] = useState(false);
   // What "Enter what's on the rack" puts into the Add form: the material the
   // register is short of, so squaring it is a quantity rather than six fields
@@ -216,6 +230,9 @@ export default function MaterialStockPage() {
   const [expanded, setExpanded] = useState({});
   const [noteEdit, setNoteEdit] = useState(null); // id of the entry whose note is open
   const [noteDraft, setNoteDraft] = useState("");
+  const [countRow, setCountRow] = useState(null); // signature of the row being counted
+  const [countDraft, setCountDraft] = useState("");
+  const [counted, setCounted] = useState(null); // what the last count came to
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState({});
 
@@ -330,6 +347,56 @@ export default function MaterialStockPage() {
     },
     []
   );
+
+  /**
+   * A stocktake on one size: how many are actually on the rack.
+   *
+   * The correction itself is the handover app's to work out — it recounts the
+   * ledger and posts the difference, so the number that gets corrected is the
+   * one in the register at that moment rather than whatever this page last
+   * loaded. Two people counting two racks a minute apart shouldn't be able to
+   * create the discrepancy they went out to close.
+   */
+  const countStock = useCallback(async (b, counted) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return false;
+    }
+    setSaving(true);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/material-stock/count", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: b.name,
+          length: b.length,
+          width: b.width,
+          thickness: b.thickness,
+          counted,
+          idToken,
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Couldn't record that count");
+      if (json.entry) setEntries((prev) => [json.entry, ...prev]);
+      // Counted and it was already right: nothing is written, so say so rather
+      // than leaving the screen looking as though nothing happened.
+      setCounted(
+        json.difference === 0
+          ? `${b.name} counted at ${json.counted} — the register already said so.`
+          : `${b.name}: ${json.difference > 0 ? "+" : ""}${json.difference} — register was ${json.onHand}, rack holds ${json.counted}.`
+      );
+      return true;
+    } catch (e) {
+      setActionError(String(e.message || e));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, []);
 
   /**
    * Rewrites the note on one entry.
@@ -611,7 +678,7 @@ export default function MaterialStockPage() {
           </div>
         </header>
 
-        <Tabs current="stock" />
+        <Tabs current="stock" tabs={caps.tabs} />
 
         <div
           style={{
@@ -687,6 +754,33 @@ export default function MaterialStockPage() {
             {actionError}
           </div>
         )}
+        {/* What the last count came to. A correction of zero writes nothing,
+            and somebody who has just walked to a rack deserves to be told that
+            rather than left looking at an unchanged screen. */}
+        {counted && (
+          <div
+            style={{
+              background: "#eef4ef",
+              border: `1px solid ${BRAND.green}`,
+              color: BRAND.green,
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 13,
+              marginBottom: 16,
+              display: "flex",
+              gap: 10,
+              alignItems: "baseline",
+            }}
+          >
+            <span style={{ flex: 1 }}>{counted}</span>
+            <button
+              onClick={() => setCounted(null)}
+              style={{ ...miniBtn, color: BRAND.green, borderColor: BRAND.green }}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {error && (
           <div
             style={{
@@ -721,8 +815,11 @@ export default function MaterialStockPage() {
                   boxSizing: "border-box",
                 }}
               />
+              {/* Putting a new material on the register is deciding what we
+                  hold. Counting one that's already there isn't. */}
               <button
                 onClick={() => setShowAdd((v) => !v)}
+                disabled={!canKeep}
                 style={{
                   border: `1px solid ${BRAND.green}`,
                   background: BRAND.green,
@@ -731,9 +828,10 @@ export default function MaterialStockPage() {
                   padding: "8px 16px",
                   fontSize: 13,
                   fontWeight: 500,
-                  cursor: "pointer",
+                  cursor: canKeep ? "pointer" : "default",
                   fontFamily: "inherit",
                   whiteSpace: "nowrap",
+                  opacity: canKeep ? 1 : 0.5,
                 }}
               >
                 + Add stock
@@ -974,16 +1072,43 @@ export default function MaterialStockPage() {
                           ) : null}
 
                           <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
-                            <button onClick={() => setUseRow(useRow === key ? null : key)} style={miniBtn}>
+                            {/* Greyed rather than gone, the way the other
+                                boards do it: what the page can do stays
+                                visible, and the header says why it's out of
+                                reach. */}
+                            <button
+                              onClick={() => setUseRow(useRow === key ? null : key)}
+                              disabled={!canKeep}
+                              style={{ ...miniBtn, opacity: canKeep ? 1 : 0.5 }}
+                            >
                               − Use
                             </button>
                             <button
                               onClick={() => clearMaterial(b)}
-                              disabled={saving}
+                              disabled={saving || !canKeep}
                               title="Remove this material from the register — for something entered by mistake"
-                              style={{ ...miniBtn, color: BRAND.sub, opacity: saving ? 0.6 : 1 }}
+                              style={{
+                                ...miniBtn,
+                                color: BRAND.sub,
+                                opacity: saving || !canKeep ? 0.5 : 1,
+                              }}
                             >
                               Clear
+                            </button>
+                            {/* The warehouse's own button, and the only one
+                                they get: what's actually on the rack,
+                                whatever the register thinks. */}
+                            <button
+                              onClick={() => {
+                                setCountRow(countRow === key ? null : key);
+                                setCountDraft("");
+                                setCounted(null);
+                              }}
+                              disabled={!canCount}
+                              title="Count what's on the rack and correct the register to it"
+                              style={{ ...miniBtn, color: BRAND.blue, opacity: canCount ? 1 : 0.5 }}
+                            >
+                              Count
                             </button>
                             <button
                               onClick={() => setExpanded((p) => ({ ...p, [key]: !p[key] }))}
@@ -1000,6 +1125,70 @@ export default function MaterialStockPage() {
                               {expanded[key] ? "Hide" : `History (${b.entries.length})`}
                             </button>
                           </div>
+
+                          {/* Deliberately one box and one button. Somebody is
+                              standing at a rack with a phone: the question is
+                              how many are there, and the difference is the
+                              register's problem, not theirs. */}
+                          {countRow === key && (
+                            <div
+                              style={{
+                                marginTop: 6,
+                                padding: 8,
+                                background: BRAND.bg,
+                                borderRadius: 8,
+                              }}
+                            >
+                              <div style={{ fontSize: 11, color: BRAND.sub, marginBottom: 4 }}>
+                                How many are on the rack? The register says {b.total}.
+                              </div>
+                              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                <input
+                                  autoFocus
+                                  type="number"
+                                  min="0"
+                                  inputMode="numeric"
+                                  value={countDraft}
+                                  onChange={(ev) => setCountDraft(ev.target.value)}
+                                  style={{
+                                    width: 90,
+                                    border: `1px solid ${BRAND.line}`,
+                                    borderRadius: 6,
+                                    padding: "4px 8px",
+                                    fontSize: 13,
+                                    fontFamily: "inherit",
+                                  }}
+                                />
+                                <button
+                                  onClick={async () => {
+                                    const ok = await countStock(b, Number(countDraft));
+                                    if (ok) {
+                                      setCountRow(null);
+                                      setCountDraft("");
+                                    }
+                                  }}
+                                  disabled={saving || countDraft.trim() === "" || Number(countDraft) < 0}
+                                  style={{
+                                    ...miniBtn,
+                                    color: BRAND.green,
+                                    borderColor: BRAND.green,
+                                    opacity: saving || countDraft.trim() === "" ? 0.6 : 1,
+                                  }}
+                                >
+                                  {saving ? "Saving…" : "That's what's there"}
+                                </button>
+                                <button onClick={() => setCountRow(null)} style={miniBtn}>
+                                  Cancel
+                                </button>
+                              </div>
+                              {countDraft.trim() !== "" && Number(countDraft) !== b.total && (
+                                <div style={{ fontSize: 11, color: BRAND.sub, marginTop: 4 }}>
+                                  Logs {Number(countDraft) - b.total > 0 ? "+" : ""}
+                                  {Number(countDraft) - b.total} against this material.
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           {useRow === key && (
                             <UseStockForm
@@ -1062,7 +1251,9 @@ export default function MaterialStockPage() {
                                       ? "Pre-order"
                                       : e.source === "scheduled"
                                         ? "Scheduled"
-                                        : "Manual"}
+                                        : e.source === "count"
+                                          ? "Counted"
+                                          : "Manual"}
                                   {e.jobId ? ` · ${e.jobId}` : ""}
                                   {e.note ? ` · ${e.note}` : ""}
                                   {/* The note is the one part of an entry
