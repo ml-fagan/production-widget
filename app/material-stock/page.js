@@ -7,7 +7,12 @@ import SignIn from "../SignIn.js";
 import PickOne from "../PickOne.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { PROCESS_COLUMNS, CELL_COLOURS, cellState } from "../../lib/board.js";
-import { groupByProduct, dimension, splitMaterialName } from "../../lib/materialGroups.js";
+import {
+  groupByProduct,
+  dimension,
+  splitMaterialName,
+  placementKeyOf,
+} from "../../lib/materialGroups.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import {
   AISLES,
@@ -18,8 +23,8 @@ import {
   bayCode,
   allLocations,
   locationCode,
-  stockByLocation,
   describeLocation,
+  spreadFrom,
   bayLoad,
   bayState,
   capacityOf,
@@ -254,6 +259,7 @@ export default function MaterialStockPage() {
   const [countRow, setCountRow] = useState(null); // signature of the row being counted
   const [countDraft, setCountDraft] = useState("");
   const [counted, setCounted] = useState(null); // what the last count came to
+  const [placements, setPlacements] = useState([]); // where each material's sheets sit
   const [placeRow, setPlaceRow] = useState(null); // signature of the row being put on a bay
   const [bay, setBay] = useState(null); // the location being looked at on the plan
   const [saving, setSaving] = useState(false);
@@ -271,6 +277,7 @@ export default function MaterialStockPage() {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Failed to load material stock");
       setEntries(json.entries || []);
+      setPlacements(json.placements || []);
       setError(null);
     } catch (e) {
       setError(String(e.message || e));
@@ -372,13 +379,13 @@ export default function MaterialStockPage() {
   );
 
   /**
-   * Puts a material on a bay, or takes it off the map.
+   * Where a material's sheets sit, as a whole list.
    *
-   * The code goes onto every entry behind the balance, because the entries are
-   * the register — a location kept anywhere else is a second answer waiting to
-   * disagree with this one. Moving a pallet is one act, so it's one call.
+   * One call for the whole arrangement: spreading an overflow is a single
+   * decision — this much here, that much there — and writing it a bay at a
+   * time would leave the register readable in a state nobody intended.
    */
-  const setLocation = useCallback(async (b, location) => {
+  const savePlacements = useCallback(async (b, list) => {
     const current = firebaseConfigured() ? auth().currentUser : null;
     if (!current) {
       setActionError("Sign in first so this is recorded against your name.");
@@ -388,7 +395,7 @@ export default function MaterialStockPage() {
     setActionError(null);
     try {
       const idToken = await current.getIdToken();
-      const res = await fetch("/api/material-stock/location", {
+      const res = await fetch("/api/material-stock/placements", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -396,14 +403,16 @@ export default function MaterialStockPage() {
           length: b.length,
           width: b.width,
           thickness: b.thickness,
-          location,
+          placements: list,
           idToken,
         }),
       });
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Couldn't move that material");
-      const moved = new Set(json.ids || []);
-      setEntries((prev) => prev.map((e) => (moved.has(e.id) ? { ...e, location } : e)));
+      if (!json.ok) throw new Error(json.error || "Couldn't save where that goes");
+      setPlacements((prev) => {
+        const without = prev.filter((p) => p.id !== json.placement.id);
+        return [...without, json.placement];
+      });
       return true;
     } catch (e) {
       setActionError(String(e.message || e));
@@ -700,7 +709,50 @@ export default function MaterialStockPage() {
       ),
     [balances, available]
   );
-  const byLocation = useMemo(() => stockByLocation(placedRows), [placedRows]);
+  /**
+   * Where each material's sheets sit.
+   *
+   * Explicit placements win. A material nobody has spread still reads its old
+   * coded location and counts as all of it on that bay, so everything put on
+   * the map before this existed stays where it was put.
+   */
+  const placementIndex = useMemo(() => {
+    const map = new Map();
+    for (const p of placements) map.set(String(p.id), p.placements || []);
+    return map;
+  }, [placements]);
+
+  const placedFor = useCallback(
+    (row) => {
+      const key = placementKeyOf(row);
+      const explicit = placementIndex.get(key);
+      if (explicit && explicit.length) {
+        return explicit.map((p) => ({
+          bay: p.bay,
+          // Null means "all of it" — the ordinary one-rack case, which can't
+          // go stale because it carries no number.
+          quantity: p.quantity == null ? row.total : Number(p.quantity) || 0,
+        }));
+      }
+      if (explicit) return []; // deliberately taken off the map
+      const legacy = locationCode(row.location);
+      return legacy ? [{ bay: legacy, quantity: row.total }] : [];
+    },
+    [placementIndex]
+  );
+
+  /** bay → the materials on it, each with how many of them are there. */
+  const byLocation = useMemo(() => {
+    const map = new Map();
+    for (const row of placedRows) {
+      for (const p of placedFor(row)) {
+        if (!map.has(p.bay)) map.set(p.bay, []);
+        map.get(p.bay).push({ ...row, here: p.quantity });
+      }
+    }
+    return map;
+  }, [placedRows, placedFor]);
+
   // Sheets per bay, for the plan's colour and for showing where there's room
   // while somebody is choosing one.
   const bayLoads = useMemo(
@@ -710,8 +762,8 @@ export default function MaterialStockPage() {
   // Material on a rack that nobody has told the map about. Worth showing,
   // because it's the list that makes the map finish itself.
   const unplaced = useMemo(
-    () => placedRows.filter((r) => !locationCode(r.location)),
-    [placedRows]
+    () => placedRows.filter((r) => placedFor(r).length === 0),
+    [placedRows, placedFor]
   );
   const bayRows = bay ? byLocation.get(bay) ?? [] : [];
 
@@ -1165,7 +1217,15 @@ export default function MaterialStockPage() {
                                 : b.reservedBy.join(", ")}
                             </div>
                           )}
-                          {b.location ? (
+                          {placedFor(b).length > 0 ? (
+                            <div style={{ fontSize: 12, color: BRAND.sub }}>
+                              {placedFor(b)
+                                .map((p) =>
+                                  placedFor(b).length === 1 ? p.bay : `${p.bay} (${p.quantity})`
+                                )
+                                .join(" · ")}
+                            </div>
+                          ) : b.location ? (
                             <div style={{ fontSize: 12, color: BRAND.sub }}>{b.location}</div>
                           ) : null}
 
@@ -1217,11 +1277,19 @@ export default function MaterialStockPage() {
                               title="Put this material on a bay"
                               style={{
                                 ...miniBtn,
-                                color: locationCode(b.location) ? BRAND.ink : BRAND.blue,
+                                color: placedFor(b).length ? BRAND.ink : BRAND.blue,
                                 opacity: canCount ? 1 : 0.5,
                               }}
                             >
-                              {locationCode(b.location) || "Location"}
+                              {/* Where it is, in the button itself. More than
+                                  one bay and it says so — naming only the
+                                  first is how somebody ends up walking the
+                                  warehouse looking for the other 450. */}
+                              {placedFor(b).length === 0
+                                ? "Location"
+                                : placedFor(b).length === 1
+                                  ? placedFor(b)[0].bay
+                                  : `${placedFor(b).length} bays`}
                             </button>
                             <button
                               onClick={() => setExpanded((p) => ({ ...p, [key]: !p[key] }))}
@@ -1258,7 +1326,10 @@ export default function MaterialStockPage() {
                                 saving={saving}
                                 loads={bayLoads}
                                 onChange={async (code) => {
-                                  const ok = await setLocation(b, code);
+                                  const ok = await savePlacements(
+                                    b,
+                                    code ? [{ bay: code, quantity: null }] : []
+                                  );
                                   if (ok) setPlaceRow(null);
                                 }}
                               />
@@ -1506,11 +1577,12 @@ export default function MaterialStockPage() {
             unplaced={unplaced}
             bay={bay}
             bayRows={bayRows}
-            loads={bayLoads}
             onPick={(code) => setBay(bay === code ? null : code)}
             canPlace={canCount}
             saving={saving}
-            onPlace={setLocation}
+            onPlace={savePlacements}
+            placedFor={placedFor}
+            loads={bayLoads}
           />
         )}
       </div>
@@ -1526,9 +1598,28 @@ export default function MaterialStockPage() {
  * here. Aisles run with position 01 at the dispatch end, the way the labels
  * are numbered, so the plan reads the way somebody walks it.
  */
-function FactoryLayout({ byLocation, unplaced, bay, bayRows, loads, onPick, canPlace, saving, onPlace }) {
+function FactoryLayout({
+  byLocation,
+  unplaced,
+  bay,
+  bayRows,
+  loads,
+  onPick,
+  canPlace,
+  saving,
+  onPlace,
+  placedFor,
+}) {
   const load = (code) => bayLoad(byLocation.get(code));
   const state = (code) => bayState(code, byLocation.get(code));
+  // A proposed spread, held until somebody agrees to it. Nothing moves on the
+  // strength of the app's arithmetic alone.
+  const [spread, setSpread] = useState(null);
+  // A proposal belongs to the bay it was worked out from; picking another one
+  // leaves it meaningless.
+  useEffect(() => {
+    setSpread(null);
+  }, [bay]);
 
   const bayStyle = (code) => {
     const tone = BAY_COLOURS[state(code)];
@@ -1807,6 +1898,80 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, loads, onPick, canP
                     : ` · room for ${capacityOf(bay) - load(bay)} more`}
                   {bayRows.length > 1 ? ` · ${bayRows.length} materials` : ""}
                 </div>
+                {/* Over capacity is a question, not a verdict: the sheets are
+                    going somewhere, and the plan may as well say where. */}
+                {load(bay) > capacityOf(bay) && canPlace && (
+                  <div style={{ marginTop: 6 }}>
+                    {spread ? (
+                      <div
+                        style={{
+                          background: BRAND.bg,
+                          borderRadius: 8,
+                          padding: 10,
+                          fontSize: 12,
+                        }}
+                      >
+                        <div style={{ marginBottom: 6 }}>
+                          <strong style={{ fontWeight: 600 }}>{spread.row.name}</strong> —{" "}
+                          {spread.row.total} sheets across{" "}
+                          {spread.plan.length === 1 ? "1 bay" : `${spread.plan.length} bays`}:
+                        </div>
+                        <div style={{ display: "grid", gap: 3, marginBottom: 8 }}>
+                          {spread.plan.map((p) => (
+                            <div key={p.bay}>
+                              <span style={{ fontWeight: 600 }}>{p.bay}</span> · {p.quantity}
+                              {p.bay === bay ? " (stays here)" : ""}
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button
+                            onClick={async () => {
+                              const ok = await onPlace(spread.row, spread.plan);
+                              if (ok) setSpread(null);
+                            }}
+                            disabled={saving}
+                            style={{
+                              ...miniBtn,
+                              color: BRAND.green,
+                              borderColor: BRAND.green,
+                              opacity: saving ? 0.6 : 1,
+                            }}
+                          >
+                            {saving ? "Moving…" : "Put them there"}
+                          </button>
+                          <button onClick={() => setSpread(null)} style={miniBtn}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {bayRows.map((r) => (
+                          <button
+                            key={signature(r)}
+                            onClick={() =>
+                              setSpread({
+                                row: r,
+                                plan: spreadFrom(
+                                  bay,
+                                  r.total,
+                                  loads,
+                                  // This material's own sheets don't count
+                                  // against the room it's being offered.
+                                  new Map(placedFor(r).map((p) => [p.bay, p.quantity]))
+                                ),
+                              })
+                            }
+                            style={{ ...miniBtn, color: BRAND.blue }}
+                          >
+                            Spread {bayRows.length > 1 ? r.name : "the overflow"} across bays
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div
                   style={{
                     height: 6,
@@ -1858,7 +2023,14 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, loads, onPick, canP
                           {dimension(r.length)} × {dimension(r.width)}
                           {r.thickness ? ` × ${dimension(r.thickness)}` : ""}
                         </td>
-                        <td style={{ ...td, textAlign: "right" }}>{r.total}</td>
+                        <td style={{ ...td, textAlign: "right" }}>
+                          {r.here}
+                          {/* What's here against what we hold, when they're
+                              not the same thing — the rest is on other bays. */}
+                          {r.here !== r.total && (
+                            <div style={{ fontSize: 11, color: BRAND.sub }}>of {r.total}</div>
+                          )}
+                        </td>
                         <td style={{ ...td, textAlign: "right", color: BRAND.sub }}>
                           {r.reserved || "—"}
                         </td>
@@ -1878,7 +2050,9 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, loads, onPick, canP
                               value={bay}
                               saving={saving}
                               loads={loads}
-                              onChange={(code) => onPlace(r, code)}
+                              onChange={(code) =>
+                                onPlace(r, code ? [{ bay: code, quantity: null }] : [])
+                              }
                             />
                           </td>
                         )}
@@ -1930,7 +2104,9 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, loads, onPick, canP
                           value=""
                           saving={saving}
                           loads={loads}
-                          onChange={(code) => onPlace(r, code)}
+                          onChange={(code) =>
+                            onPlace(r, code ? [{ bay: code, quantity: null }] : [])
+                          }
                         />
                       </td>
                     )}
