@@ -9,6 +9,18 @@ import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { PROCESS_COLUMNS, CELL_COLOURS, cellState } from "../../lib/board.js";
 import { groupByProduct, dimension, splitMaterialName } from "../../lib/materialGroups.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
+import {
+  AISLES,
+  SIDES,
+  POSITIONS,
+  AREAS,
+  PRODUCTION_BLOCKS,
+  bayCode,
+  allLocations,
+  locationCode,
+  stockByLocation,
+  describeLocation,
+} from "../../lib/factoryLayout.js";
 
 // Stock — everything about where material physically is, outside the
 // ordered/delivered checklist on Material orders: what's on hand in the
@@ -161,6 +173,10 @@ function stockForJob(stockEntries, jobId) {
 const SECTIONS = [
   { key: "hand", label: "On hand" },
   { key: "tracking", label: "Tracking" },
+  // The same register, arranged as the building rather than as a list. "Have
+  // we got any Blackbutt" is the On hand question; "where is it" is this one,
+  // and they were the same page answering only the first.
+  { key: "layout", label: "Factory layout" },
 ];
 
 const btn = {
@@ -233,6 +249,8 @@ export default function MaterialStockPage() {
   const [countRow, setCountRow] = useState(null); // signature of the row being counted
   const [countDraft, setCountDraft] = useState("");
   const [counted, setCounted] = useState(null); // what the last count came to
+  const [placeRow, setPlaceRow] = useState(null); // signature of the row being put on a bay
+  const [bay, setBay] = useState(null); // the location being looked at on the plan
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState({});
 
@@ -347,6 +365,48 @@ export default function MaterialStockPage() {
     },
     []
   );
+
+  /**
+   * Puts a material on a bay, or takes it off the map.
+   *
+   * The code goes onto every entry behind the balance, because the entries are
+   * the register — a location kept anywhere else is a second answer waiting to
+   * disagree with this one. Moving a pallet is one act, so it's one call.
+   */
+  const setLocation = useCallback(async (b, location) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return false;
+    }
+    setSaving(true);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/material-stock/location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: b.name,
+          length: b.length,
+          width: b.width,
+          thickness: b.thickness,
+          location,
+          idToken,
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Couldn't move that material");
+      const moved = new Set(json.ids || []);
+      setEntries((prev) => prev.map((e) => (moved.has(e.id) ? { ...e, location } : e)));
+      return true;
+    } catch (e) {
+      setActionError(String(e.message || e));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, []);
 
   /**
    * A stocktake on one size: how many are actually on the rack.
@@ -616,6 +676,33 @@ export default function MaterialStockPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [balances, q, available]
   );
+
+  /**
+   * The same register, laid out as the building.
+   *
+   * Deliberately not filtered by the box above it: that box belongs to the
+   * On hand list, and a plan quietly showing only the material somebody
+   * happened to search for an hour ago would be a map that lies. Every row
+   * with something on it, every time.
+   */
+  const placedRows = useMemo(
+    () =>
+      groupByProduct(
+        balances.filter((b) => b.total > 0),
+        available
+      ).flatMap((g) =>
+        g.rows.map((r) => ({ ...r, finish: g.finish, product: g.thickness }))
+      ),
+    [balances, available]
+  );
+  const byLocation = useMemo(() => stockByLocation(placedRows), [placedRows]);
+  // Material on a rack that nobody has told the map about. Worth showing,
+  // because it's the list that makes the map finish itself.
+  const unplaced = useMemo(
+    () => placedRows.filter((r) => !locationCode(r.location)),
+    [placedRows]
+  );
+  const bayRows = bay ? byLocation.get(bay) ?? [] : [];
 
   // Tracking follows work in progress, so a job drops off it the moment
   // Duncan marks it complete — and disappears outright if it's deleted, since
@@ -1110,6 +1197,21 @@ export default function MaterialStockPage() {
                             >
                               Count
                             </button>
+                            {/* Where it lives, from the same list the plan is
+                                drawn from — so putting a pallet down and
+                                finding it later are the same vocabulary. */}
+                            <button
+                              onClick={() => setPlaceRow(placeRow === key ? null : key)}
+                              disabled={!canCount}
+                              title="Put this material on a bay"
+                              style={{
+                                ...miniBtn,
+                                color: locationCode(b.location) ? BRAND.ink : BRAND.blue,
+                                opacity: canCount ? 1 : 0.5,
+                              }}
+                            >
+                              {locationCode(b.location) || "Location"}
+                            </button>
                             <button
                               onClick={() => setExpanded((p) => ({ ...p, [key]: !p[key] }))}
                               style={{
@@ -1125,6 +1227,34 @@ export default function MaterialStockPage() {
                               {expanded[key] ? "Hide" : `History (${b.entries.length})`}
                             </button>
                           </div>
+
+                          {placeRow === key && (
+                            <div
+                              style={{
+                                marginTop: 6,
+                                padding: 8,
+                                background: BRAND.bg,
+                                borderRadius: 8,
+                                display: "flex",
+                                gap: 8,
+                                alignItems: "center",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <span style={{ fontSize: 11, color: BRAND.sub }}>Where is it?</span>
+                              <LocationPicker
+                                value={locationCode(b.location)}
+                                saving={saving}
+                                onChange={async (code) => {
+                                  const ok = await setLocation(b, code);
+                                  if (ok) setPlaceRow(null);
+                                }}
+                              />
+                              <button onClick={() => setPlaceRow(null)} style={miniBtn}>
+                                Cancel
+                              </button>
+                            </div>
+                          )}
 
                           {/* Deliberately one box and one button. Somebody is
                               standing at a rack with a phone: the question is
@@ -1357,8 +1487,444 @@ export default function MaterialStockPage() {
             <MaterialTracking jobs={trackingJobs} trackBy={trackBy} stockEntries={entries} />
           </>
         )}
+
+        {section === "layout" && (
+          <FactoryLayout
+            byLocation={byLocation}
+            unplaced={unplaced}
+            bay={bay}
+            bayRows={bayRows}
+            onPick={(code) => setBay(bay === code ? null : code)}
+            canPlace={canCount}
+            saving={saving}
+            onPlace={setLocation}
+          />
+        )}
       </div>
     </main>
+  );
+}
+
+/**
+ * The factory as a plan, with what's on each bay.
+ *
+ * Not to scale and not trying to be: it's for finding a sheet, so what matters
+ * is that the things next to each other on the floor are next to each other
+ * here. Aisles run with position 01 at the dispatch end, the way the labels
+ * are numbered, so the plan reads the way somebody walks it.
+ */
+function FactoryLayout({ byLocation, unplaced, bay, bayRows, onPick, canPlace, saving, onPlace }) {
+  const held = (code) => byLocation.get(code)?.length ?? 0;
+
+  const bayStyle = (code) => {
+    const count = held(code);
+    const chosen = bay === code;
+    return {
+      fontSize: 10,
+      fontFamily: "inherit",
+      padding: "3px 2px",
+      borderRadius: 3,
+      cursor: "pointer",
+      textAlign: "center",
+      whiteSpace: "nowrap",
+      // Two states, because that's the question being asked of a plan: is
+      // there anything on it, or is it free.
+      background: count ? "#cfe3d4" : BRAND.card,
+      color: count ? "#2f5d3c" : "#9c988f",
+      border: chosen ? `2px solid ${BRAND.blue}` : `1px solid ${count ? "#a9c9b3" : BRAND.line}`,
+      fontWeight: count ? 600 : 400,
+    };
+  };
+
+  const block = {
+    background: "#eceae4",
+    border: `1px solid ${BRAND.line}`,
+    borderRadius: 8,
+    padding: "10px 12px",
+    fontSize: 12,
+    color: BRAND.sub,
+  };
+  const strip = {
+    background: "#efece5",
+    border: `1px solid ${BRAND.line}`,
+    borderRadius: 6,
+    padding: "6px 10px",
+    fontSize: 11,
+    letterSpacing: "0.04em",
+    color: BRAND.sub,
+    textTransform: "uppercase",
+  };
+
+  return (
+    <>
+      <div style={{ fontSize: 13, color: BRAND.sub, marginBottom: 10 }}>
+        Aisle · side · position — 2-A-07 is aisle 2, side A, position 07. Position 01 is the
+        dispatch end; side A is on your left standing at dispatch looking down the factory.
+      </div>
+
+      <div
+        style={{
+          background: BRAND.card,
+          border: `1px solid ${BRAND.line}`,
+          borderRadius: 10,
+          padding: 14,
+          overflowX: "auto",
+        }}
+      >
+        <div style={{ ...strip, marginBottom: 10, textAlign: "center" }}>
+          Rear / external access road
+        </div>
+
+        <div style={{ display: "flex", gap: 16, alignItems: "flex-start", minWidth: 900 }}>
+          {/* Production. Mostly context — you're looking for a rack, and the
+              machines are how you know which end of the building you're at —
+              except the two floor stock areas, which hold sheets. */}
+          <div style={{ flex: "0 0 300px" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: BRAND.green, marginBottom: 6 }}>
+              PRODUCTION
+            </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              {PRODUCTION_BLOCKS.map((row, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  {row.map((cell, j) => {
+                    const area = cell.area ? AREAS.find((a) => a.code === cell.area) : null;
+                    if (!area) {
+                      return (
+                        <div key={j} style={block}>
+                          <div style={{ color: BRAND.ink, fontWeight: 500 }}>{cell.name}</div>
+                          {cell.note ? <div style={{ fontSize: 11 }}>{cell.note}</div> : null}
+                        </div>
+                      );
+                    }
+                    const count = held(area.code);
+                    return (
+                      <button
+                        key={j}
+                        onClick={() => onPick(area.code)}
+                        style={{
+                          ...block,
+                          cursor: "pointer",
+                          textAlign: "left",
+                          fontFamily: "inherit",
+                          background: count ? "#cfe3d4" : "#faf7ef",
+                          border:
+                            bay === area.code
+                              ? `2px solid ${BRAND.blue}`
+                              : `1px solid ${count ? "#a9c9b3" : "#e0d9c4"}`,
+                        }}
+                      >
+                        <div style={{ color: BRAND.ink, fontWeight: 600 }}>{area.code}</div>
+                        <div style={{ fontSize: 11 }}>{area.label}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* The warehouse. Five aisles, two sides each, fifteen deep. */}
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: BRAND.green, marginBottom: 6 }}>
+              WAREHOUSE
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              {AISLES.map((aisle) => (
+                <div key={aisle} style={{ flex: 1 }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      textAlign: "center",
+                      marginBottom: 4,
+                      color: BRAND.ink,
+                    }}
+                  >
+                    AISLE {aisle}
+                  </div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {SIDES.map((side) => (
+                      <div key={side} style={{ flex: 1 }}>
+                        <div
+                          style={{
+                            fontSize: 9,
+                            textAlign: "center",
+                            color: BRAND.sub,
+                            marginBottom: 3,
+                            letterSpacing: "0.04em",
+                          }}
+                        >
+                          SIDE {side}
+                        </div>
+                        <div style={{ display: "grid", gap: 2 }}>
+                          {/* Counted down the page so 01, the dispatch end,
+                              sits at the bottom where dispatch is. */}
+                          {Array.from({ length: POSITIONS }, (_, i) => POSITIONS - i).map((p) => {
+                            const code = bayCode(aisle, side, p);
+                            return (
+                              <button key={code} onClick={() => onPick(code)} style={bayStyle(code)}>
+                                {code}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 9, color: BRAND.sub, textAlign: "center", marginTop: 4 }}>
+                    01 starts here
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            ...strip,
+            marginTop: 10,
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "center",
+          }}
+        >
+          <span>Front / car park &amp; loading side</span>
+          {AREAS.filter((a) => a.where === "front").map((a) => {
+            const count = held(a.code);
+            return (
+              <button
+                key={a.code}
+                onClick={() => onPick(a.code)}
+                style={{
+                  fontSize: 11,
+                  fontFamily: "inherit",
+                  padding: "3px 10px",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  textTransform: "none",
+                  letterSpacing: 0,
+                  background: count ? "#cfe3d4" : BRAND.card,
+                  color: count ? "#2f5d3c" : BRAND.sub,
+                  border:
+                    bay === a.code
+                      ? `2px solid ${BRAND.blue}`
+                      : `1px solid ${count ? "#a9c9b3" : BRAND.line}`,
+                }}
+              >
+                {a.code} {a.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ display: "flex", gap: 16, marginTop: 12, fontSize: 11, color: BRAND.sub }}>
+          <span>
+            <span
+              style={{
+                display: "inline-block",
+                width: 10,
+                height: 10,
+                background: "#cfe3d4",
+                border: "1px solid #a9c9b3",
+                borderRadius: 2,
+                marginRight: 5,
+              }}
+            />
+            Holding stock
+          </span>
+          <span>
+            <span
+              style={{
+                display: "inline-block",
+                width: 10,
+                height: 10,
+                background: BRAND.card,
+                border: `1px solid ${BRAND.line}`,
+                borderRadius: 2,
+                marginRight: 5,
+              }}
+            />
+            Free
+          </span>
+          <span style={{ marginLeft: "auto" }}>Diagrammatic — not to scale</span>
+        </div>
+      </div>
+
+      {/* What's on the bay you picked. The point of the whole page. */}
+      <div style={{ marginTop: 16 }}>
+        {!bay ? (
+          <p style={{ fontSize: 13, color: BRAND.sub }}>
+            Pick a bay to see what&apos;s on it. {byLocation.size} of {allLocations().length} are
+            holding something.
+          </p>
+        ) : (
+          <>
+            <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 2px" }}>
+              {bay} <span style={{ fontWeight: 400, color: BRAND.sub }}>· {describeLocation(bay)}</span>
+            </h2>
+            {bayRows.length === 0 ? (
+              <p style={{ fontSize: 13, color: BRAND.sub }}>
+                Nothing on this one. Anything below can be put here.
+              </p>
+            ) : (
+              <div
+                style={{
+                  background: BRAND.card,
+                  border: `1px solid ${BRAND.line}`,
+                  borderRadius: 10,
+                  overflowX: "auto",
+                  marginTop: 8,
+                }}
+              >
+                <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Material</th>
+                      <th style={th}>Size</th>
+                      <th style={{ ...th, textAlign: "right" }}>On hand</th>
+                      <th style={{ ...th, textAlign: "right" }}>Spoken for</th>
+                      <th style={{ ...th, textAlign: "right" }}>Free</th>
+                      {canPlace && <th style={{ ...th, textAlign: "right" }}>Move</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bayRows.map((r) => (
+                      <tr key={signature(r)}>
+                        <td style={{ ...td, whiteSpace: "normal", minWidth: 160 }}>{r.name}</td>
+                        <td style={td}>
+                          {dimension(r.length)} × {dimension(r.width)}
+                          {r.thickness ? ` × ${dimension(r.thickness)}` : ""}
+                        </td>
+                        <td style={{ ...td, textAlign: "right" }}>{r.total}</td>
+                        <td style={{ ...td, textAlign: "right", color: BRAND.sub }}>
+                          {r.reserved || "—"}
+                        </td>
+                        <td
+                          style={{
+                            ...td,
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: r.free > 0 ? BRAND.green : BRAND.sub,
+                          }}
+                        >
+                          {r.free}
+                        </td>
+                        {canPlace && (
+                          <td style={{ ...td, textAlign: "right" }}>
+                            <LocationPicker
+                              value={bay}
+                              saving={saving}
+                              onChange={(code) => onPlace(r, code)}
+                            />
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* The list that finishes the map. Everything the register holds that
+          nobody has said where it is. */}
+      {unplaced.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 2px" }}>
+            Not on the map yet ({unplaced.length})
+          </h2>
+          <p style={{ fontSize: 12, color: BRAND.sub, margin: "0 0 8px" }}>
+            On the racks somewhere, but without a bay against it. Whatever was typed before is
+            kept until somebody picks one.
+          </p>
+          <div
+            style={{
+              background: BRAND.card,
+              border: `1px solid ${BRAND.line}`,
+              borderRadius: 10,
+              overflowX: "auto",
+            }}
+          >
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <tbody>
+                {unplaced.map((r) => (
+                  <tr key={signature(r)}>
+                    <td style={{ ...td, whiteSpace: "normal", minWidth: 160 }}>{r.name}</td>
+                    <td style={td}>
+                      {dimension(r.length)} × {dimension(r.width)}
+                      {r.thickness ? ` × ${dimension(r.thickness)}` : ""}
+                    </td>
+                    <td style={{ ...td, textAlign: "right" }}>{r.total}</td>
+                    <td style={{ ...td, color: BRAND.sub, whiteSpace: "normal" }}>
+                      {r.location || "no location recorded"}
+                    </td>
+                    {canPlace && (
+                      <td style={{ ...td, textAlign: "right" }}>
+                        <LocationPicker
+                          value=""
+                          saving={saving}
+                          onChange={(code) => onPlace(r, code)}
+                        />
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Picking a bay.
+ *
+ * A list rather than a box to type in, for the same reason the material names
+ * are a list: "2A7" and "2-A-07" and "aisle 2 A 7" are one shelf, and a map
+ * built from three spellings of it isn't a map.
+ */
+function LocationPicker({ value, saving, onChange }) {
+  return (
+    <select
+      value={value || ""}
+      disabled={saving}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        fontSize: 12,
+        fontFamily: "inherit",
+        padding: "3px 6px",
+        borderRadius: 6,
+        border: `1px solid ${BRAND.line}`,
+        background: BRAND.card,
+        maxWidth: 150,
+      }}
+    >
+      <option value="">— nowhere yet —</option>
+      <optgroup label="Floor & dispatch">
+        {AREAS.map((a) => (
+          <option key={a.code} value={a.code}>
+            {a.code} · {a.label}
+          </option>
+        ))}
+      </optgroup>
+      {AISLES.map((aisle) =>
+        SIDES.map((side) => (
+          <optgroup key={`${aisle}${side}`} label={`Aisle ${aisle} · side ${side}`}>
+            {Array.from({ length: POSITIONS }, (_, i) => i + 1).map((p) => (
+              <option key={p} value={bayCode(aisle, side, p)}>
+                {bayCode(aisle, side, p)}
+              </option>
+            ))}
+          </optgroup>
+        ))
+      )}
+    </select>
   );
 }
 
