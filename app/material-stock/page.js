@@ -20,6 +20,11 @@ import {
   locationCode,
   stockByLocation,
   describeLocation,
+  bayLoad,
+  bayState,
+  capacityOf,
+  BAY_CAPACITY,
+  BAY_COLOURS,
 } from "../../lib/factoryLayout.js";
 
 // Stock — everything about where material physically is, outside the
@@ -696,6 +701,12 @@ export default function MaterialStockPage() {
     [balances, available]
   );
   const byLocation = useMemo(() => stockByLocation(placedRows), [placedRows]);
+  // Sheets per bay, for the plan's colour and for showing where there's room
+  // while somebody is choosing one.
+  const bayLoads = useMemo(
+    () => new Map([...byLocation].map(([code, rows]) => [code, bayLoad(rows)])),
+    [byLocation]
+  );
   // Material on a rack that nobody has told the map about. Worth showing,
   // because it's the list that makes the map finish itself.
   const unplaced = useMemo(
@@ -1245,6 +1256,7 @@ export default function MaterialStockPage() {
                               <LocationPicker
                                 value={locationCode(b.location)}
                                 saving={saving}
+                                loads={bayLoads}
                                 onChange={async (code) => {
                                   const ok = await setLocation(b, code);
                                   if (ok) setPlaceRow(null);
@@ -1494,6 +1506,7 @@ export default function MaterialStockPage() {
             unplaced={unplaced}
             bay={bay}
             bayRows={bayRows}
+            loads={bayLoads}
             onPick={(code) => setBay(bay === code ? null : code)}
             canPlace={canCount}
             saving={saving}
@@ -1513,26 +1526,29 @@ export default function MaterialStockPage() {
  * here. Aisles run with position 01 at the dispatch end, the way the labels
  * are numbered, so the plan reads the way somebody walks it.
  */
-function FactoryLayout({ byLocation, unplaced, bay, bayRows, onPick, canPlace, saving, onPlace }) {
-  const held = (code) => byLocation.get(code)?.length ?? 0;
+function FactoryLayout({ byLocation, unplaced, bay, bayRows, loads, onPick, canPlace, saving, onPlace }) {
+  const load = (code) => bayLoad(byLocation.get(code));
+  const state = (code) => bayState(code, byLocation.get(code));
 
   const bayStyle = (code) => {
-    const count = held(code);
+    const tone = BAY_COLOURS[state(code)];
     const chosen = bay === code;
     return {
       fontSize: 10,
+      lineHeight: 1.25,
       fontFamily: "inherit",
-      padding: "3px 2px",
+      padding: "2px 2px",
+      // Every cell the same height whether or not it's carrying a figure, so
+      // the aisles still read as rows.
+      minHeight: 28,
       borderRadius: 3,
       cursor: "pointer",
       textAlign: "center",
       whiteSpace: "nowrap",
-      // Two states, because that's the question being asked of a plan: is
-      // there anything on it, or is it free.
-      background: count ? "#cfe3d4" : BRAND.card,
-      color: count ? "#2f5d3c" : "#9c988f",
-      border: chosen ? `2px solid ${BRAND.blue}` : `1px solid ${count ? "#a9c9b3" : BRAND.line}`,
-      fontWeight: count ? 600 : 400,
+      background: tone.bg,
+      color: tone.ink,
+      border: chosen ? `2px solid ${BRAND.blue}` : `1px solid ${tone.border}`,
+      fontWeight: state(code) === "empty" ? 400 : 600,
     };
   };
 
@@ -1596,7 +1612,8 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, onPick, canPlace, s
                         </div>
                       );
                     }
-                    const count = held(area.code);
+                    const tone = BAY_COLOURS[state(area.code)];
+                    const on = load(area.code);
                     return (
                       <button
                         key={j}
@@ -1606,15 +1623,18 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, onPick, canPlace, s
                           cursor: "pointer",
                           textAlign: "left",
                           fontFamily: "inherit",
-                          background: count ? "#cfe3d4" : "#faf7ef",
+                          background: tone.bg,
+                          color: tone.ink,
                           border:
                             bay === area.code
                               ? `2px solid ${BRAND.blue}`
-                              : `1px solid ${count ? "#a9c9b3" : "#e0d9c4"}`,
+                              : `1px solid ${tone.border}`,
                         }}
                       >
-                        <div style={{ color: BRAND.ink, fontWeight: 600 }}>{area.code}</div>
-                        <div style={{ fontSize: 11 }}>{area.label}</div>
+                        <div style={{ fontWeight: 600 }}>{area.code}</div>
+                        <div style={{ fontSize: 11 }}>
+                          {on ? `${on} of ${capacityOf(area.code)}` : area.label}
+                        </div>
                       </button>
                     );
                   })}
@@ -1661,9 +1681,25 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, onPick, canPlace, s
                               sits at the bottom where dispatch is. */}
                           {Array.from({ length: POSITIONS }, (_, i) => POSITIONS - i).map((p) => {
                             const code = bayCode(aisle, side, p);
+                            const on = load(code);
                             return (
-                              <button key={code} onClick={() => onPick(code)} style={bayStyle(code)}>
+                              <button
+                                key={code}
+                                onClick={() => onPick(code)}
+                                title={
+                                  on
+                                    ? `${code} — ${on} of ${capacityOf(code)}`
+                                    : `${code} — empty`
+                                }
+                                style={bayStyle(code)}
+                              >
                                 {code}
+                                {/* The number is the point once a rack can be
+                                    part full: 280 here and 20 next door is a
+                                    normal afternoon. */}
+                                <div style={{ fontSize: 9, fontWeight: 400 }}>
+                                  {on ? `${on}/${capacityOf(code)}` : " "}
+                                </div>
                               </button>
                             );
                           })}
@@ -1692,7 +1728,8 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, onPick, canPlace, s
         >
           <span>Front / car park &amp; loading side</span>
           {AREAS.filter((a) => a.where === "front").map((a) => {
-            const count = held(a.code);
+            const tone = BAY_COLOURS[state(a.code)];
+            const on = load(a.code);
             return (
               <button
                 key={a.code}
@@ -1705,49 +1742,40 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, onPick, canPlace, s
                   cursor: "pointer",
                   textTransform: "none",
                   letterSpacing: 0,
-                  background: count ? "#cfe3d4" : BRAND.card,
-                  color: count ? "#2f5d3c" : BRAND.sub,
+                  background: tone.bg,
+                  color: tone.ink,
                   border:
-                    bay === a.code
-                      ? `2px solid ${BRAND.blue}`
-                      : `1px solid ${count ? "#a9c9b3" : BRAND.line}`,
+                    bay === a.code ? `2px solid ${BRAND.blue}` : `1px solid ${tone.border}`,
                 }}
               >
                 {a.code} {a.label}
+                {on ? ` · ${on}` : ""}
               </button>
             );
           })}
         </div>
 
         <div style={{ display: "flex", gap: 16, marginTop: 12, fontSize: 11, color: BRAND.sub }}>
-          <span>
-            <span
-              style={{
-                display: "inline-block",
-                width: 10,
-                height: 10,
-                background: "#cfe3d4",
-                border: "1px solid #a9c9b3",
-                borderRadius: 2,
-                marginRight: 5,
-              }}
-            />
-            Holding stock
-          </span>
-          <span>
-            <span
-              style={{
-                display: "inline-block",
-                width: 10,
-                height: 10,
-                background: BRAND.card,
-                border: `1px solid ${BRAND.line}`,
-                borderRadius: 2,
-                marginRight: 5,
-              }}
-            />
-            Free
-          </span>
+          {[
+            { key: "empty", label: "Empty" },
+            { key: "holding", label: "Has stock on it" },
+            { key: "full", label: `Full (${BAY_CAPACITY} sheets)` },
+          ].map((k) => (
+            <span key={k.key}>
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 10,
+                  height: 10,
+                  background: BAY_COLOURS[k.key].bg,
+                  border: `1px solid ${BAY_COLOURS[k.key].border}`,
+                  borderRadius: 2,
+                  marginRight: 5,
+                }}
+              />
+              {k.label}
+            </span>
+          ))}
           <span style={{ marginLeft: "auto" }}>Diagrammatic — not to scale</span>
         </div>
       </div>
@@ -1764,6 +1792,39 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, onPick, canPlace, s
             <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 2px" }}>
               {bay} <span style={{ fontWeight: 400, color: BRAND.sub }}>· {describeLocation(bay)}</span>
             </h2>
+            {/* How full, in one line and one bar. Several materials on one bay
+                is normal — 280 of a board and 50 of something else stacked on
+                the twenty that were left — so the figure that matters is the
+                bay's, not any one material's. */}
+            {bayRows.length > 0 && (
+              <div style={{ margin: "4px 0 10px", maxWidth: 420 }}>
+                <div style={{ fontSize: 12, color: BRAND.sub, marginBottom: 3 }}>
+                  {load(bay)} of {capacityOf(bay)} sheets
+                  {load(bay) >= capacityOf(bay)
+                    ? load(bay) > capacityOf(bay)
+                      ? ` · ${load(bay) - capacityOf(bay)} over`
+                      : " · full"
+                    : ` · room for ${capacityOf(bay) - load(bay)} more`}
+                  {bayRows.length > 1 ? ` · ${bayRows.length} materials` : ""}
+                </div>
+                <div
+                  style={{
+                    height: 6,
+                    borderRadius: 3,
+                    background: "#efece5",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${Math.min(100, (load(bay) / capacityOf(bay)) * 100)}%`,
+                      height: "100%",
+                      background: BAY_COLOURS[state(bay)].border,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
             {bayRows.length === 0 ? (
               <p style={{ fontSize: 13, color: BRAND.sub }}>
                 Nothing on this one. Anything below can be put here.
@@ -1816,6 +1877,7 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, onPick, canPlace, s
                             <LocationPicker
                               value={bay}
                               saving={saving}
+                              loads={loads}
                               onChange={(code) => onPlace(r, code)}
                             />
                           </td>
@@ -1867,6 +1929,7 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, onPick, canPlace, s
                         <LocationPicker
                           value=""
                           saving={saving}
+                          loads={loads}
                           onChange={(code) => onPlace(r, code)}
                         />
                       </td>
@@ -1889,7 +1952,15 @@ function FactoryLayout({ byLocation, unplaced, bay, bayRows, onPick, canPlace, s
  * are a list: "2A7" and "2-A-07" and "aisle 2 A 7" are one shelf, and a map
  * built from three spellings of it isn't a map.
  */
-function LocationPicker({ value, saving, onChange }) {
+function LocationPicker({ value, saving, onChange, loads }) {
+  // What's already on a bay, in the option itself, so somebody putting a
+  // pallet down can see where there's room without closing the list to check.
+  const label = (code) => {
+    const on = loads?.get(code) ?? 0;
+    if (!on) return code;
+    const cap = capacityOf(code);
+    return on >= cap ? `${code} · full (${on})` : `${code} · ${on}/${cap}`;
+  };
   return (
     <select
       value={value || ""}
@@ -1918,7 +1989,7 @@ function LocationPicker({ value, saving, onChange }) {
           <optgroup key={`${aisle}${side}`} label={`Aisle ${aisle} · side ${side}`}>
             {Array.from({ length: POSITIONS }, (_, i) => i + 1).map((p) => (
               <option key={p} value={bayCode(aisle, side, p)}>
-                {bayCode(aisle, side, p)}
+                {label(bayCode(aisle, side, p))}
               </option>
             ))}
           </optgroup>
