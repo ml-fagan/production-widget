@@ -15,12 +15,11 @@ import {
 } from "../../lib/materialGroups.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import {
-  AISLES,
-  SIDES,
-  POSITIONS,
+  RACKS,
   AREAS,
   PRODUCTION_BLOCKS,
   bayCode,
+  zoneCode,
   allLocations,
   locationCode,
   describeLocation,
@@ -28,7 +27,8 @@ import {
   bayLoad,
   bayState,
   capacityOf,
-  BAY_CAPACITY,
+  sectionOf,
+  DEFAULT_CAPACITIES,
   BAY_COLOURS,
 } from "../../lib/factoryLayout.js";
 
@@ -260,6 +260,7 @@ export default function MaterialStockPage() {
   const [countDraft, setCountDraft] = useState("");
   const [counted, setCounted] = useState(null); // what the last count came to
   const [placements, setPlacements] = useState([]); // where each material's sheets sit
+  const [capacities, setCapacities] = useState(DEFAULT_CAPACITIES); // sheets per section
   const [placeRow, setPlaceRow] = useState(null); // signature of the row being put on a bay
   const [bay, setBay] = useState(null); // the location being looked at on the plan
   const [saving, setSaving] = useState(false);
@@ -278,6 +279,9 @@ export default function MaterialStockPage() {
       if (!json.ok) throw new Error(json.error || "Failed to load material stock");
       setEntries(json.entries || []);
       setPlacements(json.placements || []);
+      // Anything not set yet keeps the built-in figure, so a fresh install
+      // draws a sensible plan rather than a warehouse that holds nothing.
+      setCapacities({ ...DEFAULT_CAPACITIES, ...(json.capacities || {}) });
       setError(null);
     } catch (e) {
       setError(String(e.message || e));
@@ -377,6 +381,40 @@ export default function MaterialStockPage() {
     },
     []
   );
+
+  /**
+   * How many sheets a section holds.
+   *
+   * Every one of these started as a guess in the code. The person loading a
+   * rack knows what it takes, and until they can say so the plan's colours are
+   * an opinion dressed as a fact.
+   */
+  const saveCapacities = useCallback(async (next) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return false;
+    }
+    setSaving(true);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/material-stock/capacities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capacities: next, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Couldn't save that");
+      setCapacities({ ...DEFAULT_CAPACITIES, ...(json.capacities || {}) });
+      return true;
+    } catch (e) {
+      setActionError(String(e.message || e));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, []);
 
   /**
    * Where a material's sheets sit, as a whole list.
@@ -1325,6 +1363,7 @@ export default function MaterialStockPage() {
                                 value={locationCode(b.location)}
                                 saving={saving}
                                 loads={bayLoads}
+                                capacities={capacities}
                                 onChange={async (code) => {
                                   const ok = await savePlacements(
                                     b,
@@ -1583,6 +1622,8 @@ export default function MaterialStockPage() {
             onPlace={savePlacements}
             placedFor={placedFor}
             loads={bayLoads}
+            capacities={capacities}
+            onCapacities={saveCapacities}
           />
         )}
       </div>
@@ -1609,9 +1650,11 @@ function FactoryLayout({
   saving,
   onPlace,
   placedFor,
+  capacities,
+  onCapacities,
 }) {
   const load = (code) => bayLoad(byLocation.get(code));
-  const state = (code) => bayState(code, byLocation.get(code));
+  const state = (code) => bayState(code, byLocation.get(code), capacities);
   // A proposed spread, held until somebody agrees to it. Nothing moves on the
   // strength of the app's arithmetic alone.
   const [spread, setSpread] = useState(null);
@@ -1665,9 +1708,16 @@ function FactoryLayout({
   return (
     <>
       <div style={{ fontSize: 13, color: BRAND.sub, marginBottom: 10 }}>
-        Aisle · side · position — 2-A-07 is aisle 2, side A, position 07. Position 01 is the
-        dispatch end; side A is on your left standing at dispatch looking down the factory.
+        Rack · column · position — A1-05 is rack A, column 1, five along. Racks D and E are
+        addressed by zone instead: D3 is the whole block. Position 01 is the dispatch end.
       </div>
+
+      <CapacityBar
+        capacities={capacities}
+        saving={saving}
+        canEdit={canPlace}
+        onSave={onCapacities}
+      />
 
       <div
         style={{
@@ -1724,7 +1774,7 @@ function FactoryLayout({
                       >
                         <div style={{ fontWeight: 600 }}>{area.code}</div>
                         <div style={{ fontSize: 11 }}>
-                          {on ? `${on} of ${capacityOf(area.code)}` : area.label}
+                          {on ? `${on} of ${capacityOf(area.code, capacities)}` : area.label}
                         </div>
                       </button>
                     );
@@ -1734,72 +1784,118 @@ function FactoryLayout({
             </div>
           </div>
 
-          {/* The warehouse. Five aisles, two sides each, fifteen deep. */}
+          {/* The warehouse: five racks, and no two the same shape. A, B and
+              C are addressed bay by bay; D and E by zone, because what goes in
+              them goes in as a pallet. */}
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: BRAND.green, marginBottom: 6 }}>
               WAREHOUSE
             </div>
-            <div style={{ display: "flex", gap: 10 }}>
-              {AISLES.map((aisle) => (
-                <div key={aisle} style={{ flex: 1 }}>
+            {/* Bottom-aligned, because the racks are different lengths and
+                they all finish at the same end of the building: position 01 of
+                every one of them is at dispatch. Lining them up at the top
+                would put C's 01 halfway up the wall. */}
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
+              {RACKS.map((rack) => (
+                <div key={rack.id} style={{ flex: rack.zones ? rack.columns : rack.columns }}>
                   <div
                     style={{
                       fontSize: 11,
                       fontWeight: 600,
                       textAlign: "center",
-                      marginBottom: 4,
+                      marginBottom: 1,
                       color: BRAND.ink,
                     }}
                   >
-                    AISLE {aisle}
+                    {rack.label.toUpperCase()}
                   </div>
-                  <div style={{ display: "flex", gap: 4 }}>
-                    {SIDES.map((side) => (
-                      <div key={side} style={{ flex: 1 }}>
-                        <div
-                          style={{
-                            fontSize: 9,
-                            textAlign: "center",
-                            color: BRAND.sub,
-                            marginBottom: 3,
-                            letterSpacing: "0.04em",
-                          }}
-                        >
-                          SIDE {side}
-                        </div>
-                        <div style={{ display: "grid", gap: 2 }}>
-                          {/* Counted down the page so 01, the dispatch end,
-                              sits at the bottom where dispatch is. */}
-                          {Array.from({ length: POSITIONS }, (_, i) => POSITIONS - i).map((p) => {
-                            const code = bayCode(aisle, side, p);
-                            const on = load(code);
-                            return (
-                              <button
-                                key={code}
-                                onClick={() => onPick(code)}
-                                title={
-                                  on
-                                    ? `${code} — ${on} of ${capacityOf(code)}`
-                                    : `${code} — empty`
-                                }
-                                style={bayStyle(code)}
-                              >
-                                {code}
-                                {/* The number is the point once a rack can be
-                                    part full: 280 here and 20 next door is a
-                                    normal afternoon. */}
-                                <div style={{ fontSize: 9, fontWeight: 400 }}>
-                                  {on ? `${on}/${capacityOf(code)}` : " "}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
+                  <div
+                    style={{
+                      fontSize: 9,
+                      textAlign: "center",
+                      color: BRAND.sub,
+                      marginBottom: 4,
+                    }}
+                  >
+                    {rack.columns} wide · {rack.depth} deep
+                    {rack.zones ? ` · ${rack.zones} zones` : ""}
                   </div>
+
+                  {rack.zones ? (
+                    /* A zone is the address. Drawn tall so it reads as the
+                       block of racking it is rather than as one more shelf. */
+                    <div style={{ display: "grid", gap: 3 }}>
+                      {Array.from({ length: rack.zones }, (_, i) => rack.zones - i).map((z) => {
+                        const code = zoneCode(rack.id, z);
+                        const on = load(code);
+                        return (
+                          <button
+                            key={code}
+                            onClick={() => onPick(code)}
+                            title={
+                              on
+                                ? `${code} — ${on} of ${capacityOf(code, capacities)}`
+                                : `${code} — empty`
+                            }
+                            style={{ ...bayStyle(code), minHeight: 46, fontSize: 12 }}
+                          >
+                            {code}
+                            <div style={{ fontSize: 9, fontWeight: 400 }}>
+                              {on ? `${on}/${capacityOf(code, capacities)}` : " "}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 3 }}>
+                      {Array.from({ length: rack.columns }, (_, i) => i + 1).map((column) => (
+                        <div key={column} style={{ flex: 1 }}>
+                          <div
+                            style={{
+                              fontSize: 9,
+                              textAlign: "center",
+                              color: BRAND.sub,
+                              marginBottom: 3,
+                            }}
+                          >
+                            {rack.id}
+                            {column}
+                          </div>
+                          <div style={{ display: "grid", gap: 2 }}>
+                            {/* Counted down the page so 01, the dispatch end,
+                                sits at the bottom where dispatch is. */}
+                            {Array.from({ length: rack.depth }, (_, i) => rack.depth - i).map((p) => {
+                              const code = bayCode(rack.id, column, p);
+                              const on = load(code);
+                              return (
+                                <button
+                                  key={code}
+                                  onClick={() => onPick(code)}
+                                  title={
+                                    on
+                                      ? `${code} — ${on} of ${capacityOf(code, capacities)}`
+                                      : `${code} — empty`
+                                  }
+                                  style={bayStyle(code)}
+                                >
+                                  {code}
+                                  {/* The number is the point once a bay can be
+                                      part full: 280 here and 20 next door is a
+                                      normal afternoon. */}
+                                  <div style={{ fontSize: 9, fontWeight: 400 }}>
+                                    {on ? `${on}/${capacityOf(code, capacities)}` : " "}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div style={{ fontSize: 9, color: BRAND.sub, textAlign: "center", marginTop: 4 }}>
-                    01 starts here
+                    {rack.zones ? `${rack.id}1 nearest dispatch` : "01 starts here"}
                   </div>
                 </div>
               ))}
@@ -1850,7 +1946,10 @@ function FactoryLayout({
           {[
             { key: "empty", label: "Empty" },
             { key: "holding", label: "Has stock on it" },
-            { key: "full", label: `Full (${BAY_CAPACITY} sheets)` },
+            // No single number any more: a bay on C is full at one figure and
+            // a zone on D at another, so the legend says what full means
+            // rather than pretending the warehouse is one shape.
+            { key: "full", label: "Full for its section" },
           ].map((k) => (
             <span key={k.key}>
               <span
@@ -1890,17 +1989,17 @@ function FactoryLayout({
             {bayRows.length > 0 && (
               <div style={{ margin: "4px 0 10px", maxWidth: 420 }}>
                 <div style={{ fontSize: 12, color: BRAND.sub, marginBottom: 3 }}>
-                  {load(bay)} of {capacityOf(bay)} sheets
-                  {load(bay) >= capacityOf(bay)
-                    ? load(bay) > capacityOf(bay)
-                      ? ` · ${load(bay) - capacityOf(bay)} over`
+                  {load(bay)} of {capacityOf(bay, capacities)} sheets
+                  {load(bay) >= capacityOf(bay, capacities)
+                    ? load(bay) > capacityOf(bay, capacities)
+                      ? ` · ${load(bay) - capacityOf(bay, capacities)} over`
                       : " · full"
-                    : ` · room for ${capacityOf(bay) - load(bay)} more`}
+                    : ` · room for ${capacityOf(bay, capacities) - load(bay)} more`}
                   {bayRows.length > 1 ? ` · ${bayRows.length} materials` : ""}
                 </div>
                 {/* Over capacity is a question, not a verdict: the sheets are
                     going somewhere, and the plan may as well say where. */}
-                {load(bay) > capacityOf(bay) && canPlace && (
+                {load(bay) > capacityOf(bay, capacities) && canPlace && (
                   <div style={{ marginTop: 6 }}>
                     {spread ? (
                       <div
@@ -1959,7 +2058,8 @@ function FactoryLayout({
                                   loads,
                                   // This material's own sheets don't count
                                   // against the room it's being offered.
-                                  new Map(placedFor(r).map((p) => [p.bay, p.quantity]))
+                                  new Map(placedFor(r).map((p) => [p.bay, p.quantity])),
+                                  capacities
                                 ),
                               })
                             }
@@ -1982,7 +2082,7 @@ function FactoryLayout({
                 >
                   <div
                     style={{
-                      width: `${Math.min(100, (load(bay) / capacityOf(bay)) * 100)}%`,
+                      width: `${Math.min(100, (load(bay) / capacityOf(bay, capacities)) * 100)}%`,
                       height: "100%",
                       background: BAY_COLOURS[state(bay)].border,
                     }}
@@ -2050,6 +2150,8 @@ function FactoryLayout({
                               value={bay}
                               saving={saving}
                               loads={loads}
+                          capacities={capacities}
+                              capacities={capacities}
                               onChange={(code) =>
                                 onPlace(r, code ? [{ bay: code, quantity: null }] : [])
                               }
@@ -2104,6 +2206,7 @@ function FactoryLayout({
                           value=""
                           saving={saving}
                           loads={loads}
+                          capacities={capacities}
                           onChange={(code) =>
                             onPlace(r, code ? [{ bay: code, quantity: null }] : [])
                           }
@@ -2128,13 +2231,13 @@ function FactoryLayout({
  * are a list: "2A7" and "2-A-07" and "aisle 2 A 7" are one shelf, and a map
  * built from three spellings of it isn't a map.
  */
-function LocationPicker({ value, saving, onChange, loads }) {
-  // What's already on a bay, in the option itself, so somebody putting a
-  // pallet down can see where there's room without closing the list to check.
+function LocationPicker({ value, saving, onChange, loads, capacities }) {
+  // What's already there, in the option itself, so somebody putting a pallet
+  // down can see where there's room without closing the list to check.
   const label = (code) => {
     const on = loads?.get(code) ?? 0;
     if (!on) return code;
-    const cap = capacityOf(code);
+    const cap = capacityOf(code, capacities);
     return on >= cap ? `${code} · full (${on})` : `${code} · ${on}/${cap}`;
   };
   return (
@@ -2149,7 +2252,7 @@ function LocationPicker({ value, saving, onChange, loads }) {
         borderRadius: 6,
         border: `1px solid ${BRAND.line}`,
         background: BRAND.card,
-        maxWidth: 150,
+        maxWidth: 170,
       }}
     >
       <option value="">— nowhere yet —</option>
@@ -2160,18 +2263,143 @@ function LocationPicker({ value, saving, onChange, loads }) {
           </option>
         ))}
       </optgroup>
-      {AISLES.map((aisle) =>
-        SIDES.map((side) => (
-          <optgroup key={`${aisle}${side}`} label={`Aisle ${aisle} · side ${side}`}>
-            {Array.from({ length: POSITIONS }, (_, i) => i + 1).map((p) => (
-              <option key={p} value={bayCode(aisle, side, p)}>
-                {label(bayCode(aisle, side, p))}
+      {RACKS.map((rack) =>
+        rack.zones ? (
+          <optgroup key={rack.id} label={`${rack.label} · zones`}>
+            {Array.from({ length: rack.zones }, (_, i) => i + 1).map((z) => (
+              <option key={z} value={zoneCode(rack.id, z)}>
+                {label(zoneCode(rack.id, z))}
               </option>
             ))}
           </optgroup>
-        ))
+        ) : (
+          Array.from({ length: rack.columns }, (_, i) => i + 1).map((column) => (
+            <optgroup key={`${rack.id}${column}`} label={`${rack.label} · column ${column}`}>
+              {Array.from({ length: rack.depth }, (_, i) => i + 1).map((p) => (
+                <option key={p} value={bayCode(rack.id, column, p)}>
+                  {label(bayCode(rack.id, column, p))}
+                </option>
+              ))}
+            </optgroup>
+          ))
+        )
       )}
     </select>
+  );
+}
+
+/**
+ * How many sheets each section holds.
+ *
+ * At the top of the plan rather than buried in a settings page, because the
+ * figures in the code are guesses and the person who can correct them is the
+ * one standing in front of the rack wondering why it's red.
+ */
+function CapacityBar({ capacities, saving, canEdit, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(capacities);
+
+  useEffect(() => {
+    setDraft(capacities);
+  }, [capacities]);
+
+  const sections = [
+    ...RACKS.map((r) => ({
+      key: r.id,
+      label: r.zones ? `${r.label} (per zone)` : `${r.label} (per bay)`,
+    })),
+    { key: "FLOOR", label: "Floor & dispatch" },
+  ];
+
+  if (!open) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          alignItems: "baseline",
+          flexWrap: "wrap",
+          fontSize: 12,
+          color: BRAND.sub,
+          marginBottom: 10,
+        }}
+      >
+        <span>Max sheets:</span>
+        {sections.map((s) => (
+          <span key={s.key}>
+            <strong style={{ color: BRAND.ink, fontWeight: 600 }}>{s.key}</strong>{" "}
+            {capacities[s.key] ?? DEFAULT_CAPACITIES[s.key]}
+          </span>
+        ))}
+        {canEdit && (
+          <button onClick={() => setOpen(true)} style={{ ...miniBtn, color: BRAND.blue }}>
+            Adjust
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        background: BRAND.card,
+        border: `1px solid ${BRAND.line}`,
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 12,
+      }}
+    >
+      <div style={{ fontSize: 12, color: BRAND.sub, marginBottom: 8 }}>
+        How many sheets each section holds. A bay on A, B or C is one shelf; a zone on D or E is
+        the whole block, so it takes several times as many.
+      </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+        {sections.map((s) => (
+          <label key={s.key} style={{ fontSize: 11, color: BRAND.sub }}>
+            <div style={{ marginBottom: 2 }}>{s.label}</div>
+            <input
+              type="number"
+              min="1"
+              value={draft[s.key] ?? ""}
+              onChange={(e) => setDraft({ ...draft, [s.key]: e.target.value })}
+              style={{
+                width: 90,
+                border: `1px solid ${BRAND.line}`,
+                borderRadius: 6,
+                padding: "4px 8px",
+                fontSize: 13,
+                fontFamily: "inherit",
+              }}
+            />
+          </label>
+        ))}
+        <button
+          onClick={async () => {
+            const ok = await onSave(draft);
+            if (ok) setOpen(false);
+          }}
+          disabled={saving}
+          style={{
+            ...miniBtn,
+            color: BRAND.green,
+            borderColor: BRAND.green,
+            opacity: saving ? 0.6 : 1,
+          }}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button
+          onClick={() => {
+            setDraft(capacities);
+            setOpen(false);
+          }}
+          style={miniBtn}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 
