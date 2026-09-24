@@ -1836,7 +1836,16 @@ export default function MaterialsPage() {
                             under the job it belongs to rather than against a
                             line, because that's what it's about. */}
                         {!sameJobAbove && m.materialNote && (
-                          <div style={{ fontSize: 11, color: BRAND.amber, marginTop: 2 }}>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: BRAND.amber,
+                              marginTop: 2,
+                              // Written in a box with room for a few lines, so
+                              // the lines it was written with are kept.
+                              whiteSpace: "pre-wrap",
+                            }}
+                          >
                             {m.materialNote}
                           </div>
                         )}
