@@ -203,6 +203,10 @@ export default function MaterialsPage() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [view, setView] = useState("outstanding");
+  // How the Ordered list is stacked: by job, by when it should land, or by
+  // when it was bought. Only that tab — placing orders and chasing them are
+  // two jobs and they don't want the same order.
+  const [orderSort, setOrderSort] = useState("job");
   const [user, setUser] = useState(null);
   // Whether this person may change anything here, as opposed to read it.
   const caps = useCapabilities(user);
@@ -745,6 +749,28 @@ export default function MaterialsPage() {
   // but it is still one job, and a row of it sitting on its own three rows down
   // reads like somebody else's. Order within the list is otherwise untouched.
   const lines = (() => {
+    /**
+     * Ordered, read the other way round.
+     *
+     * Grouped by job, the list answers "what's on this job" — right for
+     * placing orders, useless for chasing them. Once material is bought the
+     * question changes to "what should have been here by now", and that reads
+     * down a column of dates, not down a column of job numbers. A line with no
+     * date goes last either way: it isn't late, nobody has said when it's due.
+     */
+    if (view === "ordered" && orderSort !== "job") {
+      const key = (m) => (orderSort === "expected" ? m.expectedDate : m.orderedAt) || "";
+      return [...inView].sort((a, b) => {
+        const x = key(a);
+        const y = key(b);
+        if (!x && !y) return 0;
+        if (!x) return 1;
+        if (!y) return -1;
+        // Soonest expected first, because that's the one to ring about.
+        // Oldest ordered first, for the same reason.
+        return x < y ? -1 : x > y ? 1 : 0;
+      });
+    }
     // On the stock tab, what still needs fetching comes before what's done.
     const ordered =
       view === "stock"
@@ -1017,6 +1043,63 @@ export default function MaterialsPage() {
             boxSizing: "border-box",
           }}
         />
+
+        {/* Chasing an order is a different job from placing one, and it reads
+            down a column of dates rather than of job numbers. */}
+        {view === "ordered" && lines.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "baseline",
+              marginBottom: 12,
+              fontSize: 12,
+              color: BRAND.sub,
+              flexWrap: "wrap",
+            }}
+          >
+            <span>Stack by:</span>
+            {[
+              { key: "job", label: "Job" },
+              { key: "expected", label: "Expected in" },
+              { key: "ordered", label: "When ordered" },
+            ].map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setOrderSort(s.key)}
+                style={{
+                  border: "none",
+                  background: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  fontSize: 12,
+                  fontWeight: orderSort === s.key ? 600 : 400,
+                  color: orderSort === s.key ? BRAND.ink : BRAND.blue,
+                  textDecoration: orderSort === s.key ? "none" : "underline",
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+            {/* Anything whose date has been and gone, once the dates are what
+                you're reading. Said here rather than left to be noticed. */}
+            {orderSort === "expected" &&
+              (() => {
+                const today = new Date().toISOString().slice(0, 10);
+                const late = lines.filter((m) => m.expectedDate && m.expectedDate < today).length;
+                const undated = lines.filter((m) => !m.expectedDate).length;
+                const bits = [];
+                if (late) bits.push(`${late} past its date`);
+                if (undated) bits.push(`${undated} with no date`);
+                return bits.length ? (
+                  <span style={{ marginLeft: "auto", color: late ? BRAND.red : BRAND.sub }}>
+                    {bits.join(" · ")}
+                  </span>
+                ) : null;
+              })()}
+          </div>
+        )}
 
         {view === "preorders" && (
           <>
@@ -2016,23 +2099,37 @@ export default function MaterialsPage() {
                         )}
                       </td>
                       <td style={td}>
-                        <input
-                          type="date"
-                          value={m.expectedDate || ""}
-                          onChange={(e) => patchRow(m, { expectedDate: e.target.value })}
-                          title={
-                            m.fromStock
-                              ? "Optional — set or update this even for stock, if there's any uncertainty on timing"
-                              : undefined
-                          }
-                          style={{
-                            border: `1px solid ${BRAND.line}`,
-                            borderRadius: 6,
-                            padding: "2px 6px",
-                            fontSize: 12,
-                            fontFamily: "inherit",
-                          }}
-                        />
+                        {/* A date that's been and gone on something still
+                            waiting is the whole point of the column. Marked
+                            rather than left to be spotted by reading. */}
+                        {(() => {
+                          const overdue =
+                            state !== "completed" &&
+                            m.expectedDate &&
+                            m.expectedDate < new Date().toISOString().slice(0, 10);
+                          return (
+                            <input
+                              type="date"
+                              value={m.expectedDate || ""}
+                              onChange={(e) => patchRow(m, { expectedDate: e.target.value })}
+                              title={
+                                overdue
+                                  ? "This date has passed and it isn't in yet"
+                                  : m.fromStock
+                                    ? "Optional — set or update this even for stock, if there's any uncertainty on timing"
+                                    : undefined
+                              }
+                              style={{
+                                border: `1px solid ${overdue ? BRAND.red : BRAND.line}`,
+                                color: overdue ? BRAND.red : "inherit",
+                                borderRadius: 6,
+                                padding: "2px 6px",
+                                fontSize: 12,
+                                fontFamily: "inherit",
+                              }}
+                            />
+                          );
+                        })()}
                       </td>
                       <td style={{ ...td, textAlign: "right" }}>
                         {/* Correctable until it's ordered, and only until
