@@ -7,7 +7,6 @@ import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import {
-  SLOTS,
   workingDay,
   daysBefore,
   clock,
@@ -15,8 +14,8 @@ import {
   isOpen,
   hoursOf,
   fmtHours,
-  onSlot,
-  closedOnSlot,
+  onStep,
+  endedOnStep,
   mannedHours,
   summarise,
 } from "../../lib/allocation.js";
@@ -91,12 +90,8 @@ export default function AllocationPage() {
   const [user, setUser] = useState(null);
   const caps = useCapabilities(user);
   const canAllocate = caps.allocation;
-  // Which empty line is being filled, as "stepId:slot".
-  const [filling, setFilling] = useState(null);
-  // Extra lines Adam has asked a step for, beyond the four it starts with.
-  // Per step, and only in this browser: it's a way of looking at the card, not
-  // a fact about the day.
-  const [extraLines, setExtraLines] = useState({});
+  // Which step's card has its "add someone" open.
+  const [adding, setAdding] = useState(null);
   const [editingLists, setEditingLists] = useState(false);
   const [now, setNow] = useState(() => new Date());
 
@@ -410,15 +405,9 @@ export default function AllocationPage() {
             >
               {steps.map((step) => {
                 const mine = allocations.filter((a) => a.stepId === step.id);
-                const openHere = mine.filter(isOpen);
+                const openHere = onStep(allocations, step.id);
+                const endedHere = endedOnStep(allocations, step.id);
                 const worked = mannedHours(mine, now);
-                // Four lines, plus whatever Adam has asked this step for, and
-                // never fewer than it takes to show everyone on it.
-                const lines = Math.max(
-                  SLOTS + (extraLines[step.id] || 0),
-                  ...openHere.map((a) => Number(a.slot) + 1),
-                  1
-                );
                 return (
                   <section
                     key={step.id}
@@ -453,122 +442,97 @@ export default function AllocationPage() {
                     </div>
 
                     <div style={{ marginTop: 4 }}>
-                      {Array.from({ length: lines }, (_, slot) => {
-                        const key = `${step.id}:${slot}`;
-                        const open = onSlot(allocations, step.id, slot);
-                        const done = closedOnSlot(allocations, step.id, slot);
-                        return (
-                          <div
-                            key={key}
-                            style={{
-                              borderTop: `1px solid ${BRAND.line}`,
-                              paddingTop: 4,
-                              marginTop: 4,
+                      {/* One cell with a list in it. Everyone on the step,
+                          then everyone who was on it earlier, then a way to
+                          add the next person — no numbered lines to keep
+                          track of and no empty ones to look at. */}
+                      {openHere.map((a) => (
+                        <div
+                          key={a.id}
+                          style={{
+                            borderTop: `1px solid ${BRAND.line}`,
+                            paddingTop: 4,
+                            marginTop: 4,
+                          }}
+                        >
+                          <PersonOnStep
+                            allocation={a}
+                            name={nameOf(a.personId)}
+                            day={day}
+                            now={now}
+                            saving={saving}
+                            canAllocate={canAllocate}
+                            onSend={send}
+                          />
+                        </div>
+                      ))}
+
+                      {endedHere.map((a) => (
+                        <div
+                          key={a.id}
+                          style={{
+                            borderTop: `1px solid ${BRAND.line}`,
+                            paddingTop: 4,
+                            marginTop: 4,
+                          }}
+                        >
+                          <PersonOnStep
+                            allocation={a}
+                            name={nameOf(a.personId)}
+                            day={day}
+                            now={now}
+                            saving={saving}
+                            canAllocate={canAllocate}
+                            onSend={send}
+                            ended
+                          />
+                        </div>
+                      ))}
+
+                      {adding === step.id ? (
+                        <div style={{ borderTop: `1px solid ${BRAND.line}`, paddingTop: 4, marginTop: 4 }}>
+                          <AddPerson
+                            people={people}
+                            placed={placed}
+                            saving={saving}
+                            day={day}
+                            nowTime={nowTime}
+                            onCancel={() => setAdding(null)}
+                            onPick={async (personId, startAt, kind) => {
+                              const ok = await send({
+                                action: "open",
+                                date: day,
+                                personId,
+                                stepId: step.id,
+                                kind,
+                                startAt,
+                              });
+                              if (ok) setAdding(null);
                             }}
-                          >
-                            {open ? (
-                              <SlotRow
-                                allocation={open}
-                                name={nameOf(open.personId)}
-                                day={day}
-                                now={now}
-                                saving={saving}
-                                canAllocate={canAllocate}
-                                onSend={send}
-                              />
-                            ) : filling === key ? (
-                              <FillSlot
-                                people={people}
-                                placed={placed}
-                                saving={saving}
-                                day={day}
-                                nowTime={nowTime}
-                                onCancel={() => setFilling(null)}
-                                onPick={async (personId, startAt, kind) => {
-                                  const ok = await send({
-                                    action: "open",
-                                    date: day,
-                                    personId,
-                                    stepId: step.id,
-                                    slot,
-                                    kind,
-                                    startAt,
-                                  });
-                                  if (ok) setFilling(null);
-                                }}
-                              />
-                            ) : (
-                              <button
-                                onClick={() => setFilling(key)}
-                                disabled={!canAllocate}
-                                title="Put someone on this line"
-                                style={{
-                                  width: "100%",
-                                  border: `1px dashed ${BRAND.line}`,
-                                  background: "none",
-                                  borderRadius: 5,
-                                  padding: "3px 5px",
-                                  fontSize: 11,
-                                  color: BRAND.sub,
-                                  cursor: canAllocate ? "pointer" : "default",
-                                  fontFamily: "inherit",
-                                  textAlign: "left",
-                                  opacity: canAllocate ? 1 : 0.5,
-                                }}
-                              >
-                                +
-                              </button>
-                            )}
-
-                            {/* What ran here earlier, in place: the day's
-                                history where it happened rather than on
-                                another screen. */}
-                            {done.map((a) => (
-                              <div
-                                key={a.id}
-                                style={{
-                                  fontSize: 10,
-                                  color: BRAND.sub,
-                                  marginTop: 2,
-                                  display: "flex",
-                                  gap: 4,
-                                  flexWrap: "wrap",
-                                }}
-                              >
-                                <span style={{ textDecoration: "line-through" }}>
-                                  {nameOf(a.personId)}
-                                </span>
-                                <span>
-                                  {clock(a.startAt)}–{clock(a.endAt)}
-                                </span>
-                                {a.closedReason === "moved" && (
-                                  <span style={{ color: BRAND.amber }}>moved</span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })}
-
-                      {/* One more line, when a step needs a fifth pair of
-                          hands. Four is a habit, not a rule. */}
-                      <button
-                        onClick={() =>
-                          setExtraLines((p) => ({ ...p, [step.id]: (p[step.id] || 0) + 1 }))
-                        }
-                        disabled={!canAllocate}
-                        title="Another line on this step"
-                        style={{
-                          ...miniBtn,
-                          width: "100%",
-                          marginTop: 5,
-                          color: BRAND.blue,
-                          borderStyle: "dashed",
-                          opacity: canAllocate ? 1 : 0.5,
-                        }}
-                      >
-                        + line
-                      </button>
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setAdding(step.id)}
+                          disabled={!canAllocate}
+                          title="Put someone on this step"
+                          style={{
+                            width: "100%",
+                            border: `1px dashed ${BRAND.line}`,
+                            background: "none",
+                            borderRadius: 5,
+                            padding: "3px 5px",
+                            fontSize: 11,
+                            color: BRAND.blue,
+                            cursor: canAllocate ? "pointer" : "default",
+                            fontFamily: "inherit",
+                            marginTop: 5,
+                            opacity: canAllocate ? 1 : 0.5,
+                          }}
+                        >
+                          + add someone
+                        </button>
+                      )}
                     </div>
                   </section>
                 );
@@ -584,28 +548,47 @@ export default function AllocationPage() {
 }
 
 /**
- * A person on a step, right now.
+ * A person on a step — on it now, or ended off it earlier.
  *
- * The start time is typed, beside the name, because that's how the day
- * actually gets recorded: Adam fills the board in when he gets a minute, not
- * at the moment somebody picks up a broom. It defaults to the clock when the
- * line is filled, so the common case is one click.
+ * The same row either way, because it's the same fact at two moments and Adam
+ * corrects both the same way: the times are typed, beside the name. He fills
+ * the board in when he gets a minute, not when somebody picks up a broom, so
+ * what's written is always a recollection and always worth being able to fix.
+ *
+ * An ended row keeps its finish time editable for exactly that reason. Ending
+ * someone is one click; getting the minute right can wait until he's sitting
+ * down.
  */
-function SlotRow({ allocation, name, day, now, saving, canAllocate, onSend }) {
+function PersonOnStep({ allocation, name, day, now, saving, canAllocate, onSend, ended = false }) {
   const [start, setStart] = useState(clock(allocation.startAt));
-  const [closing, setClosing] = useState(false);
-  const [finish, setFinish] = useState(clock(new Date().toISOString()));
+  const [finish, setFinish] = useState(clock(allocation.endAt));
 
   useEffect(() => {
     setStart(clock(allocation.startAt));
-  }, [allocation.startAt]);
+    setFinish(clock(allocation.endAt));
+  }, [allocation.startAt, allocation.endAt]);
+
+  const push = (patch) => onSend({ action: "update", id: allocation.id, ...patch });
+
+  const time = (value, setValue, onCommit, label) => (
+    <input
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={onCommit}
+      disabled={!canAllocate || saving}
+      aria-label={`${label} for ${name}`}
+      placeholder="--:--"
+      style={{ ...field, width: 44, color: ended ? BRAND.sub : BRAND.ink }}
+    />
+  );
 
   return (
     <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
       <span
         style={{
           fontSize: 12,
-          fontWeight: 600,
+          fontWeight: ended ? 400 : 600,
+          color: ended ? BRAND.sub : BRAND.ink,
           flex: "1 1 60px",
           minWidth: 0,
           overflow: "hidden",
@@ -619,66 +602,52 @@ function SlotRow({ allocation, name, day, now, saving, canAllocate, onSend }) {
           <span style={{ fontWeight: 400, color: BRAND.sub }}> · break</span>
         )}
       </span>
-      <input
-        value={start}
-        onChange={(e) => setStart(e.target.value)}
-        onBlur={() => {
-          const at = atTime(day, start);
-          if (at && at !== allocation.startAt) {
-            onSend({ action: "update", id: allocation.id, startAt: at });
-          }
-        }}
-        disabled={!canAllocate || saving}
-        aria-label={`Start time for ${name}`}
-        placeholder="07:30"
-        style={{ ...field, width: 44 }}
-      />
-      <span style={{ fontSize: 10, color: BRAND.sub }}>{fmtHours(hoursOf(allocation, now))}</span>
-      {closing ? (
-        <div style={{ display: "flex", gap: 4, width: "100%", marginTop: 3 }}>
-          <input
-            value={finish}
-            onChange={(e) => setFinish(e.target.value)}
-            aria-label={`Finish time for ${name}`}
-            style={{ ...field, width: 44 }}
-            autoFocus
-          />
-          <button
-            onClick={async () => {
-              const ok = await onSend({
-                action: "close",
-                id: allocation.id,
-                endAt: atTime(day, finish) || new Date().toISOString(),
-                closedReason: "finished",
-              });
-              if (ok) setClosing(false);
-            }}
-            disabled={saving}
-            style={{ ...miniBtn, color: BRAND.green, borderColor: BRAND.green }}
-          >
-            Done
-          </button>
-          <button onClick={() => setClosing(false)} style={miniBtn}>
-            ✕
-          </button>
-        </div>
+
+      {time(start, setStart, () => {
+        const at = atTime(day, start);
+        if (at && at !== allocation.startAt) push({ startAt: at });
+      }, "Start time")}
+
+      {ended ? (
+        <>
+          <span style={{ fontSize: 10, color: BRAND.sub }}>–</span>
+          {time(finish, setFinish, () => {
+            const at = atTime(day, finish);
+            if (at && at !== allocation.endAt) push({ endAt: at });
+          }, "Finish time")}
+        </>
       ) : (
         canAllocate && (
           <button
-            onClick={() => setClosing(true)}
-            title="Finish this line"
-            style={{ ...miniBtn, color: BRAND.blue, padding: "1px 5px" }}
+            onClick={() =>
+              onSend({
+                action: "close",
+                id: allocation.id,
+                endAt: new Date().toISOString(),
+                closedReason: "finished",
+              })
+            }
+            disabled={saving}
+            title="End this one — the times stay editable afterwards"
+            style={{ ...miniBtn, color: BRAND.blue, padding: "1px 6px" }}
           >
-            fin
+            end
           </button>
         )
       )}
+
+      <span style={{ fontSize: 10, color: BRAND.sub, marginLeft: "auto" }}>
+        {fmtHours(hoursOf(allocation, now))}
+        {allocation.closedReason === "moved" && (
+          <span style={{ color: BRAND.amber }}> moved</span>
+        )}
+      </span>
     </div>
   );
 }
 
-/** Choosing who goes on an empty line. */
-function FillSlot({ people, placed, saving, day, nowTime, onCancel, onPick }) {
+/** Choosing who goes on a step. */
+function AddPerson({ people, placed, saving, day, nowTime, onCancel, onPick }) {
   const [personId, setPersonId] = useState("");
   const [start, setStart] = useState(nowTime);
   const [kind, setKind] = useState("work");
