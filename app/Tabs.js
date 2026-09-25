@@ -100,11 +100,15 @@ const TABS = [
   },
   // Reference tool, not part of this app — opens in a new tab so nobody loses
   // their place. Never renders active, since no page passes this key.
+  //
+  // `always` because it isn't ours to gate: published acoustic data anyone can
+  // read, and the only link that bypasses the role list.
   {
     key: "acoustics",
     label: "Acoustic data",
     href: "https://acoustics.lyphex.com",
     external: true,
+    always: true,
     quiet: true,
     title: "Tested NRC and absorption coefficients — opens in a new tab",
   },
@@ -158,7 +162,11 @@ function Tab({ tab, active, count }) {
 export default function Tabs({ current, counts = {}, tabs = null }) {
   // A board this person can't use is a board in the way. The floor gets the
   // two schedules; everyone else gets the lot.
-  const visible = tabs ? TABS.filter((t) => tabs.includes(t.key) || t.external) : TABS;
+  // Filtered on the role's own list. `external` is about where a link opens,
+  // not about who may see it — the two were the same test until the handover
+  // app moved to this line, which quietly showed it to the floor. Only the
+  // acoustic reference is exempt, and it says so.
+  const visible = tabs ? TABS.filter((t) => tabs.includes(t.key) || t.always) : TABS;
   const quiet = visible.filter((t) => t.quiet);
   const groups = GROUPS.map((g) => ({
     ...g,
