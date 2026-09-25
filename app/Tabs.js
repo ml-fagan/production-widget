@@ -20,6 +20,14 @@ const TABS = [
     href: "/material-list",
     title: "Every finish we buy, and who supplies it — what everything else picks from",
   },
+  // Who's on what today. Next to the schedule boards because that's the
+  // question it answers — the day as people rather than as jobs.
+  {
+    key: "allocation",
+    label: "Allocation",
+    href: "/allocation",
+    title: "Who's on which machine today",
+  },
   { key: "invoicing", label: "Invoicing", href: "/invoicing" },
   // A different app, but part of the same flow, so it behaves like the other
   // tabs and navigates in place. Only the reference link opens a new tab.
