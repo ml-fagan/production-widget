@@ -2,13 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  SLOTS,
   workingDay,
   clock,
   isOpen,
   hoursOf,
   fmtHours,
-  onSlot,
   daysBefore,
 } from "../../../lib/allocation.js";
 
@@ -35,7 +33,7 @@ const BRAND = {
 
 // A screen on a wall is always visible, so this one polls regardless — but
 // slowly, because nothing on it changes faster than somebody can walk between
-// two machines.
+// two steps.
 const REFRESH_MS = 60 * 1000;
 
 export default function WallDisplay() {
@@ -85,7 +83,7 @@ export default function WallDisplay() {
     return () => clearInterval(id);
   }, []);
 
-  const machines = data?.machines ?? [];
+  const steps = (data?.steps ?? []).filter((s) => s.active);
   const people = data?.people ?? [];
   const all = data?.allocations ?? [];
   const today = all.filter((a) => a.date === day);
@@ -141,23 +139,22 @@ export default function WallDisplay() {
           alignItems: "start",
         }}
       >
-        {machines.map((machine) => {
-          const here = Array.from({ length: SLOTS }, (_, slot) =>
-            onSlot(today, machine.id, slot)
-          ).filter(Boolean);
+        {steps.map((step) => {
+          // Everyone open on this step, however many lines it grew to.
+          const here = today.filter((a) => a.stepId === step.id && isOpen(a));
           return (
             <section
-              key={machine.id}
+              key={step.id}
               style={{
                 background: BRAND.card,
                 border: `1px solid ${BRAND.line}`,
-                borderTop: `4px solid ${machine.color}`,
+                borderTop: `4px solid ${here.length ? BRAND.green : BRAND.line}`,
                 borderRadius: 12,
                 padding: "14px 16px",
               }}
             >
               <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                <span style={{ fontSize: 24, fontWeight: 600 }}>{machine.name}</span>
+                <span style={{ fontSize: 24, fontWeight: 600 }}>{step.name}</span>
                 <span style={{ fontSize: 16, color: BRAND.sub, marginLeft: "auto" }}>
                   {here.length ? `${here.length} on` : "nobody on"}
                 </span>

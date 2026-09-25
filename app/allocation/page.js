@@ -9,6 +9,7 @@ import { useCapabilities } from "../../lib/useCapabilities.js";
 import {
   SLOTS,
   workingDay,
+  daysBefore,
   clock,
   atTime,
   isOpen,
@@ -17,21 +18,22 @@ import {
   onSlot,
   closedOnSlot,
   mannedHours,
-  bookedJob,
   summarise,
-  daysBefore,
 } from "../../lib/allocation.js";
 
-// Allocation — who is on which machine today.
+// Allocation — who is on which step today.
 //
-// Adam's board. A machine has six lines under it; a line holds one person at a
-// time, with the times they started and finished. Moving somebody closes one
-// segment and opens the next, so the day's history is the record rather than
-// something built on top of it.
+// Adam's board. The roster stands on the left because that's what he reads
+// first: who turned up. The steps run across, and a name moves from the roster
+// onto a step and later onto another one.
 //
-// What it is not is a time and wages record. The factory already clocks in and
-// out; this says where people were, and the day line reads the two against
-// each other rather than replacing one with the other.
+// Both lists are his. The people aren't in Decorflow — warehouse staff mostly
+// have no account, and giving every casual a login so they can be written on a
+// board is the tail wagging the dog. The steps aren't Decorflow's machines
+// either: he allocates around work the machine list doesn't describe.
+//
+// Moving somebody closes one segment and opens the next, so the day's history
+// is the record rather than a feature built on top of it.
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -45,9 +47,11 @@ const BRAND = {
   red: "#a3312c",
 };
 
-// A board somebody is working from all morning, refreshed often enough to be
-// worth looking at. Still paused while the tab is hidden.
+// A board somebody works from all morning, refreshed often enough to be worth
+// looking at. Still paused while the tab is hidden.
 const REFRESH_MS = 60 * 1000;
+// Seven across, so the whole process is read without the eye travelling.
+const COLUMNS = 7;
 
 function pollWhenVisible(run, everyMs) {
   return setInterval(() => {
@@ -67,7 +71,15 @@ const btn = {
   fontFamily: "inherit",
   whiteSpace: "nowrap",
 };
-const miniBtn = { ...btn, padding: "2px 8px", fontSize: 11, borderRadius: 6 };
+const miniBtn = { ...btn, padding: "2px 7px", fontSize: 11, borderRadius: 6 };
+const field = {
+  border: `1px solid ${BRAND.line}`,
+  borderRadius: 6,
+  padding: "2px 5px",
+  fontSize: 11,
+  fontFamily: "inherit",
+  minWidth: 0,
+};
 
 export default function AllocationPage() {
   const [day, setDay] = useState(workingDay());
@@ -79,8 +91,13 @@ export default function AllocationPage() {
   const [user, setUser] = useState(null);
   const caps = useCapabilities(user);
   const canAllocate = caps.allocation;
-  // Which empty slot is being filled, as "machineId:slot".
+  // Which empty line is being filled, as "stepId:slot".
   const [filling, setFilling] = useState(null);
+  // Extra lines Adam has asked a step for, beyond the four it starts with.
+  // Per step, and only in this browser: it's a way of looking at the card, not
+  // a fact about the day.
+  const [extraLines, setExtraLines] = useState({});
+  const [editingLists, setEditingLists] = useState(false);
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -121,8 +138,8 @@ export default function AllocationPage() {
     };
   }, [load]);
 
-  const send = useCallback(
-    async (payload) => {
+  const post = useCallback(
+    async (path, payload) => {
       const current = firebaseConfigured() ? auth().currentUser : null;
       if (!current) {
         setActionError("Sign in first — an allocation has a name on it.");
@@ -132,7 +149,7 @@ export default function AllocationPage() {
       setActionError(null);
       try {
         const idToken = await current.getIdToken();
-        const res = await fetch("/api/allocation", {
+        const res = await fetch(path, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...payload, idToken }),
@@ -151,24 +168,25 @@ export default function AllocationPage() {
     [load]
   );
 
-  const machines = data?.machines ?? [];
-  const people = data?.people ?? [];
+  const send = useCallback((payload) => post("/api/allocation", payload), [post]);
+  const editList = useCallback((payload) => post("/api/allocation/list", payload), [post]);
+
+  const steps = useMemo(() => (data?.steps ?? []).filter((s) => s.active), [data]);
+  const people = useMemo(() => (data?.people ?? []).filter((p) => p.active), [data]);
+  const allNames = data?.people ?? [];
   const allocations = useMemo(
     () => (data?.allocations ?? []).filter((a) => a.date === day),
     [data, day]
   );
-  const punches = useMemo(() => (data?.punches ?? []).filter((p) => p.date === day), [data, day]);
-  const bookings = data?.bookings ?? [];
   const nameOf = useCallback(
-    (personId) => people.find((p) => p.id === personId)?.name || "—",
-    [people]
+    (personId) => allNames.find((p) => p.id === personId)?.name || "—",
+    [allNames]
   );
 
-  const day_ = summarise(allocations, punches, now);
-  // Anyone with nothing open — the strip along the top is "who's spare", which
-  // is the question Adam is asking when he looks at it.
-  const placed = new Set(allocations.filter(isOpen).map((a) => a.personId));
-  const spare = people.filter((p) => !placed.has(p.id) && p.role !== "pending");
+  const today = summarise(allocations, [], now);
+  const placed = new Map();
+  for (const a of allocations.filter(isOpen)) placed.set(a.personId, a.stepId);
+  const stepName = (id) => steps.find((s) => s.id === id)?.name || "";
 
   const isToday = day === workingDay();
   const nowTime = clock(now.toISOString());
@@ -180,17 +198,17 @@ export default function AllocationPage() {
         background: BRAND.bg,
         color: BRAND.ink,
         minHeight: "100vh",
-        padding: 24,
+        padding: 20,
         boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1800, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",
             alignItems: "baseline",
             justifyContent: "space-between",
-            marginBottom: 20,
+            marginBottom: 16,
             flexWrap: "wrap",
             gap: 8,
           }}
@@ -200,7 +218,7 @@ export default function AllocationPage() {
               Allocation
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-              Who&apos;s on which machine, and since when
+              Who&apos;s on which step, and since when
             </p>
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
@@ -232,7 +250,7 @@ export default function AllocationPage() {
               borderRadius: 8,
               padding: "10px 14px",
               fontSize: 13,
-              marginBottom: 16,
+              marginBottom: 12,
             }}
           >
             {actionError}
@@ -247,7 +265,7 @@ export default function AllocationPage() {
               borderRadius: 8,
               padding: "10px 14px",
               fontSize: 13,
-              marginBottom: 16,
+              marginBottom: 12,
             }}
           >
             Couldn&apos;t load the day. {error}
@@ -257,10 +275,10 @@ export default function AllocationPage() {
         <div
           style={{
             display: "flex",
-            gap: 12,
+            gap: 10,
             alignItems: "center",
             flexWrap: "wrap",
-            marginBottom: 14,
+            marginBottom: 12,
           }}
         >
           <input
@@ -282,244 +300,282 @@ export default function AllocationPage() {
             </button>
           )}
           <span style={{ fontSize: 12, color: BRAND.sub }}>
-            {day_.headcount} on the floor · {fmtHours(day_.hours)} allocated
-            {day_.clocked > 0 ? ` · ${fmtHours(day_.clocked)} clocked` : ""}
-            {day_.moves ? ` · ${day_.moves} ${day_.moves === 1 ? "move" : "moves"}` : ""}
-            {day_.open ? ` · ${day_.open} still running` : ""}
+            {today.headcount} on the floor · {fmtHours(today.hours)} allocated
+            {today.moves ? ` · ${today.moves} ${today.moves === 1 ? "move" : "moves"}` : ""}
+            {today.open ? ` · ${today.open} still running` : ""}
           </span>
-          {day_.backwards > 0 && (
+          {today.backwards > 0 && (
             <span style={{ fontSize: 12, color: BRAND.red }}>
-              {day_.backwards} finish before they start
+              {today.backwards} finish before they start
             </span>
           )}
+          <button
+            onClick={() => setEditingLists((v) => !v)}
+            disabled={!canAllocate}
+            style={{
+              ...btn,
+              marginLeft: "auto",
+              color: BRAND.blue,
+              opacity: canAllocate ? 1 : 0.5,
+            }}
+          >
+            {editingLists ? "Done with lists" : "People & steps"}
+          </button>
         </div>
 
-        {/* Who isn't on anything. The question Adam is asking when he looks at
-            the top of the board. */}
-        <div
-          style={{
-            background: BRAND.card,
-            border: `1px solid ${BRAND.line}`,
-            borderRadius: 10,
-            padding: "10px 12px",
-            marginBottom: 16,
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <span style={{ fontSize: 12, color: BRAND.sub, marginRight: 4 }}>
-            Not on a machine ({spare.length}):
-          </span>
-          {spare.length === 0 ? (
-            <span style={{ fontSize: 12, color: BRAND.sub }}>everyone is placed.</span>
-          ) : (
-            spare.map((p) => (
-              <span
-                key={p.id}
-                style={{
-                  fontSize: 12,
-                  background: BRAND.bg,
-                  border: `1px solid ${BRAND.line}`,
-                  borderRadius: 20,
-                  padding: "3px 10px",
-                }}
-              >
-                {p.name}
-              </span>
-            ))
-          )}
-        </div>
-
-        {machines.length === 0 && !loading && (
-          <p style={{ fontSize: 13, color: BRAND.sub }}>
-            No machines in Decorflow yet — the board draws itself from that list.
-          </p>
+        {editingLists && canAllocate && (
+          <ListEditor
+            people={allNames}
+            steps={data?.steps ?? []}
+            saving={saving}
+            onEdit={editList}
+          />
         )}
 
-        {/* The CNCs first and on their own, then everything else: that's how
-            the floor is laid out and how the day is read. */}
-        {["CNC", "other"].map((band) => {
-          const inBand = machines.filter((m) =>
-            band === "CNC" ? m.type === "CNC" : m.type !== "CNC"
-          );
-          if (inBand.length === 0) return null;
-          return (
-            <div key={band} style={{ marginBottom: 18 }}>
-              <div
-                style={{
-                  fontSize: 11,
-                  letterSpacing: "0.04em",
-                  textTransform: "uppercase",
-                  color: BRAND.sub,
-                  marginBottom: 6,
-                }}
-              >
-                {band === "CNC" ? "Nesting" : "Finishing & packing"}
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gap: 12,
-                  gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-                  alignItems: "start",
-                }}
-              >
-                {inBand.map((machine) => {
-                  const job = bookedJob(bookings, machine.id, day);
-                  const mineOpen = allocations.filter(
-                    (a) => a.machineId === machine.id && isOpen(a)
-                  );
-                  // The machine's own hours, not the sum of its people's —
-                  // see mannedHours.
-                  const machineHours = mannedHours(
-                    allocations.filter((a) => a.machineId === machine.id),
-                    now
-                  );
-                  const personHours = allocations
-                    .filter((a) => a.machineId === machine.id && a.kind !== "break")
-                    .reduce((s, a) => s + hoursOf(a, now), 0);
-                  return (
-                    <section
-                      key={machine.id}
-                      style={{
-                        background: BRAND.card,
-                        border: `1px solid ${BRAND.line}`,
-                        borderTop: `3px solid ${machine.color}`,
-                        borderRadius: 10,
-                        padding: "10px 12px",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                        <span style={{ fontWeight: 600, fontSize: 14 }}>{machine.name}</span>
-                        <span style={{ fontSize: 11, color: BRAND.sub }}>{machine.type}</span>
-                        <span
-                          style={{
-                            marginLeft: "auto",
-                            fontSize: 12,
-                            color: machineHours > machine.hpd ? BRAND.amber : BRAND.sub,
-                          }}
-                          title={`Manned ${fmtHours(machineHours)} of a ${machine.hpd}-hour day · ${fmtHours(personHours)} of work on it`}
-                        >
-                          {fmtHours(machineHours)} / {machine.hpd}h
-                        </span>
-                      </div>
-                      {/* What the schedule already says is on this machine
-                          today. A new slot starts from it. */}
-                      <div style={{ fontSize: 11, color: BRAND.sub, marginTop: 1 }}>
-                        {job ? `Booked: ${job}` : "Nothing booked today"}
-                        {mineOpen.length > 0 ? ` · ${mineOpen.length} on it` : ""}
-                      </div>
-
-                      <div style={{ marginTop: 8 }}>
-                        {Array.from({ length: SLOTS }, (_, slot) => {
-                          const key = `${machine.id}:${slot}`;
-                          const open = onSlot(allocations, machine.id, slot);
-                          const done = closedOnSlot(allocations, machine.id, slot);
-                          return (
-                            <div
-                              key={key}
-                              style={{
-                                borderTop: `1px solid ${BRAND.line}`,
-                                paddingTop: 6,
-                                marginTop: 6,
-                              }}
-                            >
-                              {open ? (
-                                <SlotRow
-                                  allocation={open}
-                                  name={nameOf(open.personId)}
-                                  day={day}
-                                  now={now}
-                                  saving={saving}
-                                  canAllocate={canAllocate}
-                                  onSend={send}
-                                />
-                              ) : filling === key ? (
-                                <FillSlot
-                                  people={people}
-                                  placed={placed}
-                                  saving={saving}
-                                  day={day}
-                                  defaultJob={job}
-                                  nowTime={nowTime}
-                                  onCancel={() => setFilling(null)}
-                                  onPick={async (personId, startAt, jobId, kind) => {
-                                    const ok = await send({
-                                      action: "open",
-                                      date: day,
-                                      personId,
-                                      machineId: machine.id,
-                                      slot,
-                                      jobId,
-                                      kind,
-                                      startAt,
-                                    });
-                                    if (ok) setFilling(null);
-                                  }}
-                                />
-                              ) : (
-                                <button
-                                  onClick={() => setFilling(key)}
-                                  disabled={!canAllocate}
-                                  style={{
-                                    width: "100%",
-                                    border: `1px dashed ${BRAND.line}`,
-                                    background: "none",
-                                    borderRadius: 6,
-                                    padding: "5px 8px",
-                                    fontSize: 12,
-                                    color: BRAND.sub,
-                                    cursor: canAllocate ? "pointer" : "default",
-                                    fontFamily: "inherit",
-                                    textAlign: "left",
-                                    opacity: canAllocate ? 1 : 0.5,
-                                  }}
-                                >
-                                  + Put someone on
-                                </button>
-                              )}
-
-                              {/* What ran here earlier. Greyed, with its times
-                                  and why it ended — the day's history, in
-                                  place, rather than on another screen. */}
-                              {done.map((a) => (
-                                <div
-                                  key={a.id}
-                                  style={{
-                                    fontSize: 11,
-                                    color: BRAND.sub,
-                                    marginTop: 3,
-                                    display: "flex",
-                                    gap: 6,
-                                    flexWrap: "wrap",
-                                  }}
-                                >
-                                  <span style={{ textDecoration: "line-through" }}>
-                                    {nameOf(a.personId)}
-                                  </span>
-                                  <span>
-                                    {clock(a.startAt)}–{clock(a.endAt)}
-                                  </span>
-                                  <span>{fmtHours(hoursOf(a, now))}</span>
-                                  {a.closedReason === "moved" && (
-                                    <span style={{ color: BRAND.amber }}>moved</span>
-                                  )}
-                                  {a.kind === "break" && <span>break</span>}
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </section>
-                  );
-                })}
-              </div>
+        {/* The roster on the left, the steps across. Two things read at once:
+            who turned up, and where they went. */}
+        <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+          <aside
+            style={{
+              flex: "0 0 190px",
+              background: BRAND.card,
+              border: `1px solid ${BRAND.line}`,
+              borderRadius: 10,
+              padding: "10px 12px",
+              position: "sticky",
+              top: 12,
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>
+              People ({people.length})
             </div>
-          );
-        })}
+            <div style={{ fontSize: 11, color: BRAND.sub, marginBottom: 8 }}>
+              {placed.size} on a step · {Math.max(0, people.length - placed.size)} spare
+            </div>
+            {people.length === 0 && (
+              <p style={{ fontSize: 11, color: BRAND.sub }}>
+                Nobody on the list yet — add them under People &amp; steps.
+              </p>
+            )}
+            {people.map((p) => {
+              const on = placed.get(p.id);
+              return (
+                <div
+                  key={p.id}
+                  style={{
+                    borderTop: `1px solid ${BRAND.line}`,
+                    padding: "5px 0",
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 6,
+                  }}
+                >
+                  <span style={{ fontSize: 12, fontWeight: on ? 400 : 600 }}>{p.name}</span>
+                  {/* Where they are, or that they're going spare — the two
+                      states worth knowing at a glance. */}
+                  <span
+                    style={{
+                      marginLeft: "auto",
+                      fontSize: 10,
+                      color: on ? BRAND.green : BRAND.sub,
+                      textAlign: "right",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      maxWidth: 90,
+                    }}
+                    title={on ? stepName(on) : "not on a step"}
+                  >
+                    {on ? stepName(on) : "spare"}
+                  </span>
+                </div>
+              );
+            })}
+          </aside>
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {steps.length === 0 && !loading && (
+              <p style={{ fontSize: 13, color: BRAND.sub }}>
+                No steps yet. Add them under <strong>People &amp; steps</strong> — they stay put
+                from one day to the next.
+              </p>
+            )}
+            <div
+              style={{
+                display: "grid",
+                gap: 8,
+                gridTemplateColumns: `repeat(${COLUMNS}, minmax(0, 1fr))`,
+                alignItems: "start",
+              }}
+            >
+              {steps.map((step) => {
+                const mine = allocations.filter((a) => a.stepId === step.id);
+                const openHere = mine.filter(isOpen);
+                const worked = mannedHours(mine, now);
+                // Four lines, plus whatever Adam has asked this step for, and
+                // never fewer than it takes to show everyone on it.
+                const lines = Math.max(
+                  SLOTS + (extraLines[step.id] || 0),
+                  ...openHere.map((a) => Number(a.slot) + 1),
+                  1
+                );
+                return (
+                  <section
+                    key={step.id}
+                    style={{
+                      background: BRAND.card,
+                      border: `1px solid ${BRAND.line}`,
+                      borderTop: `3px solid ${openHere.length ? BRAND.green : BRAND.line}`,
+                      borderRadius: 10,
+                      padding: "8px 9px",
+                      minWidth: 0,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                      <span
+                        style={{
+                          fontWeight: 600,
+                          fontSize: 12,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={step.name}
+                      >
+                        {step.name}
+                      </span>
+                      <span
+                        style={{ marginLeft: "auto", fontSize: 10, color: BRAND.sub }}
+                        title={`Manned ${fmtHours(worked)} today`}
+                      >
+                        {openHere.length || "—"}
+                      </span>
+                    </div>
+
+                    <div style={{ marginTop: 4 }}>
+                      {Array.from({ length: lines }, (_, slot) => {
+                        const key = `${step.id}:${slot}`;
+                        const open = onSlot(allocations, step.id, slot);
+                        const done = closedOnSlot(allocations, step.id, slot);
+                        return (
+                          <div
+                            key={key}
+                            style={{
+                              borderTop: `1px solid ${BRAND.line}`,
+                              paddingTop: 4,
+                              marginTop: 4,
+                            }}
+                          >
+                            {open ? (
+                              <SlotRow
+                                allocation={open}
+                                name={nameOf(open.personId)}
+                                day={day}
+                                now={now}
+                                saving={saving}
+                                canAllocate={canAllocate}
+                                onSend={send}
+                              />
+                            ) : filling === key ? (
+                              <FillSlot
+                                people={people}
+                                placed={placed}
+                                saving={saving}
+                                day={day}
+                                nowTime={nowTime}
+                                onCancel={() => setFilling(null)}
+                                onPick={async (personId, startAt, kind) => {
+                                  const ok = await send({
+                                    action: "open",
+                                    date: day,
+                                    personId,
+                                    stepId: step.id,
+                                    slot,
+                                    kind,
+                                    startAt,
+                                  });
+                                  if (ok) setFilling(null);
+                                }}
+                              />
+                            ) : (
+                              <button
+                                onClick={() => setFilling(key)}
+                                disabled={!canAllocate}
+                                title="Put someone on this line"
+                                style={{
+                                  width: "100%",
+                                  border: `1px dashed ${BRAND.line}`,
+                                  background: "none",
+                                  borderRadius: 5,
+                                  padding: "3px 5px",
+                                  fontSize: 11,
+                                  color: BRAND.sub,
+                                  cursor: canAllocate ? "pointer" : "default",
+                                  fontFamily: "inherit",
+                                  textAlign: "left",
+                                  opacity: canAllocate ? 1 : 0.5,
+                                }}
+                              >
+                                +
+                              </button>
+                            )}
+
+                            {/* What ran here earlier, in place: the day's
+                                history where it happened rather than on
+                                another screen. */}
+                            {done.map((a) => (
+                              <div
+                                key={a.id}
+                                style={{
+                                  fontSize: 10,
+                                  color: BRAND.sub,
+                                  marginTop: 2,
+                                  display: "flex",
+                                  gap: 4,
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <span style={{ textDecoration: "line-through" }}>
+                                  {nameOf(a.personId)}
+                                </span>
+                                <span>
+                                  {clock(a.startAt)}–{clock(a.endAt)}
+                                </span>
+                                {a.closedReason === "moved" && (
+                                  <span style={{ color: BRAND.amber }}>moved</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
+
+                      {/* One more line, when a step needs a fifth pair of
+                          hands. Four is a habit, not a rule. */}
+                      <button
+                        onClick={() =>
+                          setExtraLines((p) => ({ ...p, [step.id]: (p[step.id] || 0) + 1 }))
+                        }
+                        disabled={!canAllocate}
+                        title="Another line on this step"
+                        style={{
+                          ...miniBtn,
+                          width: "100%",
+                          marginTop: 5,
+                          color: BRAND.blue,
+                          borderStyle: "dashed",
+                          opacity: canAllocate ? 1 : 0.5,
+                        }}
+                      >
+                        + line
+                      </button>
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          </div>
+        </div>
 
         <DayRecords day={day} />
       </div>
@@ -528,35 +584,36 @@ export default function AllocationPage() {
 }
 
 /**
- * A person on a machine, right now.
+ * A person on a step, right now.
  *
- * The times are typed rather than stamped, because that's how the day actually
- * gets recorded: Adam fills the board in when he gets a minute, not at the
- * moment somebody picks up a broom. They default to the clock when the slot is
- * filled, so the common case is one click.
+ * The start time is typed, beside the name, because that's how the day
+ * actually gets recorded: Adam fills the board in when he gets a minute, not
+ * at the moment somebody picks up a broom. It defaults to the clock when the
+ * line is filled, so the common case is one click.
  */
 function SlotRow({ allocation, name, day, now, saving, canAllocate, onSend }) {
   const [start, setStart] = useState(clock(allocation.startAt));
-  const [job, setJob] = useState(allocation.jobId || "");
   const [closing, setClosing] = useState(false);
   const [finish, setFinish] = useState(clock(new Date().toISOString()));
 
   useEffect(() => {
     setStart(clock(allocation.startAt));
-    setJob(allocation.jobId || "");
-  }, [allocation.startAt, allocation.jobId]);
-
-  const field = {
-    border: `1px solid ${BRAND.line}`,
-    borderRadius: 6,
-    padding: "2px 6px",
-    fontSize: 12,
-    fontFamily: "inherit",
-  };
+  }, [allocation.startAt]);
 
   return (
-    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-      <span style={{ fontSize: 13, fontWeight: 600, flex: "1 1 auto", minWidth: 90 }}>
+    <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: 600,
+          flex: "1 1 60px",
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        title={name}
+      >
         {name}
         {allocation.kind === "break" && (
           <span style={{ fontWeight: 400, color: BRAND.sub }}> · break</span>
@@ -574,59 +631,45 @@ function SlotRow({ allocation, name, day, now, saving, canAllocate, onSend }) {
         disabled={!canAllocate || saving}
         aria-label={`Start time for ${name}`}
         placeholder="07:30"
-        style={{ ...field, width: 56 }}
+        style={{ ...field, width: 44 }}
       />
-      <span style={{ fontSize: 11, color: BRAND.sub }}>
-        {fmtHours(hoursOf(allocation, now))}
-      </span>
-      <input
-        value={job}
-        onChange={(e) => setJob(e.target.value)}
-        onBlur={() => {
-          if (job !== (allocation.jobId || "")) {
-            onSend({ action: "update", id: allocation.id, jobId: job });
-          }
-        }}
-        disabled={!canAllocate || saving}
-        aria-label={`Job for ${name}`}
-        placeholder="job"
-        style={{ ...field, width: 72 }}
-      />
+      <span style={{ fontSize: 10, color: BRAND.sub }}>{fmtHours(hoursOf(allocation, now))}</span>
       {closing ? (
-        <>
+        <div style={{ display: "flex", gap: 4, width: "100%", marginTop: 3 }}>
           <input
             value={finish}
             onChange={(e) => setFinish(e.target.value)}
             aria-label={`Finish time for ${name}`}
-            style={{ ...field, width: 56 }}
+            style={{ ...field, width: 44 }}
             autoFocus
           />
-          {["finished", "shift-end"].map((reason) => (
-            <button
-              key={reason}
-              onClick={async () => {
-                const ok = await onSend({
-                  action: "close",
-                  id: allocation.id,
-                  endAt: atTime(day, finish) || new Date().toISOString(),
-                  closedReason: reason,
-                });
-                if (ok) setClosing(false);
-              }}
-              disabled={saving}
-              style={{ ...miniBtn, color: BRAND.green, borderColor: BRAND.green }}
-            >
-              {reason === "finished" ? "Done" : "End of shift"}
-            </button>
-          ))}
-          <button onClick={() => setClosing(false)} style={miniBtn}>
-            Cancel
+          <button
+            onClick={async () => {
+              const ok = await onSend({
+                action: "close",
+                id: allocation.id,
+                endAt: atTime(day, finish) || new Date().toISOString(),
+                closedReason: "finished",
+              });
+              if (ok) setClosing(false);
+            }}
+            disabled={saving}
+            style={{ ...miniBtn, color: BRAND.green, borderColor: BRAND.green }}
+          >
+            Done
           </button>
-        </>
+          <button onClick={() => setClosing(false)} style={miniBtn}>
+            ✕
+          </button>
+        </div>
       ) : (
         canAllocate && (
-          <button onClick={() => setClosing(true)} style={{ ...miniBtn, color: BRAND.blue }}>
-            Finish
+          <button
+            onClick={() => setClosing(true)}
+            title="Finish this line"
+            style={{ ...miniBtn, color: BRAND.blue, padding: "1px 5px" }}
+          >
+            fin
           </button>
         )
       )}
@@ -635,31 +678,23 @@ function SlotRow({ allocation, name, day, now, saving, canAllocate, onSend }) {
 }
 
 /** Choosing who goes on an empty line. */
-function FillSlot({ people, placed, saving, day, defaultJob, nowTime, onCancel, onPick }) {
+function FillSlot({ people, placed, saving, day, nowTime, onCancel, onPick }) {
   const [personId, setPersonId] = useState("");
   const [start, setStart] = useState(nowTime);
-  const [job, setJob] = useState(defaultJob || "");
   const [kind, setKind] = useState("work");
 
-  const field = {
-    border: `1px solid ${BRAND.line}`,
-    borderRadius: 6,
-    padding: "3px 6px",
-    fontSize: 12,
-    fontFamily: "inherit",
-  };
-
   return (
-    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+    <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
       <select
         autoFocus
         value={personId}
         onChange={(e) => setPersonId(e.target.value)}
-        style={{ ...field, flex: "1 1 120px", background: BRAND.card }}
+        style={{ ...field, flex: "1 1 100%", background: BRAND.card }}
       >
         <option value="">Who?</option>
-        {/* Anyone already on a machine is offered too — picking them moves
-            them, which is the honest reading of dropping a name on a slot. */}
+        {/* Somebody already on a step is offered too — picking them moves
+            them, which is the honest reading of putting a name somewhere
+            else. */}
         {people.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -671,25 +706,18 @@ function FillSlot({ people, placed, saving, day, defaultJob, nowTime, onCancel, 
         value={start}
         onChange={(e) => setStart(e.target.value)}
         aria-label="Start time"
-        style={{ ...field, width: 56 }}
-      />
-      <input
-        value={job}
-        onChange={(e) => setJob(e.target.value)}
-        aria-label="Job"
-        placeholder="job"
-        style={{ ...field, width: 72 }}
+        style={{ ...field, width: 44 }}
       />
       <select
         value={kind}
         onChange={(e) => setKind(e.target.value)}
-        style={{ ...field, background: BRAND.card }}
+        style={{ ...field, width: 58, background: BRAND.card }}
       >
-        <option value="work">Work</option>
-        <option value="break">Break</option>
+        <option value="work">work</option>
+        <option value="break">break</option>
       </select>
       <button
-        onClick={() => onPick(personId, atTime(day, start), job, kind)}
+        onClick={() => onPick(personId, atTime(day, start), kind)}
         disabled={!personId || saving}
         style={{
           ...miniBtn,
@@ -698,11 +726,117 @@ function FillSlot({ people, placed, saving, day, defaultJob, nowTime, onCancel, 
           opacity: !personId || saving ? 0.6 : 1,
         }}
       >
-        {saving ? "…" : "On"}
+        on
       </button>
       <button onClick={onCancel} style={miniBtn}>
-        Cancel
+        ✕
       </button>
+    </div>
+  );
+}
+
+/**
+ * Adam's two lists.
+ *
+ * Kept the way Mitch keeps the material list: type a name, it's there
+ * tomorrow, take it away when it stops being true. Removing is a flag rather
+ * than a delete — a step he stops using is still the step yesterday's
+ * allocations were written against.
+ */
+function ListEditor({ people, steps, saving, onEdit }) {
+  const [newPerson, setNewPerson] = useState("");
+  const [newStep, setNewStep] = useState("");
+
+  const column = (kind, rows, value, setValue, placeholder) => (
+    <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+        {kind === "people" ? "People" : "Steps"}
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={async (e) => {
+            if (e.key !== "Enter" || !value.trim()) return;
+            const ok = await onEdit({ kind, action: "add", name: value.trim() });
+            if (ok) setValue("");
+          }}
+          placeholder={placeholder}
+          style={{
+            flex: 1,
+            border: `1px solid ${BRAND.line}`,
+            borderRadius: 6,
+            padding: "4px 8px",
+            fontSize: 12,
+            fontFamily: "inherit",
+            minWidth: 0,
+          }}
+        />
+        <button
+          onClick={async () => {
+            if (!value.trim()) return;
+            const ok = await onEdit({ kind, action: "add", name: value.trim() });
+            if (ok) setValue("");
+          }}
+          disabled={saving || !value.trim()}
+          style={{ ...miniBtn, color: BRAND.green, borderColor: BRAND.green }}
+        >
+          Add
+        </button>
+      </div>
+      {rows.map((row) => (
+        <div
+          key={row.id}
+          style={{
+            display: "flex",
+            gap: 6,
+            alignItems: "center",
+            borderTop: `1px solid ${BRAND.line}`,
+            padding: "4px 0",
+          }}
+        >
+          <span
+            style={{
+              fontSize: 12,
+              color: row.active ? BRAND.ink : BRAND.sub,
+              textDecoration: row.active ? "none" : "line-through",
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            {row.name}
+          </span>
+          <button
+            onClick={() => onEdit({ kind, action: row.active ? "remove" : "restore", id: row.id })}
+            disabled={saving}
+            style={{ ...miniBtn, color: row.active ? BRAND.sub : BRAND.green }}
+          >
+            {row.active ? "Remove" : "Put back"}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div
+      style={{
+        background: BRAND.card,
+        border: `1px solid ${BRAND.line}`,
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 14,
+        display: "flex",
+        gap: 20,
+        flexWrap: "wrap",
+      }}
+    >
+      {column("people", people, newPerson, setNewPerson, "Name")}
+      {column("steps", steps, newStep, setNewStep, "Step, e.g. Packing")}
+      <p style={{ fontSize: 11, color: BRAND.sub, flexBasis: "100%", margin: 0 }}>
+        Both lists stay put from one day to the next. Removing takes something off the board
+        without touching the days it was already written on.
+      </p>
     </div>
   );
 }
@@ -734,18 +868,10 @@ function DayRecords({ day }) {
         if (!byDay.has(a.date)) byDay.set(a.date, []);
         byDay.get(a.date).push(a);
       }
-      const punchesByDay = new Map();
-      for (const p of json.punches || []) {
-        if (!punchesByDay.has(p.date)) punchesByDay.set(p.date, []);
-        punchesByDay.get(p.date).push(p);
-      }
       setRows(
         [...byDay.entries()]
           .sort((a, b) => b[0].localeCompare(a[0]))
-          .map(([date, list]) => ({
-            date,
-            ...summarise(list, punchesByDay.get(date) || []),
-          }))
+          .map(([date, list]) => ({ date, ...summarise(list) }))
       );
     } catch (e) {
       setErr(String(e.message || e));
@@ -759,15 +885,8 @@ function DayRecords({ day }) {
   }, [open, load]);
 
   const csv = () => {
-    const head = ["Date", "Headcount", "Allocated hours", "Clocked hours", "Moves", "Still open"];
-    const body = (rows || []).map((r) => [
-      r.date,
-      r.headcount,
-      r.hours.toFixed(2),
-      r.clocked.toFixed(2),
-      r.moves,
-      r.open,
-    ]);
+    const head = ["Date", "Headcount", "Allocated hours", "Moves", "Still open"];
+    const body = (rows || []).map((r) => [r.date, r.headcount, r.hours.toFixed(2), r.moves, r.open]);
     const text = [head, ...body].map((line) => line.join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
     const a = document.createElement("a");
@@ -794,11 +913,8 @@ function DayRecords({ day }) {
   };
 
   return (
-    <div style={{ marginTop: 24 }}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        style={{ ...btn, color: BRAND.blue, borderColor: BRAND.line }}
-      >
+    <div style={{ marginTop: 20 }}>
+      <button onClick={() => setOpen((v) => !v)} style={{ ...btn, color: BRAND.blue }}>
         {open ? "Hide day records" : "Day records"}
       </button>
 
@@ -828,9 +944,7 @@ function DayRecords({ day }) {
             )}
           </div>
 
-          {err && (
-            <p style={{ fontSize: 12, color: BRAND.red, marginTop: 8 }}>{err}</p>
-          )}
+          {err && <p style={{ fontSize: 12, color: BRAND.red, marginTop: 8 }}>{err}</p>}
 
           {rows && rows.length === 0 && (
             <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 8 }}>
@@ -854,7 +968,6 @@ function DayRecords({ day }) {
                     <th style={th}>Day</th>
                     <th style={th}>On the floor</th>
                     <th style={th}>Allocated</th>
-                    <th style={th}>Clocked</th>
                     <th style={th}>Moves</th>
                     <th style={th}>Unfinished</th>
                   </tr>
@@ -865,12 +978,9 @@ function DayRecords({ day }) {
                       <td style={{ ...td, fontWeight: 600 }}>{r.date}</td>
                       <td style={td}>{r.headcount}</td>
                       <td style={td}>{fmtHours(r.hours)}</td>
-                      <td style={{ ...td, color: BRAND.sub }}>
-                        {r.clocked ? fmtHours(r.clocked) : "—"}
-                      </td>
                       <td style={td}>{r.moves || "—"}</td>
-                      {/* A day nobody closed off says so on its own line
-                          rather than quietly reading as finished. */}
+                      {/* A day nobody closed off says so rather than quietly
+                          reading as finished. */}
                       <td style={{ ...td, color: r.open ? BRAND.amber : BRAND.sub }}>
                         {r.open ? `${r.open} left running` : "—"}
                       </td>
