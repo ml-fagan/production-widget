@@ -167,6 +167,9 @@ export default function AllocationPage() {
   const editList = useCallback((payload) => post("/api/allocation/list", payload), [post]);
 
   const steps = useMemo(() => (data?.steps ?? []).filter((s) => s.active), [data]);
+  // Machines read differently from steps — a thing you stand at rather than a
+  // job you're doing — so they get their own row and their own colour.
+  const machines = useMemo(() => (data?.machines ?? []).filter((m) => m.active), [data]);
   const people = useMemo(() => (data?.people ?? []).filter((p) => p.active), [data]);
   const allNames = data?.people ?? [];
   const allocations = useMemo(
@@ -181,7 +184,8 @@ export default function AllocationPage() {
   const today = summarise(allocations, [], now);
   const placed = new Map();
   for (const a of allocations.filter(isOpen)) placed.set(a.personId, a.stepId);
-  const stepName = (id) => steps.find((s) => s.id === id)?.name || "";
+  const stepName = (id) =>
+    [...steps, ...machines].find((s) => s.id === id)?.name || "";
 
   const isToday = day === workingDay();
   const nowTime = clock(now.toISOString());
@@ -314,7 +318,7 @@ export default function AllocationPage() {
               opacity: canAllocate ? 1 : 0.5,
             }}
           >
-            {editingLists ? "Done with lists" : "People & steps"}
+            {editingLists ? "Done with lists" : "People, steps & machines"}
           </button>
         </div>
 
@@ -322,6 +326,7 @@ export default function AllocationPage() {
           <ListEditor
             people={allNames}
             steps={data?.steps ?? []}
+            machines={data?.machines ?? []}
             saving={saving}
             onEdit={editList}
           />
@@ -389,21 +394,44 @@ export default function AllocationPage() {
           </aside>
 
           <div style={{ flex: 1, minWidth: 0 }}>
-            {steps.length === 0 && !loading && (
+            {steps.length === 0 && machines.length === 0 && !loading && (
               <p style={{ fontSize: 13, color: BRAND.sub }}>
-                No steps yet. Add them under <strong>People &amp; steps</strong> — they stay put
-                from one day to the next.
+                Nothing to allocate to yet. Add steps and machines under{" "}
+                <strong>People, steps &amp; machines</strong> — both lists stay put from one day to
+                the next.
               </p>
             )}
-            <div
-              style={{
-                display: "grid",
-                gap: 8,
-                gridTemplateColumns: `repeat(${COLUMNS}, minmax(0, 1fr))`,
-                alignItems: "start",
-              }}
-            >
-              {steps.map((step) => {
+
+            {[
+              { key: "steps", label: "Steps", rows: steps, accent: BRAND.green },
+              // Machines sit under the steps and carry their own colour,
+              // because "who's on the edgebander" and "who's packing" are two
+              // different questions asked by two different people.
+              { key: "machines", label: "Machines", rows: machines, accent: BRAND.blue },
+            ].map((band) =>
+              band.rows.length === 0 ? null : (
+                <div key={band.key} style={{ marginBottom: 16 }}>
+                  <div
+                    style={{
+                      fontSize: 9,
+                      letterSpacing: "0.07em",
+                      textTransform: "uppercase",
+                      color: BRAND.sub,
+                      marginBottom: 5,
+                    }}
+                  >
+                    {band.label}
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 8,
+                      gridTemplateColumns: `repeat(${COLUMNS}, minmax(0, 1fr))`,
+                      alignItems: "start",
+                    }}
+                  >
+                    {band.rows.map((step) => {
+
                 const mine = allocations.filter((a) => a.stepId === step.id);
                 const openHere = onStep(allocations, step.id);
                 const endedHere = endedOnStep(allocations, step.id);
@@ -414,7 +442,7 @@ export default function AllocationPage() {
                     style={{
                       background: BRAND.card,
                       border: `1px solid ${BRAND.line}`,
-                      borderTop: `3px solid ${openHere.length ? BRAND.green : BRAND.line}`,
+                      borderTop: `3px solid ${openHere.length ? band.accent : BRAND.line}`,
                       borderRadius: 10,
                       padding: "8px 9px",
                       minWidth: 0,
@@ -536,8 +564,11 @@ export default function AllocationPage() {
                     </div>
                   </section>
                 );
-              })}
-            </div>
+                    })}
+                  </div>
+                </div>
+              )
+            )}
           </div>
         </div>
 
@@ -712,15 +743,16 @@ function AddPerson({ people, placed, saving, day, nowTime, onCancel, onPick }) {
  * than a delete — a step he stops using is still the step yesterday's
  * allocations were written against.
  */
-function ListEditor({ people, steps, saving, onEdit }) {
+function ListEditor({ people, steps, machines, saving, onEdit }) {
   const [newPerson, setNewPerson] = useState("");
   const [newStep, setNewStep] = useState("");
+  const [newMachine, setNewMachine] = useState("");
+
+  const heading = { people: "People", steps: "Steps", machines: "Machines" };
 
   const column = (kind, rows, value, setValue, placeholder) => (
-    <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
-        {kind === "people" ? "People" : "Steps"}
-      </div>
+    <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{heading[kind]}</div>
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
         <input
           value={value}
@@ -802,9 +834,11 @@ function ListEditor({ people, steps, saving, onEdit }) {
     >
       {column("people", people, newPerson, setNewPerson, "Name")}
       {column("steps", steps, newStep, setNewStep, "Step, e.g. Packing")}
+      {column("machines", machines, newMachine, setNewMachine, "Machine, e.g. Edgebander")}
       <p style={{ fontSize: 11, color: BRAND.sub, flexBasis: "100%", margin: 0 }}>
-        Both lists stay put from one day to the next. Removing takes something off the board
-        without touching the days it was already written on.
+        All three lists stay put from one day to the next. Removing takes something off the board
+        without touching the days it was already written on. A step is a job to be doing; a machine
+        is a thing to stand at, and they read as two rows on the board.
       </p>
     </div>
   );

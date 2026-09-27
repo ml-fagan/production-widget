@@ -21,14 +21,18 @@ import {
 // Yesterday sits beside today so somebody can check their own hours while they
 // still remember the day.
 
+// The same palette as every other board. A screen on a wall isn't a different
+// product, and a dark one next to seven light ones reads as a different system
+// rather than as the same day shown larger.
 const BRAND = {
-  bg: "#1c1b19",
-  card: "#252420",
-  ink: "#f5f3ef",
-  sub: "#9c988f",
-  line: "#3a3833",
-  green: "#7bbd8c",
-  amber: "#e0b877",
+  bg: "#f5f3ef",
+  card: "#ffffff",
+  ink: "#1c1b19",
+  sub: "#6b6862",
+  line: "#e5e1d8",
+  green: "#408152",
+  amber: "#a86b12",
+  blue: "#004CFB",
 };
 
 // A screen on a wall is always visible, so this one polls regardless — but
@@ -84,6 +88,9 @@ export default function WallDisplay() {
   }, []);
 
   const steps = (data?.steps ?? []).filter((s) => s.active);
+  // Machines below the steps, in their own colour — the same split as the
+  // board Adam fills in, so the two screens read the same way.
+  const machines = (data?.machines ?? []).filter((m) => m.active);
   const people = data?.people ?? [];
   const all = data?.allocations ?? [];
   const today = all.filter((a) => a.date === day);
@@ -131,15 +138,35 @@ export default function WallDisplay() {
         </p>
       )}
 
-      <div
-        style={{
-          display: "grid",
-          gap: 14,
-          gridTemplateColumns: "repeat(auto-fill, minmax(330px, 1fr))",
-          alignItems: "start",
-        }}
-      >
-        {steps.map((step) => {
+      {[
+        { key: "steps", label: "", rows: steps, accent: BRAND.green },
+        { key: "machines", label: "Machines", rows: machines, accent: BRAND.blue },
+      ].map((band) =>
+        band.rows.length === 0 ? null : (
+          <div key={band.key} style={{ marginBottom: 18 }}>
+            {band.label && (
+              <div
+                style={{
+                  fontSize: 16,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: BRAND.sub,
+                  marginBottom: 8,
+                }}
+              >
+                {band.label}
+              </div>
+            )}
+            <div
+              style={{
+                display: "grid",
+                gap: 14,
+                gridTemplateColumns: "repeat(auto-fill, minmax(330px, 1fr))",
+                alignItems: "start",
+              }}
+            >
+              {band.rows.map((step) => {
+
           // Everyone open on this step, however many lines it grew to.
           const here = today.filter((a) => a.stepId === step.id && isOpen(a));
           return (
@@ -148,7 +175,7 @@ export default function WallDisplay() {
               style={{
                 background: BRAND.card,
                 border: `1px solid ${BRAND.line}`,
-                borderTop: `4px solid ${here.length ? BRAND.green : BRAND.line}`,
+                borderTop: `4px solid ${here.length ? band.accent : BRAND.line}`,
                 borderRadius: 12,
                 padding: "14px 16px",
               }}
@@ -191,8 +218,11 @@ export default function WallDisplay() {
               </div>
             </section>
           );
-        })}
-      </div>
+              })}
+            </div>
+          </div>
+        )
+      )}
 
       {/* Yesterday, so somebody can check their own hours while they still
           remember the day. Closed segments only: what actually happened. */}
