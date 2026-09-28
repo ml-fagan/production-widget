@@ -56,6 +56,11 @@ const RECENT_DAYS = 7;
 const VIEWS = [
   { key: "expected", label: "Expected" },
   { key: "arrived", label: "Just arrived" },
+  // Stock going the other way. A client has paid for something already on the
+  // rack, and until now nobody out the back heard about it at all — the order
+  // sat on Veronica's board and the material left the building on the
+  // strength of a phone call.
+  { key: "send", label: "To pack & send" },
 ];
 
 function fmtTime(iso) {
@@ -105,6 +110,11 @@ export default function WarehousePage() {
   const [user, setUser] = useState(null);
   const caps = useCapabilities(user);
   const canReceive = caps.receiving;
+  // Packing is the dock's. Sending is Alice's — she books the freight and she
+  // is the one who knows it went.
+  const canDispatch = caps.materials;
+  const [shelf, setShelf] = useState([]);
+  const [saving, setSaving] = useState(false);
   const [received, setReceived] = useState({});
   const [pending, setPending] = useState({});
   const [stored, setStored] = useState({});
@@ -112,6 +122,17 @@ export default function WarehousePage() {
   useEffect(() => {
     if (!firebaseConfigured()) return;
     return onAuthStateChanged(auth(), setUser);
+  }, []);
+
+  const loadShelf = useCallback(async () => {
+    try {
+      const res = await fetch("/api/shelf-orders", { cache: "no-store" });
+      const json = await res.json();
+      if (json.ok) setShelf(json.orders || []);
+    } catch {
+      // The delivery board is the point of this page; an off-the-shelf list
+      // that can't be reached shouldn't take it down.
+    }
   }, []);
 
   const load = useCallback(async () => {
@@ -139,14 +160,72 @@ export default function WarehousePage() {
 
   useEffect(() => {
     load();
-    const id = pollWhenVisible(load, REFRESH_MS);
-    const onFocus = () => load();
+    loadShelf();
+    const id = pollWhenVisible(() => {
+      load();
+      loadShelf();
+    }, REFRESH_MS);
+    const onFocus = () => {
+      load();
+      loadShelf();
+    };
     window.addEventListener("focus", onFocus);
     return () => {
       clearInterval(id);
       window.removeEventListener("focus", onFocus);
     };
-  }, [load]);
+  }, [load, loadShelf]);
+
+  /**
+   * Packed, or sent.
+   *
+   * Two marks on one order by two different people, so the button that's
+   * offered follows the right rather than the page: the dock packs, Alice
+   * sends, and the server checks the same split.
+   */
+  const markShelf = useCallback(
+    async (order, mark) => {
+      const current = firebaseConfigured() ? auth().currentUser : null;
+      if (!current) {
+        setActionError("Sign in first so this is recorded against your name.");
+        return;
+      }
+      setSaving(true);
+      setActionError(null);
+      try {
+        const idToken = await current.getIdToken();
+        const res = await fetch("/api/shelf-orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "contact",
+            id: order.id,
+            kind: "note",
+            mark,
+            note: mark === "packed" ? "Packed" : "Dispatched",
+            idToken,
+          }),
+        });
+        const json = await res.json();
+        if (!json.ok) {
+          throw new Error(
+            json.needs === "materials"
+              ? "Sending it is Alice's — the dock packs, she books the freight."
+              : json.error || "That didn't save"
+          );
+        }
+        await loadShelf();
+      } catch (e) {
+        setActionError(String(e.message || e));
+      } finally {
+        setSaving(false);
+      }
+    },
+    [loadShelf]
+  );
+
+  // Paid and still in the building: the dock's to pack, then Alice's to send.
+  const toSend = shelf.filter((o) => o.paidAt && !o.dispatchedAt);
 
   const setLine = useCallback(
     async (jobId, lineId, patch) => {
@@ -374,7 +453,8 @@ export default function WarehousePage() {
           tabs={caps.tabs}
           current="warehouse"
           counts={{
-            warehouse: expected.length,
+            // What's on the dock's plate: deliveries in, and orders out.
+            warehouse: expected.length + toSend.length,
             materials: lines.filter((m) => m.state !== "completed").length,
           }}
         />
@@ -404,7 +484,13 @@ export default function WarehousePage() {
                 fontFamily: "inherit",
               }}
             >
-              {v.label} ({v.key === "expected" ? expected.length : arrived.length})
+              {v.label} (
+              {v.key === "expected"
+                ? expected.length
+                : v.key === "arrived"
+                  ? arrived.length
+                  : toSend.length}
+              )
             </button>
           ))}
         </div>
@@ -458,7 +544,105 @@ export default function WarehousePage() {
           }}
         />
 
-        {!loading && groups.length === 0 && (
+        {/* Stock going out rather than coming in. Two ticks by two people:
+            the dock packs it off the rack, Alice books the freight and says
+            it's gone. */}
+        {view === "send" && (
+          <>
+            {toSend.length === 0 && !loading && (
+              <p style={{ fontSize: 13, color: BRAND.sub }}>
+                Nothing waiting to go out. Orders land here once Veronica marks them paid.
+              </p>
+            )}
+            {toSend.map((order) => {
+              const packed = Boolean(order.packedAt);
+              return (
+                <section
+                  key={order.id}
+                  style={{
+                    background: BRAND.card,
+                    border: `1px solid ${packed ? BRAND.green : BRAND.line}`,
+                    borderRadius: 10,
+                    padding: "12px 14px",
+                    marginBottom: 10,
+                    display: "flex",
+                    gap: 14,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600 }}>{order.product}</div>
+                    <div style={{ fontSize: 13, color: BRAND.sub }}>
+                      {order.qty ? `${order.qty} · ` : ""}
+                      {order.customer}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: BRAND.sub, minWidth: 120 }}>
+                    {order.siteDate ? (
+                      <>
+                        On site{" "}
+                        <strong style={{ color: BRAND.ink, fontWeight: 600 }}>
+                          {new Date(`${order.siteDate}T12:00:00`).toLocaleDateString("en-AU", {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                          })}
+                        </strong>
+                      </>
+                    ) : (
+                      "No site date"
+                    )}
+                    {packed && (
+                      <div style={{ color: BRAND.green }}>
+                        Packed by {String(order.packedBy || "").split("@")[0]}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+                    {!packed ? (
+                      <button
+                        onClick={() => markShelf(order, "packed")}
+                        disabled={saving || !canReceive}
+                        title="Picked off the rack and packed"
+                        style={{
+                          ...btn,
+                          background: BRAND.green,
+                          borderColor: BRAND.green,
+                          color: "#fff",
+                          opacity: saving || !canReceive ? 0.6 : 1,
+                        }}
+                      >
+                        Packed
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => markShelf(order, "dispatched")}
+                        disabled={saving || !canDispatch}
+                        title={
+                          canDispatch
+                            ? "Gone — freight booked and away"
+                            : "The dock packs it; Alice books the freight"
+                        }
+                        style={{
+                          ...btn,
+                          background: canDispatch ? BRAND.green : BRAND.card,
+                          borderColor: canDispatch ? BRAND.green : BRAND.line,
+                          color: canDispatch ? "#fff" : BRAND.sub,
+                          opacity: saving ? 0.6 : 1,
+                        }}
+                      >
+                        Dispatched
+                      </button>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </>
+        )}
+
+        {view !== "send" && !loading && groups.length === 0 && (
           <p style={{ fontSize: 13, color: BRAND.sub }}>
             {view === "expected"
               ? q
@@ -468,7 +652,8 @@ export default function WarehousePage() {
           </p>
         )}
 
-        {groups.map((g) => (
+        {view !== "send" &&
+          groups.map((g) => (
           <section
             key={g.key}
             style={{
@@ -735,12 +920,16 @@ export default function WarehousePage() {
               );
             })}
           </section>
-        ))}
+          ))}
 
+        {/* About taking deliveries in, so it belongs to the two views that
+            are about taking deliveries in. */}
+        {view !== "send" && (
         <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 18 }}>
           Booking a delivery in here is the same as Alice ticking it off her board — the job&apos;s
           material status updates on the schedule straight away, so Duncan can see it&apos;s landed.
         </p>
+        )}
       </div>
     </main>
   );

@@ -19,6 +19,8 @@ import {
   bucketOf,
   chaseCount,
   lastContact,
+  fulfilment,
+  FULFILMENT_LABELS,
   fillTemplate,
 } from "../../lib/shelfOrders.js";
 
@@ -783,6 +785,13 @@ function ChaseRow({ order, bucket, now, saving, canEdit, onOpen, onSend }) {
       </td>
       <td style={{ ...td, color: overdue ? BRAND.amber : BRAND.ink }}>{shortDate(chase)}</td>
       <td style={{ ...td, color: BRAND.sub, whiteSpace: "normal", minWidth: 130 }}>
+        {/* Once the money's in, what she wants to know is where it's got to
+            out the back — not who rang whom. */}
+        {fulfilment(order) && fulfilment(order) !== "sent" && (
+          <div style={{ color: order.packedAt ? BRAND.green : BRAND.amber, fontWeight: 500 }}>
+            {FULFILMENT_LABELS[fulfilment(order)]}
+          </div>
+        )}
         {last ? (
           <>
             {new Date(last.at).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
@@ -796,7 +805,11 @@ function ChaseRow({ order, bucket, now, saving, canEdit, onOpen, onSend }) {
         <button onClick={onOpen} style={{ ...miniBtn, color: BRAND.blue }}>
           {bucket === "payment" ? "Copy request" : "Copy chase"}
         </button>{" "}
-        {bucket === "payment" ? (
+        {bucket === "fulfil" ? (
+          <span style={{ fontSize: 11, color: BRAND.sub }}>
+            {order.packedAt ? "with Alice to send" : "with the warehouse"}
+          </span>
+        ) : bucket === "payment" ? (
           <button
             onClick={() =>
               onSend({ action: "contact", id: order.id, kind: "note", mark: "paid", note: "Paid" })
