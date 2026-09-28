@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
+import SubTabs from "../SubTabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
@@ -232,7 +233,7 @@ export default function RequestsPage() {
               resize: "vertical",
             }}
           />
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+          <div style={{ display: "flex", gap: 14, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
             <button
               onClick={async () => {
                 const ok = await send({
@@ -284,38 +285,14 @@ export default function RequestsPage() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 18, marginBottom: 12, alignItems: "baseline" }}>
-          <button
-            onClick={() => setShowDone(false)}
-            style={{
-              border: "none",
-              background: "none",
-              padding: 0,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              fontSize: 13,
-              fontWeight: showDone ? 400 : 600,
-              color: showDone ? "#9c988f" : BRAND.ink,
-            }}
-          >
-            Open ({open.length})
-          </button>
-          <button
-            onClick={() => setShowDone(true)}
-            style={{
-              border: "none",
-              background: "none",
-              padding: 0,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              fontSize: 13,
-              fontWeight: showDone ? 600 : 400,
-              color: showDone ? BRAND.ink : "#9c988f",
-            }}
-          >
-            Answered ({closed.length})
-          </button>
-        </div>
+        <SubTabs
+          items={[
+            { key: "open", label: "Open", count: open.length },
+            { key: "closed", label: "Answered", count: closed.length },
+          ]}
+          current={showDone ? "closed" : "open"}
+          onChange={(key) => setShowDone(key === "closed")}
+        />
 
         {!loading && shown.length === 0 && (
           <p style={{ fontSize: 13, color: BRAND.sub }}>

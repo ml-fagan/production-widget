@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
+import SubTabs from "../SubTabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
@@ -287,22 +288,11 @@ export default function InvoicingPage() {
           tabs={caps.tabs}
           current="invoicing" counts={{ invoicing: readyToCharge }} />
 
-        <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
-          {VIEWS.map((v) => (
-            <button
-              key={v.key}
-              onClick={() => setView(v.key)}
-              style={{
-                ...btn,
-                background: view === v.key ? BRAND.ink : BRAND.card,
-                color: view === v.key ? "#fff" : BRAND.sub,
-                fontSize: 13,
-              }}
-            >
-              {v.label} ({counts[v.key]})
-            </button>
-          ))}
-        </div>
+        <SubTabs
+          items={VIEWS.map((v) => ({ ...v, count: counts[v.key] }))}
+          current={view}
+          onChange={setView}
+        />
 
         {actionError && (
           <div

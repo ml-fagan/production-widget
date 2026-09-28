@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, Fragment } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
+import SubTabs from "../SubTabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
@@ -519,768 +520,764 @@ export default function BoardPage() {
           }
         }
       `}</style>
-      <header
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          marginBottom: 16,
-          flexWrap: "wrap",
-          gap: 8,
-        }}
-      >
-        <div>
-          <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.01em" }}>
-            Schedule board
-          </h1>
-          <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-            {rows.length} handed-over {rows.length === 1 ? "job" : "jobs"}
-            {undated > 0 && `, ${undated} still without a date`} · soonest out
-            first
-          </p>
-        </div>
-        <div className="no-print" style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
-          <SignIn user={user} brand={BRAND} />
-          <button
-            // The stock ledger too, since the board now reads it to check
-            // what's ticked as stock — refreshing half of it was confusing.
-            onClick={() => {
-              load();
-              loadStock();
+      {/*
+        The schedule board is the widest table here, but it was the only page
+        with no measure at all — it ran to the edge of whatever monitor it was
+        opened on while every other board stopped, so moving between tabs made
+        the page appear to jump. Wider than the rest, because it has the most
+        columns and prints landscape; bounded, because nothing else isn't.
+      */}
+      <div style={{ maxWidth: 1800, margin: "0 auto" }}>
+        <header
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            marginBottom: 16,
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
+          <div>
+            <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.01em" }}>
+              Schedule board
+            </h1>
+            <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
+              {rows.length} handed-over {rows.length === 1 ? "job" : "jobs"}
+              {undated > 0 && `, ${undated} still without a date`} · soonest out
+              first
+            </p>
+          </div>
+          <div className="no-print" style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
+            <SignIn user={user} brand={BRAND} />
+            <button
+              // The stock ledger too, since the board now reads it to check
+              // what's ticked as stock — refreshing half of it was confusing.
+              onClick={() => {
+                load();
+                loadStock();
+              }}
+              style={{ ...input, padding: "6px 12px", fontSize: 13, cursor: "pointer" }}
+            >
+              {loading ? "Refreshing…" : "Refresh"}
+            </button>
+            <button
+              onClick={() => window.print()}
+              title="Print a landscape, gridded copy of this board to walk the factory with"
+              style={{ ...input, marginLeft: 8, padding: "6px 12px", fontSize: 13, cursor: "pointer" }}
+            >
+              Print
+            </button>
+          </div>
+        </header>
+
+        <div className="no-print">
+          <Tabs
+            tabs={caps.tabs}
+            current="board"
+            counts={{
+              materials: rows.filter((r) => r.materialOrder?.state !== "arrived").length,
+              // Out the door and not charged. Shown on every tab strip so it
+              // reaches Veronica wherever she happens to be.
+              invoicing: mergedRows.filter((r) => r.state === "despatched").length,
             }}
-            style={{ ...input, padding: "6px 12px", fontSize: 13, cursor: "pointer" }}
-          >
-            {loading ? "Refreshing…" : "Refresh"}
-          </button>
-          <button
-            onClick={() => window.print()}
-            title="Print a landscape, gridded copy of this board to walk the factory with"
-            style={{ ...input, marginLeft: 8, padding: "6px 12px", fontSize: 13, cursor: "pointer" }}
-          >
-            Print
-          </button>
+          />
         </div>
-      </header>
 
-      <div className="no-print">
-        <Tabs
-          tabs={caps.tabs}
-          current="board"
-          counts={{
-            materials: rows.filter((r) => r.materialOrder?.state !== "arrived").length,
-            // Out the door and not charged. Shown on every tab strip so it
-            // reaches Veronica wherever she happens to be.
-            invoicing: mergedRows.filter((r) => r.state === "despatched").length,
-          }}
-        />
-      </div>
-
-      {actionError && (
-        <div
-          style={{
-            background: "#fdf4e6",
-            border: "1px solid #a86b12",
-            color: "#a86b12",
-            borderRadius: 8,
-            padding: "10px 14px",
-            fontSize: 13,
-            marginBottom: 12,
-          }}
-        >
-          {actionError}
-        </div>
-      )}
-      {error && (
-        <div
-          style={{
-            background: "#fbeceb",
-            border: `1px solid ${BRAND.red}`,
-            color: BRAND.red,
-            borderRadius: 8,
-            padding: "10px 14px",
-            fontSize: 13,
-            marginBottom: 12,
-          }}
-        >
-          Couldn&apos;t load handovers. {error}
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
-        {[
-          { key: "standard", label: "Standard production" },
-          { key: "fc", label: "Fibre cement" },
-        ].map((s2) => (
-          <button
-            key={s2.key}
-            onClick={() => setStream(s2.key)}
+        {actionError && (
+          <div
             style={{
-              ...input,
-              padding: "5px 12px",
+              background: "#fdf4e6",
+              border: "1px solid #a86b12",
+              color: "#a86b12",
+              borderRadius: 8,
+              padding: "10px 14px",
               fontSize: 13,
-              cursor: "pointer",
-              background: stream === s2.key ? BRAND.ink : BRAND.card,
-              color: stream === s2.key ? "#fff" : BRAND.sub,
+              marginBottom: 12,
             }}
           >
-            {s2.label} ({streamCounts[s2.key]})
-          </button>
-        ))}
-      </div>
+            {actionError}
+          </div>
+        )}
+        {error && (
+          <div
+            style={{
+              background: "#fbeceb",
+              border: `1px solid ${BRAND.red}`,
+              color: BRAND.red,
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 13,
+              marginBottom: 12,
+            }}
+          >
+            Couldn&apos;t load handovers. {error}
+          </div>
+        )}
 
-      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
-        <input
-          className="no-print"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter by job, project or product"
-          style={{ ...input, flex: 1, maxWidth: 360, padding: "7px 10px", fontSize: 13 }}
+        <SubTabs
+          items={[
+            { key: "standard", label: "Standard production", count: streamCounts.standard },
+            { key: "fc", label: "Fibre cement", count: streamCounts.fc },
+          ]}
+          current={stream}
+          onChange={setStream}
         />
-        <Legend />
-      </div>
 
-      {!loading && rows.length === 0 && (
-        <p style={{ fontSize: 13, color: BRAND.sub }}>
-          Nothing handed over yet. Jobs appear here the moment Mitch sends one to
-          production.
-        </p>
-      )}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+          <input
+            className="no-print"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter by job, project or product"
+            style={{ ...input, flex: 1, maxWidth: 360, padding: "7px 10px", fontSize: 13 }}
+          />
+          <Legend />
+        </div>
 
-      {rows.length > 0 && (
-        <div
-          className="print-table-wrapper"
-          style={{ overflowX: "auto", background: BRAND.card, border: `1px solid ${BRAND.line}`, borderRadius: 10 }}
-        >
-          <table className="print-table" style={{ borderCollapse: "collapse", width: "100%", minWidth: 1500 }}>
-            <thead>
-              <tr>
-                <th style={{ ...th, ...stickyJob, zIndex: 3 }}>Job</th>
-                <th style={{ ...th, ...stickyProject, zIndex: 3 }}>Project</th>
-                {/* Two ticks, one column: how it leaves the building. */}
-                <th style={{ ...th, textAlign: "center" }} title="Luminaire / Boxed">
-                  Pack
-                </th>
-                <th style={th}>Product</th>
-                <th style={th}>Committed</th>
-                <th style={th}>Actual</th>
-                <th style={{ ...th, textAlign: "center" }} title="Lead time in weeks">Lead</th>
-                {PROCESS_COLUMNS.map((c) => (
-                  <th
-                    key={c}
-                    style={{
-                      ...th,
-                      textAlign: "center",
-                      writingMode: "vertical-rl",
-                      transform: "rotate(180deg)",
-                      height: 90,
-                      padding: "6px 2px",
-                    }}
-                  >
-                    {c}
+        {!loading && rows.length === 0 && (
+          <p style={{ fontSize: 13, color: BRAND.sub }}>
+            Nothing handed over yet. Jobs appear here the moment Mitch sends one to
+            production.
+          </p>
+        )}
+
+        {rows.length > 0 && (
+          <div
+            className="print-table-wrapper"
+            style={{ overflowX: "auto", background: BRAND.card, border: `1px solid ${BRAND.line}`, borderRadius: 10 }}
+          >
+            <table className="print-table" style={{ borderCollapse: "collapse", width: "100%", minWidth: 1500 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...th, ...stickyJob, zIndex: 3 }}>Job</th>
+                  <th style={{ ...th, ...stickyProject, zIndex: 3 }}>Project</th>
+                  {/* Two ticks, one column: how it leaves the building. */}
+                  <th style={{ ...th, textAlign: "center" }} title="Luminaire / Boxed">
+                    Pack
                   </th>
-                ))}
-                <th style={th} title="Priority">Pri</th>
-                <th style={{ ...th, textAlign: "center" }}>Note</th>
-                <th style={th}>Material</th>
-                <th style={th}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const s = row.schedule || {};
-                const lead = boardLeadFor(row);
-                const approval = approvalFor(row);
-                // A job whose last material lands after the date it's committed
-                // to is a miss nobody is currently told about — both numbers
-                // are already on the row, they were just never compared.
-                const late = Boolean(
-                  row.materialAvailableDate &&
-                    s.committedDate &&
-                    row.materialAvailableDate > s.committedDate
-                );
-                // Shown but not saved: the date is the handover's until Duncan
-                // types one of his own.
-                const approvalFromHandover = !s.approvalDate && Boolean(approval);
-                const auto = computedLead(approval, s.committedDate);
-                return (
-                  <Fragment key={row.jobId}>
-                  <tr>
-                    <td style={{ ...td, ...stickyJob }}>
-                      <a
-                        href={`${HANDOVER_APP}/${encodeURIComponent(row.jobId)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
-                      >
-                        {row.jobId}
-                      </a>
-                      {" · "}
-                      <a
-                        href={`${HANDOVER_APP}/${encodeURIComponent(row.jobId)}/ticket`}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Job ticket — printable cover page for the floor"
-                        style={{ color: BRAND.sub, textDecoration: "none", fontSize: 11 }}
-                      >
-                        ticket
-                      </a>
-                      {/* Approval sat in a date picker of its own, 150px wide,
-                          for a date that is nearly always the handover's and
-                          almost never retyped. It reads better as a line under
-                          the job, and clicking it still opens the picker. */}
-                      <div style={{ fontSize: 11, color: BRAND.sub, marginTop: 1 }}>
-                        {approvalOpen === row.jobId ? (
-                          <input
-                            autoFocus
-                            type="date"
-                            value={approval || ""}
-                            onChange={(e) => save(row.jobId, { approvalDate: e.target.value })}
-                            onBlur={() => setApprovalOpen(null)}
-                            style={{ ...input, width: 128, fontSize: 11, padding: "1px 4px" }}
-                          />
-                        ) : (
-                          <button
-                            onClick={() => setApprovalOpen(row.jobId)}
-                            title={
-                              approvalFromHandover
-                                ? "Approved on the handover — click to set your own date"
-                                : "Approval date — click to change"
-                            }
-                            style={{
-                              background: "none",
-                              border: "none",
-                              padding: 0,
-                              font: "inherit",
-                              color: approval ? BRAND.sub : "#b3afa6",
-                              cursor: "pointer",
-                              fontStyle: approvalFromHandover ? "italic" : "normal",
-                            }}
-                          >
-                            {approval ? `approved ${fmtDay(approval)}` : "no approval date"}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    <td
+                  <th style={th}>Product</th>
+                  <th style={th}>Committed</th>
+                  <th style={th}>Actual</th>
+                  <th style={{ ...th, textAlign: "center" }} title="Lead time in weeks">Lead</th>
+                  {PROCESS_COLUMNS.map((c) => (
+                    <th
+                      key={c}
                       style={{
-                        ...td,
-                        ...stickyProject,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        maxWidth: PROJECT_W,
+                        ...th,
+                        textAlign: "center",
+                        writingMode: "vertical-rl",
+                        transform: "rotate(180deg)",
+                        height: 90,
+                        padding: "6px 2px",
                       }}
-                      title={row.project || row.client || ""}
                     >
-                      {row.project || row.client || "—"}
-                    </td>
-                    {/* Luminaire and Boxed were a column each for one tick
-                        apiece. Same two ticks, a third of the width. */}
-                    <td style={{ ...td, textAlign: "center" }}>
-                      <label
-                        title="Luminaire"
-                        style={{ fontSize: 11, color: BRAND.sub, marginRight: 6, cursor: "pointer" }}
+                      {c}
+                    </th>
+                  ))}
+                  <th style={th} title="Priority">Pri</th>
+                  <th style={{ ...th, textAlign: "center" }}>Note</th>
+                  <th style={th}>Material</th>
+                  <th style={th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const s = row.schedule || {};
+                  const lead = boardLeadFor(row);
+                  const approval = approvalFor(row);
+                  // A job whose last material lands after the date it's committed
+                  // to is a miss nobody is currently told about — both numbers
+                  // are already on the row, they were just never compared.
+                  const late = Boolean(
+                    row.materialAvailableDate &&
+                      s.committedDate &&
+                      row.materialAvailableDate > s.committedDate
+                  );
+                  // Shown but not saved: the date is the handover's until Duncan
+                  // types one of his own.
+                  const approvalFromHandover = !s.approvalDate && Boolean(approval);
+                  const auto = computedLead(approval, s.committedDate);
+                  return (
+                    <Fragment key={row.jobId}>
+                    <tr>
+                      <td style={{ ...td, ...stickyJob }}>
+                        <a
+                          href={`${HANDOVER_APP}/${encodeURIComponent(row.jobId)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
+                        >
+                          {row.jobId}
+                        </a>
+                        {" · "}
+                        <a
+                          href={`${HANDOVER_APP}/${encodeURIComponent(row.jobId)}/ticket`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Job ticket — printable cover page for the floor"
+                          style={{ color: BRAND.sub, textDecoration: "none", fontSize: 11 }}
+                        >
+                          ticket
+                        </a>
+                        {/* Approval sat in a date picker of its own, 150px wide,
+                            for a date that is nearly always the handover's and
+                            almost never retyped. It reads better as a line under
+                            the job, and clicking it still opens the picker. */}
+                        <div style={{ fontSize: 11, color: BRAND.sub, marginTop: 1 }}>
+                          {approvalOpen === row.jobId ? (
+                            <input
+                              autoFocus
+                              type="date"
+                              value={approval || ""}
+                              onChange={(e) => save(row.jobId, { approvalDate: e.target.value })}
+                              onBlur={() => setApprovalOpen(null)}
+                              style={{ ...input, width: 128, fontSize: 11, padding: "1px 4px" }}
+                            />
+                          ) : (
+                            <button
+                              onClick={() => setApprovalOpen(row.jobId)}
+                              title={
+                                approvalFromHandover
+                                  ? "Approved on the handover — click to set your own date"
+                                  : "Approval date — click to change"
+                              }
+                              style={{
+                                background: "none",
+                                border: "none",
+                                padding: 0,
+                                font: "inherit",
+                                color: approval ? BRAND.sub : "#b3afa6",
+                                cursor: "pointer",
+                                fontStyle: approvalFromHandover ? "italic" : "normal",
+                              }}
+                            >
+                              {approval ? `approved ${fmtDay(approval)}` : "no approval date"}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td
+                        style={{
+                          ...td,
+                          ...stickyProject,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          maxWidth: PROJECT_W,
+                        }}
+                        title={row.project || row.client || ""}
                       >
+                        {row.project || row.client || "—"}
+                      </td>
+                      {/* Luminaire and Boxed were a column each for one tick
+                          apiece. Same two ticks, a third of the width. */}
+                      <td style={{ ...td, textAlign: "center" }}>
+                        <label
+                          title="Luminaire"
+                          style={{ fontSize: 11, color: BRAND.sub, marginRight: 6, cursor: "pointer" }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={Boolean(s.lumin)}
+                            onChange={(e) => save(row.jobId, { lumin: e.target.checked })}
+                            style={{ verticalAlign: "middle", marginRight: 1 }}
+                          />
+                          L
+                        </label>
+                        <label title="Boxed" style={{ fontSize: 11, color: BRAND.sub, cursor: "pointer" }}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(s.box)}
+                            onChange={(e) => save(row.jobId, { box: e.target.checked })}
+                            style={{ verticalAlign: "middle", marginRight: 1 }}
+                          />
+                          B
+                        </label>
+                      </td>
+                      <td
+                        style={{ ...td, maxWidth: 136, overflow: "hidden", textOverflow: "ellipsis" }}
+                        title={row.product || ""}
+                      >
+                        {row.product || "—"}
+                      </td>
+                      {["committedDate", "actualDate"].map((field) => (
+                        <td style={td} key={field}>
+                          <input
+                            type="date"
+                            value={s[field] || ""}
+                            onChange={(e) => save(row.jobId, { [field]: e.target.value })}
+                            style={{ ...input, width: 104 }}
+                          />
+                        </td>
+                      ))}
+                      <td style={{ ...td, textAlign: "center", background: leadShade(lead) }}>
                         <input
-                          type="checkbox"
-                          checked={Boolean(s.lumin)}
-                          onChange={(e) => save(row.jobId, { lumin: e.target.checked })}
-                          style={{ verticalAlign: "middle", marginRight: 1 }}
-                        />
-                        L
-                      </label>
-                      <label title="Boxed" style={{ fontSize: 11, color: BRAND.sub, cursor: "pointer" }}>
-                        <input
-                          type="checkbox"
-                          checked={Boolean(s.box)}
-                          onChange={(e) => save(row.jobId, { box: e.target.checked })}
-                          style={{ verticalAlign: "middle", marginRight: 1 }}
-                        />
-                        B
-                      </label>
-                    </td>
-                    <td
-                      style={{ ...td, maxWidth: 136, overflow: "hidden", textOverflow: "ellipsis" }}
-                      title={row.product || ""}
-                    >
-                      {row.product || "—"}
-                    </td>
-                    {["committedDate", "actualDate"].map((field) => (
-                      <td style={td} key={field}>
-                        <input
-                          type="date"
-                          value={s[field] || ""}
-                          onChange={(e) => save(row.jobId, { [field]: e.target.value })}
-                          style={{ ...input, width: 104 }}
+                          value={lead ?? ""}
+                          placeholder={auto == null ? "—" : String(auto)}
+                          onChange={(e) => {
+                            const v = e.target.value.trim();
+                            save(row.jobId, {
+                              leadWeeks: v === "" ? null : Number(v) || 0,
+                            });
+                          }}
+                          style={{ ...input, width: 52, textAlign: "center", background: "transparent" }}
+                          title={
+                            auto != null && lead !== auto
+                              ? `Overridden — the dates give ${auto}`
+                              : "Calculated from approval to committed; type to override"
+                          }
                         />
                       </td>
-                    ))}
-                    <td style={{ ...td, textAlign: "center", background: leadShade(lead) }}>
-                      <input
-                        value={lead ?? ""}
-                        placeholder={auto == null ? "—" : String(auto)}
-                        onChange={(e) => {
-                          const v = e.target.value.trim();
-                          save(row.jobId, {
-                            leadWeeks: v === "" ? null : Number(v) || 0,
-                          });
-                        }}
-                        style={{ ...input, width: 52, textAlign: "center", background: "transparent" }}
-                        title={
-                          auto != null && lead !== auto
-                            ? `Overridden — the dates give ${auto}`
-                            : "Calculated from approval to committed; type to override"
-                        }
-                      />
-                    </td>
-                    {PROCESS_COLUMNS.map((c) => {
-                      const state = cellState(row, c);
-                      const isMaterials = c.toLowerCase() === "materials";
-                      return (
-                        <td
-                          key={c}
-                          onClick={() => cycleCell(row, c)}
-                          title={
-                            isMaterials
-                              ? `Materials — ${CELL_COLOURS[state].label} (set by Alice)`
-                              : state === "none"
-                                ? "Not part of this job"
-                                : `${c} — ${CELL_COLOURS[state].label}. Click to advance.`
+                      {PROCESS_COLUMNS.map((c) => {
+                        const state = cellState(row, c);
+                        const isMaterials = c.toLowerCase() === "materials";
+                        return (
+                          <td
+                            key={c}
+                            onClick={() => cycleCell(row, c)}
+                            title={
+                              isMaterials
+                                ? `Materials — ${CELL_COLOURS[state].label} (set by Alice)`
+                                : state === "none"
+                                  ? "Not part of this job"
+                                  : `${c} — ${CELL_COLOURS[state].label}. Click to advance.`
+                            }
+                            style={{
+                              ...td,
+                              padding: 0,
+                              width: 24,
+                              minWidth: 24,
+                              background: CELL_COLOURS[state].bg,
+                              cursor:
+                                state === "none" || isMaterials ? "default" : "pointer",
+                              borderRight: `1px solid ${BRAND.line}`,
+                            }}
+                          />
+                        );
+                      })}
+                      <td style={td}>
+                        <input
+                          value={s.priority || ""}
+                          onChange={(e) => save(row.jobId, { priority: e.target.value })}
+                          style={{ ...input, width: 52, textAlign: "center" }}
+                        />
+                      </td>
+                      {/* A 160px box on every row for something most rows never
+                          have. It opens underneath now, with room to write in. */}
+                      <td style={{ ...td, textAlign: "center" }}>
+                        <button
+                          onClick={() => {
+                            setCommentOpen(commentOpen === row.jobId ? null : row.jobId);
+                            setMaterialsOpen(null);
+                          }}
+                          title={s.comment || "Add a note"}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            padding: 0,
+                            font: "inherit",
+                            fontSize: 12,
+                            cursor: "pointer",
+                            color: s.comment ? BRAND.ink : "#b3afa6",
+                          }}
+                        >
+                          {s.comment ? "✎ note" : "+"}
+                        </button>
+                      </td>
+                      <td style={{ ...td, minWidth: 120 }}>
+                        {(() => {
+                          const status = materialStatus(row);
+                          const colour =
+                            status.tone === "green"
+                              ? BRAND.green
+                              : status.tone === "red"
+                                ? BRAND.red
+                                : status.tone === "amber"
+                                  ? "#a86b12"
+                                  : BRAND.sub;
+                          // The due date used to be a column of its own. It only
+                          // ever means something next to what's outstanding, so
+                          // it sits under it: "1 of 2 out · due 16 Sep".
+                          const due = row.materialAvailableDate ? (
+                            <span
+                              style={{ color: late ? BRAND.red : BRAND.sub, fontWeight: late ? 600 : 400 }}
+                              title={
+                                late
+                                  ? `Material lands ${row.materialAvailableDate}, after the committed date ${s.committedDate}. The job cannot start on time.`
+                                  : "When the last outstanding material is expected"
+                              }
+                            >
+                              due {fmtDay(row.materialAvailableDate)}
+                              {late ? " ⚠" : ""}
+                            </span>
+                          ) : status.tone === "green" ? null : (
+                            <span
+                              style={{ color: BRAND.red }}
+                              title="Material still outstanding, with no expected date entered"
+                            >
+                              no date
+                            </span>
+                          );
+                          if (status.lines.length === 0) {
+                            return (
+                              <span style={{ color: BRAND.sub }}>
+                                — {due && <span style={{ fontSize: 11 }}>· {due}</span>}
+                              </span>
+                            );
                           }
+                          return (
+                            <span style={{ display: "inline-block" }}>
+                            <button
+                              onClick={() =>
+                                setMaterialsOpen(materialsOpen === row.jobId ? null : row.jobId)
+                              }
+                              title="What this job is waiting on — click for the list"
+                              style={{
+                                background: "none",
+                                border: "none",
+                                padding: 0,
+                                font: "inherit",
+                                fontSize: 12,
+                                cursor: "pointer",
+                                color: colour,
+                                fontWeight: 500,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {status.label}{" "}
+                              <span style={{ color: BRAND.sub }}>
+                                {materialsOpen === row.jobId ? "▾" : "▸"}
+                              </span>
+                            </button>
+                            {due && <div style={{ fontSize: 11 }}>{due}</div>}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td style={{ ...td, whiteSpace: "nowrap" }}>
+                        <button
+                          onClick={() => {
+                            if (leftoverOpen === row.jobId) {
+                              setLeftoverOpen(null);
+                            } else {
+                              setLeftoverOpen(row.jobId);
+                              setLeftoverStep("ask");
+                              setCompleteOpen(null);
+                            }
+                          }}
+                          style={{ ...input, padding: "3px 8px", cursor: "pointer", background: BRAND.card }}
+                        >
+                          Leftover
+                        </button>
+                        <button
+                          onClick={() => {
+                            setCompleteOpen(completeOpen === row.jobId ? null : row.jobId);
+                            setLeftoverOpen(null);
+                          }}
+                          style={{
+                            ...input,
+                            padding: "3px 8px",
+                            cursor: "pointer",
+                            background: BRAND.card,
+                            color: BRAND.green,
+                            borderColor: BRAND.green,
+                            marginLeft: 6,
+                          }}
+                        >
+                          Despatch
+                        </button>
+                      </td>
+                    </tr>
+                    {commentOpen === row.jobId && (
+                      <tr key={`${row.jobId}-comment`}>
+                        <td
+                          colSpan={totalCols}
+                          style={{ ...td, background: "#faf9f6", padding: "8px 14px" }}
+                        >
+                          <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <span style={{ color: BRAND.sub, fontSize: 12 }}>Note</span>
+                            <input
+                              autoFocus
+                              value={s.comment || ""}
+                              onChange={(e) => save(row.jobId, { comment: e.target.value })}
+                              placeholder="Anything the floor or the office needs to know about this job"
+                              style={{ ...input, flex: 1, maxWidth: 640, padding: "5px 8px" }}
+                            />
+                            <button
+                              onClick={() => setCommentOpen(null)}
+                              style={{ ...input, padding: "4px 10px", cursor: "pointer" }}
+                            >
+                              Done
+                            </button>
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                    {/* The full picture, in its own row so opening it can't
+                        change the height of the grid above. */}
+                    {materialsOpen === row.jobId && (
+                      <tr key={`${row.jobId}-materials`}>
+                        <td
+                          colSpan={totalCols}
                           style={{
                             ...td,
-                            padding: 0,
-                            width: 24,
-                            minWidth: 24,
-                            background: CELL_COLOURS[state].bg,
-                            cursor:
-                              state === "none" || isMaterials ? "default" : "pointer",
-                            borderRight: `1px solid ${BRAND.line}`,
+                            whiteSpace: "normal",
+                            background: "#faf9f6",
+                            padding: "10px 14px",
                           }}
-                        />
-                      );
-                    })}
+                        >
+                          <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
+                            <tbody>
+                              {materialStatus(row).lines.map((m) => {
+                                const state = m.state || "to_order";
+                                const done = state === "completed";
+                                return (
+                                  <tr key={m.id}>
+                                    <td style={{ padding: "2px 14px 2px 0", textAlign: "right" }}>
+                                      {m.quantity || "—"}
+                                    </td>
+                                    <td style={{ padding: "2px 14px 2px 0" }}>{m.name || "—"}</td>
+                                    <td style={{ padding: "2px 14px 2px 0", color: BRAND.sub }}>
+                                      {m.length && m.width
+                                        ? `${m.length} × ${m.width}${m.thickness ? ` × ${m.thickness}` : ""}`
+                                        : ""}
+                                    </td>
+                                    <td
+                                      style={{
+                                        padding: "2px 0",
+                                        color: done
+                                          ? BRAND.green
+                                          : m.fromStock
+                                            ? BRAND.red
+                                            : "#a86b12",
+                                      }}
+                                    >
+                                      {done
+                                        ? `✓ in${m.fromStock ? " (stock)" : ""}`
+                                        : m.fromStock
+                                          ? stockBalance(m) > 0
+                                            ? "on the shelf — fetch and confirm"
+                                            : "ticked as stock, but the register hasn't got it"
+                                          : state === "part_received"
+                                            ? `part received${m.expectedDate ? `, rest ${m.expectedDate}` : ""}`
+                                            : state === "ordered"
+                                              ? `ordered${m.expectedDate ? `, due ${m.expectedDate}` : ""}`
+                                              : "to order"}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+
+                          {/* Already drawn off the shelf against this job, so the
+                              floor knows to go and get it rather than wait. */}
+                          {stockForJob(row.jobId).length > 0 && (
+                            <div style={{ marginTop: 8, color: BRAND.red, fontSize: 12 }}>
+                              Drawn from stock:{" "}
+                              {stockForJob(row.jobId)
+                                .map((e) => `${e.qty} × ${e.name}${e.size ? ` (${e.size})` : ""}`)
+                                .join(" · ")}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+
+                    {leftoverOpen === row.jobId && (
+                      <tr key={`${row.jobId}-leftover`}>
+                        <td colSpan={totalCols} style={{ ...td, background: BRAND.bg, padding: "10px 12px" }}>
+                          <LeftoverPanel
+                            row={row}
+                            step={leftoverStep}
+                            saving={leftoverSaving}
+                            onNo={() => setLeftoverOpen(null)}
+                            onYes={() => setLeftoverStep("form")}
+                            onSubmit={(lines) => submitLeftover(row, lines)}
+                            onCancel={() => setLeftoverOpen(null)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    {completeOpen === row.jobId && (
+                      <tr key={`${row.jobId}-complete`}>
+                        <td colSpan={totalCols} style={{ ...td, background: BRAND.bg, padding: "10px 12px" }}>
+                          <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 13 }}>
+                            <span>
+                              Mark {row.jobId} complete? It&apos;ll come off this board and the production schedule.
+                            </span>
+                            <button
+                              onClick={() => setCompleteOpen(null)}
+                              style={{
+                                border: `1px solid ${BRAND.line}`,
+                                background: "#fff",
+                                color: BRAND.sub,
+                                borderRadius: 6,
+                                padding: "3px 12px",
+                                fontSize: 13,
+                                cursor: "pointer",
+                                fontFamily: "inherit",
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              disabled={completing}
+                              onClick={() => completeJob(row.jobId)}
+                              style={{
+                                border: `1px solid ${BRAND.green}`,
+                                background: BRAND.green,
+                                color: "#fff",
+                                borderRadius: 6,
+                                padding: "3px 12px",
+                                fontSize: 13,
+                                cursor: "pointer",
+                                fontFamily: "inherit",
+                                opacity: completing ? 0.6 : 1,
+                              }}
+                            >
+                              {completing ? "Marking…" : "Mark despatched"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <h2 className="no-print" style={{ fontSize: 15, fontWeight: 600, margin: "24px 0 8px" }}>
+          Completed
+        </h2>
+        {completedRows.length === 0 ? (
+          <p className="no-print" style={{ fontSize: 13, color: BRAND.sub }}>
+            Nothing marked complete yet.
+          </p>
+        ) : (
+          <div
+            className="no-print"
+            style={{ overflowX: "auto", background: BRAND.card, border: `1px solid ${BRAND.line}`, borderRadius: 10 }}
+          >
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <thead>
+                <tr>
+                  <th style={th}>CRM</th>
+                  <th style={th}>Job name</th>
+                  <th style={th}>Completed</th>
+                  <th style={th}>By</th>
+                  {/* The figure had no heading at all, which left a percentage
+                      sitting on its own meaning nothing. */}
+                  <th style={th} title="What was bought, less what was billed, less what went back on the racks — the material that ended up in the bin">
+                    Wastage
+                  </th>
+                  {/* Kept apart from waste on purpose: a sheet back on the rack
+                      is over-ordering, not waste. One's a cutting problem and
+                      one's an ordering problem, and adding them together hides
+                      both. */}
+                  <th style={th} title="Whole sheets and offcuts logged back to stock — over-ordered rather than wasted, and still ours">
+                    Leftover
+                  </th>
+                  <th style={th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {completedRows.map((row) => (
+                  <tr key={row.jobId}>
+                    <td style={td}>{row.jobId}</td>
+                    <td style={td}>{row.project || row.client || "—"}</td>
+                    <td style={td}>{fmtStamp(row.schedule.completedAt)}</td>
+                    <td style={{ ...td, color: BRAND.sub }}>{row.schedule.completedBy || "—"}</td>
+                    {/* What the saw ate on this job: bought, less what was
+                        billed as area, less what went back on the shelf. Only
+                        shown once the job is off the floor, which is when the
+                        leftovers have been logged and the figure finally means
+                        something. */}
                     <td style={td}>
-                      <input
-                        value={s.priority || ""}
-                        onChange={(e) => save(row.jobId, { priority: e.target.value })}
-                        style={{ ...input, width: 52, textAlign: "center" }}
-                      />
+                      {row.wastage ? (
+                        <span
+                          style={{ color: wasteColour(row.wastage.percent), fontWeight: 500 }}
+                          title={[
+                            `${row.wastage.orderedM2} m² bought`,
+                            `less ${row.wastage.chargedM2} m² charged`,
+                            `less ${row.wastage.leftoverM2} m² back on the racks`,
+                            `= ${row.wastage.wasteM2} m² in the bin`,
+                          ].join(" · ")}
+                        >
+                          {row.wastage.percent}%
+                          {/* The area itself under the percentage: a percent of
+                              a small job and a percent of a big one are not the
+                              same amount of material. */}
+                          <div style={{ fontSize: 11, fontWeight: 400, color: BRAND.sub }}>
+                            {row.wastage.wasteM2} m²
+                          </div>
+                        </span>
+                      ) : (
+                        <span
+                          style={{ color: BRAND.sub }}
+                          title="Only worked out for a job billed by area"
+                        >
+                          —
+                        </span>
+                      )}
                     </td>
-                    {/* A 160px box on every row for something most rows never
-                        have. It opens underneath now, with room to write in. */}
-                    <td style={{ ...td, textAlign: "center" }}>
+                    <td style={td}>
+                      {row.wastage ? (
+                        <span
+                          title={`${row.wastage.leftoverM2} m² of what was bought went back on the racks for the next job`}
+                        >
+                          {row.wastage.leftoverM2} m²
+                        </span>
+                      ) : (
+                        <span style={{ color: BRAND.sub }}>—</span>
+                      )}
+                    </td>
+                    <td style={td}>
                       <button
-                        onClick={() => {
-                          setCommentOpen(commentOpen === row.jobId ? null : row.jobId);
-                          setMaterialsOpen(null);
-                        }}
-                        title={s.comment || "Add a note"}
+                        onClick={() => reopenJob(row.jobId)}
                         style={{
                           background: "none",
                           border: "none",
-                          padding: 0,
-                          font: "inherit",
+                          color: BRAND.blue,
+                          cursor: "pointer",
+                          fontFamily: "inherit",
                           fontSize: 12,
-                          cursor: "pointer",
-                          color: s.comment ? BRAND.ink : "#b3afa6",
+                          padding: 0,
                         }}
                       >
-                        {s.comment ? "✎ note" : "+"}
+                        Reopen
                       </button>
-                    </td>
-                    <td style={{ ...td, minWidth: 120 }}>
-                      {(() => {
-                        const status = materialStatus(row);
-                        const colour =
-                          status.tone === "green"
-                            ? BRAND.green
-                            : status.tone === "red"
-                              ? BRAND.red
-                              : status.tone === "amber"
-                                ? "#a86b12"
-                                : BRAND.sub;
-                        // The due date used to be a column of its own. It only
-                        // ever means something next to what's outstanding, so
-                        // it sits under it: "1 of 2 out · due 16 Sep".
-                        const due = row.materialAvailableDate ? (
-                          <span
-                            style={{ color: late ? BRAND.red : BRAND.sub, fontWeight: late ? 600 : 400 }}
-                            title={
-                              late
-                                ? `Material lands ${row.materialAvailableDate}, after the committed date ${s.committedDate}. The job cannot start on time.`
-                                : "When the last outstanding material is expected"
-                            }
-                          >
-                            due {fmtDay(row.materialAvailableDate)}
-                            {late ? " ⚠" : ""}
-                          </span>
-                        ) : status.tone === "green" ? null : (
-                          <span
-                            style={{ color: BRAND.red }}
-                            title="Material still outstanding, with no expected date entered"
-                          >
-                            no date
-                          </span>
-                        );
-                        if (status.lines.length === 0) {
-                          return (
-                            <span style={{ color: BRAND.sub }}>
-                              — {due && <span style={{ fontSize: 11 }}>· {due}</span>}
-                            </span>
-                          );
-                        }
-                        return (
-                          <span style={{ display: "inline-block" }}>
-                          <button
-                            onClick={() =>
-                              setMaterialsOpen(materialsOpen === row.jobId ? null : row.jobId)
-                            }
-                            title="What this job is waiting on — click for the list"
-                            style={{
-                              background: "none",
-                              border: "none",
-                              padding: 0,
-                              font: "inherit",
-                              fontSize: 12,
-                              cursor: "pointer",
-                              color: colour,
-                              fontWeight: 500,
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {status.label}{" "}
-                            <span style={{ color: BRAND.sub }}>
-                              {materialsOpen === row.jobId ? "▾" : "▸"}
-                            </span>
-                          </button>
-                          {due && <div style={{ fontSize: 11 }}>{due}</div>}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                    <td style={{ ...td, whiteSpace: "nowrap" }}>
-                      <button
-                        onClick={() => {
-                          if (leftoverOpen === row.jobId) {
-                            setLeftoverOpen(null);
-                          } else {
-                            setLeftoverOpen(row.jobId);
-                            setLeftoverStep("ask");
-                            setCompleteOpen(null);
-                          }
-                        }}
-                        style={{ ...input, padding: "3px 8px", cursor: "pointer", background: BRAND.card }}
-                      >
-                        Leftover
-                      </button>
-                      <button
-                        onClick={() => {
-                          setCompleteOpen(completeOpen === row.jobId ? null : row.jobId);
-                          setLeftoverOpen(null);
-                        }}
-                        style={{
-                          ...input,
-                          padding: "3px 8px",
-                          cursor: "pointer",
-                          background: BRAND.card,
-                          color: BRAND.green,
-                          borderColor: BRAND.green,
-                          marginLeft: 6,
-                        }}
-                      >
-                        Despatch
-                      </button>
+                      {/* Despatch alone isn't enough: deleting a job Veronica
+                          hasn't charged takes the basis for the invoice with it.
+                          The handover app decides — see isDeletable — so the
+                          button and the endpoint can't disagree. */}
+                      {row.deletable && caps.manage ? (
+                        <button
+                          onClick={() => deleteJob(row)}
+                          title="Remove this job and its record completely"
+                          style={{ ...deleteLinkStyle, marginLeft: 12 }}
+                        >
+                          Delete
+                        </button>
+                      ) : (
+                        <span
+                          title="Not charged yet — Veronica still needs this record"
+                          style={{ marginLeft: 12, fontSize: 12, color: BRAND.sub }}
+                        >
+                          not charged
+                        </span>
+                      )}
                     </td>
                   </tr>
-                  {commentOpen === row.jobId && (
-                    <tr key={`${row.jobId}-comment`}>
-                      <td
-                        colSpan={totalCols}
-                        style={{ ...td, background: "#faf9f6", padding: "8px 14px" }}
-                      >
-                        <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <span style={{ color: BRAND.sub, fontSize: 12 }}>Note</span>
-                          <input
-                            autoFocus
-                            value={s.comment || ""}
-                            onChange={(e) => save(row.jobId, { comment: e.target.value })}
-                            placeholder="Anything the floor or the office needs to know about this job"
-                            style={{ ...input, flex: 1, maxWidth: 640, padding: "5px 8px" }}
-                          />
-                          <button
-                            onClick={() => setCommentOpen(null)}
-                            style={{ ...input, padding: "4px 10px", cursor: "pointer" }}
-                          >
-                            Done
-                          </button>
-                        </span>
-                      </td>
-                    </tr>
-                  )}
-                  {/* The full picture, in its own row so opening it can't
-                      change the height of the grid above. */}
-                  {materialsOpen === row.jobId && (
-                    <tr key={`${row.jobId}-materials`}>
-                      <td
-                        colSpan={totalCols}
-                        style={{
-                          ...td,
-                          whiteSpace: "normal",
-                          background: "#faf9f6",
-                          padding: "10px 14px",
-                        }}
-                      >
-                        <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
-                          <tbody>
-                            {materialStatus(row).lines.map((m) => {
-                              const state = m.state || "to_order";
-                              const done = state === "completed";
-                              return (
-                                <tr key={m.id}>
-                                  <td style={{ padding: "2px 14px 2px 0", textAlign: "right" }}>
-                                    {m.quantity || "—"}
-                                  </td>
-                                  <td style={{ padding: "2px 14px 2px 0" }}>{m.name || "—"}</td>
-                                  <td style={{ padding: "2px 14px 2px 0", color: BRAND.sub }}>
-                                    {m.length && m.width
-                                      ? `${m.length} × ${m.width}${m.thickness ? ` × ${m.thickness}` : ""}`
-                                      : ""}
-                                  </td>
-                                  <td
-                                    style={{
-                                      padding: "2px 0",
-                                      color: done
-                                        ? BRAND.green
-                                        : m.fromStock
-                                          ? BRAND.red
-                                          : "#a86b12",
-                                    }}
-                                  >
-                                    {done
-                                      ? `✓ in${m.fromStock ? " (stock)" : ""}`
-                                      : m.fromStock
-                                        ? stockBalance(m) > 0
-                                          ? "on the shelf — fetch and confirm"
-                                          : "ticked as stock, but the register hasn't got it"
-                                        : state === "part_received"
-                                          ? `part received${m.expectedDate ? `, rest ${m.expectedDate}` : ""}`
-                                          : state === "ordered"
-                                            ? `ordered${m.expectedDate ? `, due ${m.expectedDate}` : ""}`
-                                            : "to order"}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-
-                        {/* Already drawn off the shelf against this job, so the
-                            floor knows to go and get it rather than wait. */}
-                        {stockForJob(row.jobId).length > 0 && (
-                          <div style={{ marginTop: 8, color: BRAND.red, fontSize: 12 }}>
-                            Drawn from stock:{" "}
-                            {stockForJob(row.jobId)
-                              .map((e) => `${e.qty} × ${e.name}${e.size ? ` (${e.size})` : ""}`)
-                              .join(" · ")}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-
-                  {leftoverOpen === row.jobId && (
-                    <tr key={`${row.jobId}-leftover`}>
-                      <td colSpan={totalCols} style={{ ...td, background: BRAND.bg, padding: "10px 12px" }}>
-                        <LeftoverPanel
-                          row={row}
-                          step={leftoverStep}
-                          saving={leftoverSaving}
-                          onNo={() => setLeftoverOpen(null)}
-                          onYes={() => setLeftoverStep("form")}
-                          onSubmit={(lines) => submitLeftover(row, lines)}
-                          onCancel={() => setLeftoverOpen(null)}
-                        />
-                      </td>
-                    </tr>
-                  )}
-                  {completeOpen === row.jobId && (
-                    <tr key={`${row.jobId}-complete`}>
-                      <td colSpan={totalCols} style={{ ...td, background: BRAND.bg, padding: "10px 12px" }}>
-                        <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 13 }}>
-                          <span>
-                            Mark {row.jobId} complete? It&apos;ll come off this board and the production schedule.
-                          </span>
-                          <button
-                            onClick={() => setCompleteOpen(null)}
-                            style={{
-                              border: `1px solid ${BRAND.line}`,
-                              background: "#fff",
-                              color: BRAND.sub,
-                              borderRadius: 6,
-                              padding: "3px 12px",
-                              fontSize: 13,
-                              cursor: "pointer",
-                              fontFamily: "inherit",
-                            }}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            disabled={completing}
-                            onClick={() => completeJob(row.jobId)}
-                            style={{
-                              border: `1px solid ${BRAND.green}`,
-                              background: BRAND.green,
-                              color: "#fff",
-                              borderRadius: 6,
-                              padding: "3px 12px",
-                              fontSize: 13,
-                              cursor: "pointer",
-                              fontFamily: "inherit",
-                              opacity: completing ? 0.6 : 1,
-                            }}
-                          >
-                            {completing ? "Marking…" : "Mark despatched"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <h2 className="no-print" style={{ fontSize: 15, fontWeight: 600, margin: "24px 0 8px" }}>
-        Completed
-      </h2>
-      {completedRows.length === 0 ? (
-        <p className="no-print" style={{ fontSize: 13, color: BRAND.sub }}>
-          Nothing marked complete yet.
-        </p>
-      ) : (
-        <div
-          className="no-print"
-          style={{ overflowX: "auto", background: BRAND.card, border: `1px solid ${BRAND.line}`, borderRadius: 10 }}
-        >
-          <table style={{ borderCollapse: "collapse", width: "100%" }}>
-            <thead>
-              <tr>
-                <th style={th}>CRM</th>
-                <th style={th}>Job name</th>
-                <th style={th}>Completed</th>
-                <th style={th}>By</th>
-                {/* The figure had no heading at all, which left a percentage
-                    sitting on its own meaning nothing. */}
-                <th style={th} title="What was bought, less what was billed, less what went back on the racks — the material that ended up in the bin">
-                  Wastage
-                </th>
-                {/* Kept apart from waste on purpose: a sheet back on the rack
-                    is over-ordering, not waste. One's a cutting problem and
-                    one's an ordering problem, and adding them together hides
-                    both. */}
-                <th style={th} title="Whole sheets and offcuts logged back to stock — over-ordered rather than wasted, and still ours">
-                  Leftover
-                </th>
-                <th style={th}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {completedRows.map((row) => (
-                <tr key={row.jobId}>
-                  <td style={td}>{row.jobId}</td>
-                  <td style={td}>{row.project || row.client || "—"}</td>
-                  <td style={td}>{fmtStamp(row.schedule.completedAt)}</td>
-                  <td style={{ ...td, color: BRAND.sub }}>{row.schedule.completedBy || "—"}</td>
-                  {/* What the saw ate on this job: bought, less what was
-                      billed as area, less what went back on the shelf. Only
-                      shown once the job is off the floor, which is when the
-                      leftovers have been logged and the figure finally means
-                      something. */}
-                  <td style={td}>
-                    {row.wastage ? (
-                      <span
-                        style={{ color: wasteColour(row.wastage.percent), fontWeight: 500 }}
-                        title={[
-                          `${row.wastage.orderedM2} m² bought`,
-                          `less ${row.wastage.chargedM2} m² charged`,
-                          `less ${row.wastage.leftoverM2} m² back on the racks`,
-                          `= ${row.wastage.wasteM2} m² in the bin`,
-                        ].join(" · ")}
-                      >
-                        {row.wastage.percent}%
-                        {/* The area itself under the percentage: a percent of
-                            a small job and a percent of a big one are not the
-                            same amount of material. */}
-                        <div style={{ fontSize: 11, fontWeight: 400, color: BRAND.sub }}>
-                          {row.wastage.wasteM2} m²
-                        </div>
-                      </span>
-                    ) : (
-                      <span
-                        style={{ color: BRAND.sub }}
-                        title="Only worked out for a job billed by area"
-                      >
-                        —
-                      </span>
-                    )}
-                  </td>
-                  <td style={td}>
-                    {row.wastage ? (
-                      <span
-                        title={`${row.wastage.leftoverM2} m² of what was bought went back on the racks for the next job`}
-                      >
-                        {row.wastage.leftoverM2} m²
-                      </span>
-                    ) : (
-                      <span style={{ color: BRAND.sub }}>—</span>
-                    )}
-                  </td>
-                  <td style={td}>
-                    <button
-                      onClick={() => reopenJob(row.jobId)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: BRAND.blue,
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                        fontSize: 12,
-                        padding: 0,
-                      }}
-                    >
-                      Reopen
-                    </button>
-                    {/* Despatch alone isn't enough: deleting a job Veronica
-                        hasn't charged takes the basis for the invoice with it.
-                        The handover app decides — see isDeletable — so the
-                        button and the endpoint can't disagree. */}
-                    {row.deletable && caps.manage ? (
-                      <button
-                        onClick={() => deleteJob(row)}
-                        title="Remove this job and its record completely"
-                        style={{ ...deleteLinkStyle, marginLeft: 12 }}
-                      >
-                        Delete
-                      </button>
-                    ) : (
-                      <span
-                        title="Not charged yet — Veronica still needs this record"
-                        style={{ marginLeft: 12, fontSize: 12, color: BRAND.sub }}
-                      >
-                        not charged
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </main>
   );
 }

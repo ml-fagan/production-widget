@@ -3,7 +3,11 @@
 import { useEffect, useState, useCallback } from "react";
 import { baseCrm, crmLooksValid } from "../lib/crmUtils.js";
 import Tabs from "./Tabs.js";
+import SignIn from "./SignIn.js";
+import { useCapabilities } from "../lib/useCapabilities.js";
 import { leadFor } from "../lib/board.js";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth, firebaseConfigured } from "../lib/firebaseClient.js";
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -56,6 +60,17 @@ function fmtTime(iso) {
 }
 
 export default function Page() {
+  // This page is the one people land on, and it was drawing the tab strip
+  // with no list at all — which meant the full row, Access included, for
+  // anybody who opened it. The links only ever went to screens that refuse
+  // them, but a nav that offers what it can't give is worse than one that
+  // doesn't offer it.
+  const [user, setUser] = useState(null);
+  const caps = useCapabilities(user);
+  useEffect(() => {
+    if (!firebaseConfigured()) return;
+    return onAuthStateChanged(auth(), setUser);
+  }, []);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -314,6 +329,7 @@ export default function Page() {
             </p>
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
+            <SignIn user={user} brand={BRAND} />
             <button
               onClick={load}
               style={{
@@ -335,6 +351,15 @@ export default function Page() {
           </div>
         </header>
 
+        <Tabs
+          current="schedule"
+          tabs={caps.tabs}
+          counts={{
+            board: awaiting.length,
+            materials: unordered.length,
+            invoicing: handovers.filter((h) => (h.invoice?.state || "to_charge") !== "charged").length,
+          }}
+        />
         {error && (
           <div
             style={{
@@ -351,14 +376,6 @@ export default function Page() {
           </div>
         )}
 
-        <Tabs
-          current="schedule"
-          counts={{
-            board: awaiting.length,
-            materials: unordered.length,
-            invoicing: handovers.filter((h) => (h.invoice?.state || "to_charge") !== "charged").length,
-          }}
-        />
         <HandoverNote awaiting={awaiting} unordered={unordered} />
 
         <div

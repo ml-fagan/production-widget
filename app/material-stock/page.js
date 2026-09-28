@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
+import SubTabs from "../SubTabs.js";
 import SignIn from "../SignIn.js";
 import PickOne from "../PickOne.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
@@ -959,63 +960,18 @@ export default function MaterialStockPage() {
 
         <Tabs current="stock" tabs={caps.tabs} />
 
-        <div
-          style={{
-            display: "inline-flex",
-            background: "#efece5",
-            borderRadius: 10,
-            padding: 3,
-            marginBottom: 16,
-          }}
-        >
-          {SECTIONS.map((s) => (
-            <button
-              key={s.key}
-              onClick={() => setSection(s.key)}
-              style={{
-                border: "none",
-                background: section === s.key ? "#fff" : "transparent",
-                color: section === s.key ? BRAND.ink : BRAND.sub,
-                fontWeight: section === s.key ? 600 : 500,
-                fontSize: 14,
-                padding: "8px 20px",
-                borderRadius: 8,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                boxShadow: section === s.key ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
-              }}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
+        <SubTabs items={SECTIONS} current={section} onChange={setSection} />
 
         {section === "tracking" && (
-          <div style={{ display: "flex", gap: 18, marginBottom: 16, borderBottom: `1px solid ${BRAND.line}` }}>
-            {[
+          <SubTabs
+            level={3}
+            items={[
               { key: "project", label: "By project" },
               { key: "material", label: "By material" },
-            ].map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTrackBy(t.key)}
-                style={{
-                  border: "none",
-                  borderBottom: `2px solid ${trackBy === t.key ? BRAND.sub : "transparent"}`,
-                  background: "none",
-                  color: trackBy === t.key ? BRAND.ink : "#9c988f",
-                  fontWeight: trackBy === t.key ? 600 : 400,
-                  fontSize: 12,
-                  padding: "0 0 7px",
-                  marginBottom: -1,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
+            ]}
+            current={trackBy}
+            onChange={setTrackBy}
+          />
         )}
 
         {actionError && (

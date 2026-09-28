@@ -200,7 +200,7 @@ export default function AllocationPage() {
         background: BRAND.bg,
         color: BRAND.ink,
         minHeight: "100vh",
-        padding: 20,
+        padding: 24,
         boxSizing: "border-box",
       }}
     >

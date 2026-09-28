@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, Fragment } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
+import SubTabs from "../SubTabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
@@ -972,28 +973,11 @@ export default function MaterialsPage() {
           }}
         />
 
-        <div style={{ display: "flex", gap: 18, marginBottom: 16, borderBottom: `1px solid ${BRAND.line}` }}>
-          {VIEWS.map((v) => (
-            <button
-              key={v.key}
-              onClick={() => setView(v.key)}
-              style={{
-                border: "none",
-                borderBottom: `2px solid ${view === v.key ? BRAND.sub : "transparent"}`,
-                background: "none",
-                color: view === v.key ? BRAND.ink : "#9c988f",
-                fontWeight: view === v.key ? 600 : 400,
-                fontSize: 12,
-                padding: "0 0 7px",
-                marginBottom: -1,
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-            >
-              {v.label} ({counts[v.key]})
-            </button>
-          ))}
-        </div>
+        <SubTabs
+          items={VIEWS.map((v) => ({ ...v, count: counts[v.key] }))}
+          current={view}
+          onChange={setView}
+        />
 
         {actionError && (
           <div

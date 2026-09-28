@@ -242,7 +242,7 @@ export default function AccessPage() {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",

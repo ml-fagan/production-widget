@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
+import SubTabs from "../SubTabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
@@ -232,7 +233,7 @@ export default function ShelfOrdersPage() {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",
@@ -265,50 +266,13 @@ export default function ShelfOrdersPage() {
           counts={{ shelforders: outstanding }}
         />
 
-        <div
-          style={{
-            display: "inline-flex",
-            background: "#efece5",
-            borderRadius: 10,
-            padding: 3,
-            marginBottom: 16,
-          }}
-        >
-          {SECTIONS.map((s) => (
-            <button
-              key={s.key}
-              onClick={() => setSection(s.key)}
-              style={{
-                border: "none",
-                background: section === s.key ? "#fff" : "transparent",
-                color: section === s.key ? BRAND.ink : BRAND.sub,
-                fontWeight: section === s.key ? 600 : 500,
-                fontSize: 14,
-                padding: "8px 20px",
-                borderRadius: 8,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                boxShadow: section === s.key ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
-              }}
-            >
-              {s.label}
-              {s.key === "chase" && outstanding > 0 && (
-                <span
-                  style={{
-                    marginLeft: 6,
-                    fontSize: 11,
-                    background: "#f6dcd9",
-                    color: BRAND.red,
-                    borderRadius: 10,
-                    padding: "1px 7px",
-                  }}
-                >
-                  {outstanding}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        <SubTabs
+          items={SECTIONS.map((sec) =>
+            sec.key === "chase" ? { ...sec, count: outstanding, tone: "warn" } : sec
+          )}
+          current={section}
+          onChange={setSection}
+        />
 
         {actionError && (
           <div
