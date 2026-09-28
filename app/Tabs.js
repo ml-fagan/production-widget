@@ -101,6 +101,14 @@ const TABS = [
     title: "Create or edit a handover — opens the handover app",
   },
   {
+    // Only rendered for whoever holds Admin — see `tabs` on the capabilities.
+    key: "access",
+    label: "Access",
+    href: "/access",
+    quiet: true,
+    title: "Who can see and change what",
+  },
+  {
     key: "requests",
     label: "Request a change",
     href: "/requests",
