@@ -73,6 +73,15 @@ const TABS = [
     title: "What's on the racks, where it is, and what's spoken for",
   },
   { key: "invoicing", label: "Invoicing", href: "/invoicing", group: "money" },
+  {
+    // A client buying stock we already hold: no handover, no schedule, no job
+    // number. It only touches this system when it's time to invoice.
+    key: "shelforders",
+    label: "Off the shelf",
+    href: "/shelf-orders",
+    group: "money",
+    title: "Stock orders with no job behind them — take one, and chase it",
+  },
 
   // Below the line, off to the side: the things that aren't the day's work. A
   // folder tab says "a place your job takes you"; these aren't that.
