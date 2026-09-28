@@ -91,6 +91,7 @@ export default function WallDisplay() {
   // Machines below the steps, in their own colour — the same split as the
   // board Adam fills in, so the two screens read the same way.
   const machines = (data?.machines ?? []).filter((m) => m.active);
+  const tasks = (data?.tasks ?? []).filter((t) => t.date === day);
   const people = data?.people ?? [];
   const all = data?.allocations ?? [];
   const today = all.filter((a) => a.date === day);
@@ -169,6 +170,9 @@ export default function WallDisplay() {
 
           // Everyone open on this step, however many lines it grew to.
           const here = today.filter((a) => a.stepId === step.id && isOpen(a));
+          // The job on this place and how far it's got. The floor reads this
+          // to know what they're on as much as who they're with.
+          const jobs = tasks.filter((t) => t.placeId === step.id);
           return (
             <section
               key={step.id}
@@ -186,6 +190,31 @@ export default function WallDisplay() {
                   {here.length ? `${here.length} on` : "nobody on"}
                 </span>
               </div>
+
+              {jobs.map((task) => (
+                <div
+                  key={task.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 8,
+                    marginTop: 6,
+                    fontSize: 17,
+                  }}
+                >
+                  <span style={{ fontWeight: 500 }}>{task.jobId || "no job number"}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 15, color: BRAND.green }}>
+                    {[
+                      task.packed && "packed",
+                      task.photos && "photos",
+                      task.finished && "finished",
+                      task.completed && "done",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </div>
+              ))}
 
               <div style={{ marginTop: 10 }}>
                 {here.length === 0 ? (

@@ -165,6 +165,7 @@ export default function AllocationPage() {
 
   const send = useCallback((payload) => post("/api/allocation", payload), [post]);
   const editList = useCallback((payload) => post("/api/allocation/list", payload), [post]);
+  const editTask = useCallback((payload) => post("/api/allocation/task", payload), [post]);
 
   const steps = useMemo(() => (data?.steps ?? []).filter((s) => s.active), [data]);
   // Machines read differently from steps — a thing you stand at rather than a
@@ -176,6 +177,8 @@ export default function AllocationPage() {
     () => (data?.allocations ?? []).filter((a) => a.date === day),
     [data, day]
   );
+  // What each place is working on today, and what came of it.
+  const tasks = useMemo(() => (data?.tasks ?? []).filter((t) => t.date === day), [data, day]);
   const nameOf = useCallback(
     (personId) => allNames.find((p) => p.id === personId)?.name || "—",
     [allNames]
@@ -433,6 +436,8 @@ export default function AllocationPage() {
                     {band.rows.map((step) => {
 
                 const mine = allocations.filter((a) => a.stepId === step.id);
+                // The jobs on this place today, and what came of them.
+                const here = tasks.filter((t) => t.placeId === step.id);
                 const openHere = onStep(allocations, step.id);
                 const endedHere = endedOnStep(allocations, step.id);
                 const worked = mannedHours(mine, now);
@@ -468,6 +473,35 @@ export default function AllocationPage() {
                         {openHere.length || "—"}
                       </span>
                     </div>
+
+                    {/* What this place is working on. The CRM and the ticks
+                        belong to the job rather than to whoever is standing
+                        there: three people pack it, it gets packed once. */}
+                    {here.map((task) => (
+                      <TaskBlock
+                        key={task.id}
+                        task={task}
+                        saving={saving}
+                        canAllocate={canAllocate}
+                        onEdit={editTask}
+                      />
+                    ))}
+                    {canAllocate && (
+                      <button
+                        onClick={() => editTask({ action: "add", date: day, placeId: step.id })}
+                        disabled={saving}
+                        title="Put a job against this place"
+                        style={{
+                          ...miniBtn,
+                          width: "100%",
+                          marginTop: 5,
+                          color: BRAND.blue,
+                          borderStyle: "dashed",
+                        }}
+                      >
+                        + job
+                      </button>
+                    )}
 
                     <div style={{ marginTop: 4 }}>
                       {/* One cell with a list in it. Everyone on the step,
@@ -532,6 +566,10 @@ export default function AllocationPage() {
                                 date: day,
                                 personId,
                                 stepId: step.id,
+                                // One job on the place and the time is against
+                                // it without anybody saying so. Several, and it
+                                // waits to be told rather than guessing.
+                                taskId: here.length === 1 ? here[0].id : "",
                                 kind,
                                 startAt,
                               });
@@ -575,6 +613,101 @@ export default function AllocationPage() {
         <DayRecords day={day} />
       </div>
     </main>
+  );
+}
+
+/**
+ * The job a place is working on, and what came of it.
+ *
+ * The CRM is editable because it's usually known late — the job gets started
+ * and named afterwards. The four ticks are facts about the work rather than
+ * about the person doing it: three people pack a job and the job is packed
+ * once, so they sit here rather than on anybody's stint.
+ *
+ * Each tick stamps who set it and when. Unticking clears the stamp rather than
+ * recording an un-tick, because the question the floor asks is "is it packed",
+ * not "how many times has somebody changed their mind".
+ */
+function TaskBlock({ task, saving, canAllocate, onEdit }) {
+  const [job, setJob] = useState(task.jobId || "");
+
+  useEffect(() => {
+    setJob(task.jobId || "");
+  }, [task.jobId]);
+
+  const flags = [
+    { key: "packed", label: "P", title: "Packed" },
+    { key: "photos", label: "Ph", title: "Photos taken" },
+    { key: "finished", label: "F", title: "Finished on the floor" },
+    { key: "completed", label: "✓", title: "Completed — signed off" },
+  ];
+
+  return (
+    <div
+      style={{
+        marginTop: 5,
+        padding: "4px 5px",
+        background: BRAND.bg,
+        borderRadius: 6,
+      }}
+    >
+      <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+        <input
+          value={job}
+          onChange={(e) => setJob(e.target.value)}
+          onBlur={() => {
+            if (job.trim() !== (task.jobId || "")) {
+              onEdit({ action: "update", id: task.id, jobId: job.trim() });
+            }
+          }}
+          disabled={!canAllocate || saving}
+          placeholder="CRM"
+          aria-label="Job number for this task"
+          style={{ ...field, flex: 1, minWidth: 0, fontWeight: 600 }}
+        />
+        {canAllocate && (
+          <button
+            onClick={() => onEdit({ action: "remove", id: task.id })}
+            disabled={saving}
+            title="Take this job off the place"
+            style={{ ...miniBtn, padding: "1px 5px", color: BRAND.sub }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 3, marginTop: 3 }}>
+        {flags.map((f) => {
+          const on = Boolean(task[f.key]);
+          const by = task[`${f.key}By`];
+          return (
+            <button
+              key={f.key}
+              onClick={() => onEdit({ action: "update", id: task.id, flags: { [f.key]: !on } })}
+              disabled={!canAllocate || saving}
+              title={
+                on && by ? `${f.title} — ${String(by).split("@")[0]}` : f.title
+              }
+              style={{
+                flex: 1,
+                border: `1px solid ${on ? BRAND.green : BRAND.line}`,
+                background: on ? "#e6efe7" : BRAND.card,
+                color: on ? BRAND.green : BRAND.sub,
+                fontWeight: on ? 600 : 400,
+                borderRadius: 5,
+                padding: "1px 0",
+                fontSize: 10,
+                cursor: canAllocate ? "pointer" : "default",
+                fontFamily: "inherit",
+                minWidth: 0,
+              }}
+            >
+              {f.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
