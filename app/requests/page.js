@@ -54,6 +54,10 @@ export default function RequestsPage() {
   // Answering is a manager's; raising one is anybody's, which is the point.
   const canAnswer = caps.manage;
   const [text, setText] = useState("");
+  // "I can't get into something" is a different job from "this would be
+  // better if": it has a person waiting on it and one screen to go and fix it
+  // on. Ticking this is what puts it in front of whoever holds Admin.
+  const [aboutAccess, setAboutAccess] = useState(false);
   const [saving, setSaving] = useState(false);
   const [replyTo, setReplyTo] = useState(null);
   const [reply, setReply] = useState("");
@@ -231,8 +235,15 @@ export default function RequestsPage() {
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
             <button
               onClick={async () => {
-                const ok = await send({ action: "raise", text });
-                if (ok) setText("");
+                const ok = await send({
+                  action: "raise",
+                  text,
+                  topic: aboutAccess ? "access" : "change",
+                });
+                if (ok) {
+                  setText("");
+                  setAboutAccess(false);
+                }
               }}
               disabled={saving || !text.trim()}
               style={{
@@ -247,9 +258,28 @@ export default function RequestsPage() {
             >
               {saving ? "Sending…" : "Send it"}
             </button>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                color: aboutAccess ? BRAND.amber : BRAND.sub,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={aboutAccess}
+                onChange={(e) => setAboutAccess(e.target.checked)}
+              />
+              I can&apos;t get into something
+            </label>
             <span style={{ fontSize: 12, color: BRAND.sub }}>
-              It goes on the list below with your name on it — everyone can see what&apos;s been
-              asked for, so nobody asks twice.
+              {aboutAccess
+                ? "It'll show on the Access screen too, next to the box that fixes it."
+                : "It goes on the list below with your name on it — everyone can see what's been asked for, so nobody asks twice."}
             </span>
           </div>
         </div>
@@ -312,6 +342,21 @@ export default function RequestsPage() {
                 <span style={{ fontSize: 11, fontWeight: 600, color: status.colour }}>
                   {status.label.toUpperCase()}
                 </span>
+                {r.topic === "access" && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: BRAND.amber,
+                      border: `1px solid ${BRAND.amber}`,
+                      borderRadius: 999,
+                      padding: "1px 7px",
+                    }}
+                    title="Shows on the Access screen as well"
+                  >
+                    ACCESS
+                  </span>
+                )}
                 <span style={{ fontSize: 12, color: BRAND.sub }}>
                   {r.raisedBy ? r.raisedBy.split("@")[0] : "someone"} · {fmtStamp(r.raisedAt)}
                   {r.screen ? ` · ${r.screen}` : ""}

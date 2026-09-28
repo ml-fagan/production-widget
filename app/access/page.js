@@ -65,6 +65,14 @@ const LEVEL_LABELS = {
   edit: "Edit",
 };
 
+function fmtStamp(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? ""
+    : d.toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
 const btn = {
   border: `1px solid ${BRAND.line}`,
   background: BRAND.card,
@@ -95,6 +103,13 @@ const td = {
 
 export default function AccessPage() {
   const [people, setPeople] = useState([]);
+  // People who registered and are sitting outside, and anybody who has said
+  // out loud that they can't get in. Both are somebody waiting on this screen.
+  const [asks, setAsks] = useState([]);
+  // What you're about to give a new person, before you've given it. The rest
+  // of this page saves on every keystroke because it's changing what somebody
+  // already has; letting somebody in for the first time is one deliberate act.
+  const [draft, setDraft] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState("");
   const [error, setError] = useState(null);
@@ -133,6 +148,20 @@ export default function AccessPage() {
       }
       setPeople(json.people || []);
       setError(null);
+
+      // The other half of "who's waiting": people already in, who've said on
+      // the request board that something's shut to them.
+      try {
+        const asked = await fetch("/api/requests", { cache: "no-store" }).then((r) => r.json());
+        setAsks(
+          (asked.requests || []).filter(
+            (r) => r.topic === "access" && r.status !== "done" && r.status !== "declined"
+          )
+        );
+      } catch {
+        // A request board that's down shouldn't take the access screen with it.
+        setAsks([]);
+      }
     } catch (e) {
       setError(String(e.message || e));
     } finally {
@@ -145,7 +174,7 @@ export default function AccessPage() {
   }, [load, user]);
 
   const save = useCallback(
-    async (person, next, clear = false) => {
+    async (person, next, clear = false, approveThem = false) => {
       const current = firebaseConfigured() ? auth().currentUser : null;
       if (!current) {
         setActionError("Sign in first.");
@@ -158,7 +187,13 @@ export default function AccessPage() {
         const res = await fetch("/api/access", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: person.email, access: next, clear, idToken }),
+          body: JSON.stringify({
+            email: person.email,
+            access: next,
+            clear,
+            approve: approveThem,
+            idToken,
+          }),
         });
         const json = await res.json();
         if (!json.ok) throw new Error(json.error || "That didn't save");
@@ -172,7 +207,29 @@ export default function AccessPage() {
     [load]
   );
 
+  /**
+   * Letting somebody in.
+   *
+   * Sends the areas and clears `pending` in the same call, because a person
+   * who's been granted work they still can't reach is worse than one who was
+   * never granted anything — nobody goes looking for a half-done approval.
+   */
+  const approve = useCallback(
+    async (person) => {
+      const next = draft[person.email] || person.access;
+      await save(person, next, false, true);
+      setDraft((d) => {
+        const rest = { ...d };
+        delete rest[person.email];
+        return rest;
+      });
+    },
+    [draft, save]
+  );
+
   const me = user?.email?.toLowerCase();
+  const waiting = people.filter((p) => p.role === "pending");
+  const settled = people.filter((p) => p.role !== "pending");
 
   return (
     <main
@@ -251,7 +308,163 @@ export default function AccessPage() {
           </p>
         )}
 
-        {people.length > 0 && (
+        {/* Registered and sitting outside. Top of the page and in a warm
+            border because it's the one thing here that's time-sensitive:
+            everything below is a setting, this is a person waiting. */}
+        {waiting.length > 0 && (
+          <section
+            style={{
+              background: "#fdf4e6",
+              border: `1px solid ${BRAND.amber}`,
+              borderRadius: 10,
+              padding: 14,
+              marginBottom: 18,
+            }}
+          >
+            <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 2px", color: BRAND.amber }}>
+              Waiting for you ({waiting.length})
+            </h2>
+            <p style={{ fontSize: 12, color: BRAND.sub, margin: "0 0 12px" }}>
+              Signed up and can&apos;t get in yet. Give them the areas they need — nothing is saved
+              until you press the button, so a stray click doesn&apos;t let anybody in.
+            </p>
+
+            {waiting.map((person) => {
+              const busy = saving === person.email;
+              const next = draft[person.email] || person.access;
+              const set = (patch) =>
+                setDraft((d) => ({ ...d, [person.email]: { ...next, ...patch } }));
+              return (
+                <div
+                  key={person.email}
+                  style={{
+                    background: BRAND.card,
+                    border: `1px solid ${BRAND.line}`,
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    marginBottom: 8,
+                    display: "flex",
+                    gap: 14,
+                    alignItems: "flex-end",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ minWidth: 190 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>
+                      {person.name || person.email.split("@")[0]}
+                    </div>
+                    <div style={{ fontSize: 11, color: BRAND.sub }}>{person.email}</div>
+                  </div>
+
+                  {AREAS.map((area) => (
+                    <label key={area.key} style={{ fontSize: 11, color: BRAND.sub }} title={area.what}>
+                      <div style={{ marginBottom: 2 }}>{area.label}</div>
+                      <select
+                        value={next[area.key]}
+                        onChange={(e) => set({ [area.key]: e.target.value })}
+                        disabled={busy}
+                        style={{
+                          border: `1px solid ${BRAND.line}`,
+                          borderRadius: 6,
+                          padding: "3px 6px",
+                          fontSize: 12,
+                          fontFamily: "inherit",
+                          background: next[area.key] === "edit" ? "#e6efe7" : BRAND.card,
+                        }}
+                      >
+                        {area.levels.map((l) => (
+                          <option key={l} value={l}>
+                            {LEVEL_LABELS[l]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+
+                  <label
+                    style={{ fontSize: 11, color: BRAND.sub, display: "flex", gap: 5, alignItems: "center" }}
+                    title="Committed dates and priority on the schedule board"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(next.scheduling)}
+                      onChange={(e) => set({ scheduling: e.target.checked })}
+                      disabled={busy}
+                    />
+                    Scheduling
+                  </label>
+                  <label
+                    style={{ fontSize: 11, color: BRAND.sub, display: "flex", gap: 5, alignItems: "center" }}
+                    title="Removing records and answering requests"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(next.admin)}
+                      onChange={(e) => set({ admin: e.target.checked })}
+                      disabled={busy}
+                    />
+                    Admin
+                  </label>
+
+                  <button
+                    onClick={() => approve(person)}
+                    disabled={busy}
+                    style={{
+                      ...btn,
+                      background: BRAND.green,
+                      borderColor: BRAND.green,
+                      color: "#fff",
+                      opacity: busy ? 0.6 : 1,
+                    }}
+                  >
+                    {busy ? "Letting them in…" : "Let them in"}
+                  </button>
+                </div>
+              );
+            })}
+
+            <p style={{ fontSize: 11, color: BRAND.sub, margin: 0 }}>
+              Letting somebody in also makes them an Operator in Decorflow, which is the clock and
+              the floor screen and nothing more. Anybody who needs more of Decorflow itself gets it
+              on the Team tab there. Turning somebody away is on that tab too — this screen only
+              lets people in.
+            </p>
+          </section>
+        )}
+
+        {/* People already in, who've said something is shut to them. The
+            request stays on the request board; it just also shows up where
+            the fix is. */}
+        {asks.length > 0 && (
+          <section
+            style={{
+              background: BRAND.card,
+              border: `1px solid ${BRAND.line}`,
+              borderLeft: `3px solid ${BRAND.amber}`,
+              borderRadius: 10,
+              padding: "12px 14px",
+              marginBottom: 18,
+            }}
+          >
+            <h2 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              Asked for access ({asks.length})
+            </h2>
+            {asks.map((r) => (
+              <div key={r.id} style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: BRAND.sub }}>
+                  {r.raisedBy ? r.raisedBy.split("@")[0] : "someone"} · {fmtStamp(r.raisedAt)}
+                  {r.screen ? ` · ${r.screen}` : ""}
+                </div>
+                <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{r.text}</div>
+              </div>
+            ))}
+            <a href="/requests" style={{ fontSize: 12, color: BRAND.blue }}>
+              Answer these on the request board →
+            </a>
+          </section>
+        )}
+
+        {settled.length > 0 && (
           <>
             <div
               style={{
@@ -280,7 +493,7 @@ export default function AccessPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {people.map((person) => {
+                  {settled.map((person) => {
                     const busy = saving === person.email;
                     const set = (patch) => save(person, { ...person.access, ...patch });
                     return (
