@@ -56,6 +56,12 @@ const RECENT_DAYS = 7;
 
 const VIEWS = [
   { key: "expected", label: "Expected" },
+  // Material a handover says is already on a rack. Nothing is arriving, so it
+  // was never the dock's business — except that somebody has to walk over and
+  // look, and the people who can are out here. Alice can confirm one too; it's
+  // the same record either way, so whoever gets to it first is the one who
+  // did it.
+  { key: "stock", label: "Stock to check" },
   { key: "arrived", label: "Just arrived" },
   // Stock going the other way. A client has paid for something already on the
   // rack, and until now nobody out the back heard about it at all — the order
@@ -316,12 +322,13 @@ export default function WarehousePage() {
     [data]
   );
 
-  // One row per material line, with the job hung off it. Stock lines never
-  // appear: nothing is arriving, it's already on the racks.
+  // One row per material line, with the job hung off it. Stock lines are in
+  // here now: nothing is arriving, but somebody still has to go and check the
+  // rack, and the delivery views below keep them out so "Expected" stays about
+  // things on a truck.
   const lines = useMemo(() => {
     const jobLines = all.flatMap((h) =>
       (stored[h.jobId] ?? h.materials ?? [])
-        .filter((m) => !m.fromStock)
         .map((m) => ({
           ...m,
           jobId: h.jobId,
@@ -343,9 +350,26 @@ export default function WarehousePage() {
   }, [all, stored, preOrders]);
 
   const cutoff = useMemo(() => Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000, []);
-  const expected = lines.filter((m) => m.state === "ordered" || m.state === "part_received");
+  const expected = lines.filter(
+    (m) => !m.fromStock && (m.state === "ordered" || m.state === "part_received")
+  );
   const arrived = lines.filter(
-    (m) => m.state === "completed" && (!m.completedAt || new Date(m.completedAt).getTime() >= cutoff)
+    (m) =>
+      !m.fromStock &&
+      m.state === "completed" &&
+      (!m.completedAt || new Date(m.completedAt).getTime() >= cutoff)
+  );
+  // Claimed off a rack and not yet checked. The whole list, not a recent
+  // window: one nobody has walked over to look at is still owed, however long
+  // it has been sitting there.
+  const stockToCheck = lines.filter((m) => m.fromStock && m.state !== "completed");
+  // Checked lately, kept on screen so whoever just did it can see that it
+  // took — the same reason "Just arrived" exists.
+  const stockDone = lines.filter(
+    (m) =>
+      m.fromStock &&
+      m.state === "completed" &&
+      (!m.completedAt || new Date(m.completedAt).getTime() >= cutoff)
   );
 
   const q = query.trim().toLowerCase();
@@ -356,7 +380,12 @@ export default function WarehousePage() {
       .toLowerCase()
       .includes(q);
 
+  // Two delivery views share one table; the stock check and the pack-and-send
+  // list each have their own.
+  const isDelivery = view === "expected" || view === "arrived";
   const shown = (view === "expected" ? expected : arrived).filter(matches);
+  const stockShown = stockToCheck.filter(matches);
+  const stockDoneShown = stockDone.filter(matches);
 
   // Grouped by PO, because that's what's printed on the docket. Lines Alice
   // hasn't put a number against yet fall into one group at the bottom — they
@@ -454,8 +483,9 @@ export default function WarehousePage() {
           tabs={caps.tabs}
           current="warehouse"
           counts={{
-            // What's on the dock's plate: deliveries in, and orders out.
-            warehouse: expected.length + toSend.length,
+            // What's on the dock's plate: deliveries in, racks to check, and
+            // orders out.
+            warehouse: expected.length + stockToCheck.length + toSend.length,
             materials: lines.filter((m) => m.state !== "completed").length,
           }}
         />
@@ -466,9 +496,11 @@ export default function WarehousePage() {
             count:
               v.key === "expected"
                 ? expected.length
-                : v.key === "arrived"
-                  ? arrived.length
-                  : toSend.length,
+                : v.key === "stock"
+                  ? stockToCheck.length
+                  : v.key === "arrived"
+                    ? arrived.length
+                    : toSend.length,
           }))}
           current={view}
           onChange={setView}
@@ -621,7 +653,147 @@ export default function WarehousePage() {
           </>
         )}
 
-        {view !== "send" && !loading && groups.length === 0 && (
+        {/*
+            Material a handover says is already on a rack.
+
+            Nothing is arriving, so this was never the dock's business — except
+            that somebody has to walk over and look, and the people who can are
+            out here. It's the same record Alice sees on her Outstanding tab:
+            whoever gets to it first is the one who did it, and it leaves both
+            boards at once.
+
+            Grouped by job rather than by supplier, because there isn't one.
+        */}
+        {view === "stock" && (
+          <>
+            {!loading && stockShown.length === 0 && (
+              <p style={{ fontSize: 13, color: BRAND.sub }}>
+                {q
+                  ? "Nothing to check matches that."
+                  : "Nothing to check — every rack claim has been confirmed."}
+              </p>
+            )}
+
+            {[...new Set(stockShown.map((m) => m.jobId))].map((jobId) => {
+              const rows = stockShown.filter((m) => m.jobId === jobId);
+              return (
+                <section
+                  key={jobId}
+                  style={{
+                    background: BRAND.card,
+                    border: `1px solid ${BRAND.line}`,
+                    borderRadius: 10,
+                    padding: "12px 14px",
+                    marginBottom: 10,
+                  }}
+                >
+                  <header
+                    style={{
+                      display: "flex",
+                      gap: 10,
+                      alignItems: "baseline",
+                      flexWrap: "wrap",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <a
+                      href={`${HANDOVER_APP}/${encodeURIComponent(jobId)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
+                    >
+                      {jobId}
+                    </a>
+                    <span style={{ fontSize: 13, color: BRAND.sub }}>
+                      {rows[0].project || "—"}
+                    </span>
+                    <span style={{ fontSize: 12, color: BRAND.sub, marginLeft: "auto" }}>
+                      {rows.length} {rows.length === 1 ? "line" : "lines"}
+                    </span>
+                  </header>
+
+                  {rows.map((m) => {
+                    const key = `${m.jobId}:${m.id}`;
+                    const busy = pending[key];
+                    return (
+                      <div
+                        key={key}
+                        style={{
+                          display: "flex",
+                          gap: 12,
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          borderTop: `1px solid ${BRAND.line}`,
+                          padding: "8px 0 0",
+                          marginTop: 8,
+                        }}
+                      >
+                        <div style={{ minWidth: 220, flex: 1 }}>
+                          <div style={{ fontSize: 14 }}>{m.name || "—"}</div>
+                          <div style={{ fontSize: 12, color: BRAND.sub }}>
+                            {[m.length, m.width, m.thickness].filter(Boolean).join(" × ") || "—"}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 600, minWidth: 60 }}>
+                          {orderQty(m) || m.quantity || "—"}
+                        </div>
+                        <button
+                          onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
+                          disabled={busy || !canReceive}
+                          title={
+                            canReceive
+                              ? "It's on the rack and it's this job's"
+                              : "Confirming stock is the dock's or Alice's"
+                          }
+                          style={{
+                            ...btn,
+                            background: canReceive ? BRAND.green : BRAND.card,
+                            borderColor: canReceive ? BRAND.green : BRAND.line,
+                            color: canReceive ? "#fff" : BRAND.sub,
+                            opacity: busy ? 0.6 : 1,
+                          }}
+                        >
+                          {busy ? "Confirming…" : "It's there"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </section>
+              );
+            })}
+
+            {stockDoneShown.length > 0 && (
+              <div style={{ marginTop: 18 }}>
+                <p style={{ fontSize: 12, color: BRAND.sub, margin: "0 0 8px" }}>
+                  Confirmed in the last week
+                </p>
+                {stockDoneShown.map((m) => (
+                  <div
+                    key={`done:${m.jobId}:${m.id}`}
+                    style={{
+                      fontSize: 12,
+                      color: BRAND.sub,
+                      padding: "4px 0",
+                      borderBottom: `1px solid ${BRAND.line}`,
+                    }}
+                  >
+                    <strong style={{ color: BRAND.ink }}>{m.jobId}</strong> · {m.name || "—"} ·{" "}
+                    {orderQty(m) || m.quantity || "—"}
+                    {m.completedBy ? ` · ${m.completedBy.split("@")[0]}` : ""}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 18 }}>
+              Confirming one here is the same as Alice confirming it on her board — it leaves her
+              Outstanding list and lands on All in, and the sheets stay on the register until
+              somebody draws them.
+            </p>
+          </>
+        )}
+
+        {isDelivery && !loading && groups.length === 0 && (
           <p style={{ fontSize: 13, color: BRAND.sub }}>
             {view === "expected"
               ? q
@@ -631,7 +803,7 @@ export default function WarehousePage() {
           </p>
         )}
 
-        {view !== "send" &&
+        {isDelivery &&
           groups.map((g) => (
           <section
             key={g.key}
@@ -903,11 +1075,12 @@ export default function WarehousePage() {
 
         {/* About taking deliveries in, so it belongs to the two views that
             are about taking deliveries in. */}
-        {view !== "send" && (
-        <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 18 }}>
-          Booking a delivery in here is the same as Alice ticking it off her board — the job&apos;s
-          material status updates on the schedule straight away, so Duncan can see it&apos;s landed.
-        </p>
+        {isDelivery && (
+          <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 18 }}>
+            Booking a delivery in here is the same as Alice ticking it off her board — the
+            job&apos;s material status updates on the schedule straight away, so Duncan can see
+            it&apos;s landed.
+          </p>
         )}
       </div>
     </main>
