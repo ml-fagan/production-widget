@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
+import SubTabs from "../SubTabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
@@ -44,7 +45,23 @@ function fmtStamp(iso) {
 }
 
 export default function MaterialListPage() {
-  const [materials, setMaterials] = useState([]);
+  /**
+   * Two lists, kept the same way by the same person.
+   *
+   * The finishes, and the boards they're pressed onto. Substrates used to be
+   * a fixed set in the code on the reasoning that a board isn't a product —
+   * true, and beside the point: the day a new board arrives it is still Mitch
+   * who knows, and it was still a deploy.
+   */
+  const [kind, setKind] = useState("finish");
+  const [finishes, setFinishes] = useState([]);
+  const [substrates, setSubstrates] = useState([]);
+  const materials = kind === "substrate" ? substrates : finishes;
+  const setMaterials = kind === "substrate" ? setSubstrates : setFinishes;
+  // What one of these is called on screen, so every label, placeholder and
+  // empty state says the word the person is looking at.
+  const noun = kind === "substrate" ? "substrate" : "finish";
+  const Noun = kind === "substrate" ? "Substrate" : "Finish";
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -73,7 +90,8 @@ export default function MaterialListPage() {
       const res = await fetch("/api/material-list", { cache: "no-store" });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Failed to load the material list");
-      setMaterials(json.materials || []);
+      setFinishes(json.materials || []);
+      setSubstrates(json.substrates || []);
       setError(null);
     } catch (e) {
       setError(String(e.message || e));
@@ -99,7 +117,9 @@ export default function MaterialListPage() {
       const res = await fetch("/api/material-list", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, idToken }),
+        // Which list this change belongs to travels with it; the answer comes
+        // back as that list, so it lands where it came from.
+        body: JSON.stringify({ kind, ...payload, idToken }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Save failed");
@@ -111,7 +131,9 @@ export default function MaterialListPage() {
     } finally {
       setSaving(false);
     }
-  }, []);
+    // Rebuilt when the list being edited changes: it carries the kind, and
+    // puts the answer back into that list's own state.
+  }, [kind, setMaterials]);
 
   const q = query.trim().toLowerCase();
   const shown = materials
@@ -181,7 +203,9 @@ export default function MaterialListPage() {
               Material list
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-              Every finish this company buys, and who supplies it. Everything else picks from here.
+              {kind === "substrate"
+                ? "Every board a finish gets pressed onto. The handover, the pre-order and the rack card all pick from here."
+                : "Every finish this company buys, and who supplies it. Everything else picks from here."}
             </p>
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
@@ -193,6 +217,26 @@ export default function MaterialListPage() {
         </header>
 
         <Tabs tabs={caps.tabs} current="materiallist" />
+
+        <SubTabs
+          items={[
+            { key: "finish", label: "Finishes", count: finishes.filter((m) => m.active).length },
+            {
+              key: "substrate",
+              label: "Substrates",
+              count: substrates.filter((m) => m.active).length,
+            },
+          ]}
+          current={kind}
+          onChange={(next) => {
+            setKind(next);
+            // The row being edited and the half-typed new one belong to the
+            // list they were started on.
+            setEditId(null);
+            setShowAdd(false);
+            setDraft({ finish: "", supplier: "", note: "" });
+          }}
+        />
 
         {actionError && (
           <div
@@ -229,7 +273,7 @@ export default function MaterialListPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter by finish, supplier or note"
+            placeholder={`Filter by ${noun}, supplier or note`}
             style={{ ...input, flex: 1 }}
           />
           {retiredCount > 0 && (
@@ -266,7 +310,7 @@ export default function MaterialListPage() {
           >
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr", gap: 8, marginBottom: 10 }}>
               <div>
-                <label style={{ fontSize: 11, color: BRAND.sub }}>Finish</label>
+                <label style={{ fontSize: 11, color: BRAND.sub }}>{Noun}</label>
                 <input
                   style={input}
                   autoFocus
@@ -333,8 +377,8 @@ export default function MaterialListPage() {
             }}
           >
             <p style={{ margin: "0 0 10px" }}>
-              Nothing on the list yet. Start it from the finishes the handover form already offers —
-              they come across as they are, and you can edit, add to and retire them from here
+              Nothing on this list yet. Start it from the {noun}s the handover form already offers
+              — they come across as they are, and you can edit, add to and retire them from here
               afterwards.
             </p>
             {canEdit && (
@@ -350,7 +394,7 @@ export default function MaterialListPage() {
                   fontSize: 13,
                 }}
               >
-                {saving ? "Starting…" : "Start the list from the current finishes"}
+                {saving ? "Starting…" : `Start the list from the current ${noun}s`}
               </button>
             )}
           </div>
@@ -368,7 +412,7 @@ export default function MaterialListPage() {
             <table style={{ borderCollapse: "collapse", width: "100%" }}>
               <thead>
                 <tr>
-                  <th style={th}>Finish</th>
+                  <th style={th}>{Noun}</th>
                   <th style={th}>Supplier</th>
                   <th style={th}>Note</th>
                   <th style={th}>Added</th>
@@ -492,11 +536,22 @@ export default function MaterialListPage() {
         )}
 
         <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 16, maxWidth: 760 }}>
-          These are the only finishes the picking list, the stock register and the pre-order form
-          offer, so what Mitch orders against, what Alice puts on the racks and what a job is waiting
-          for are the same words. Substrate, thickness and sheet size are how you narrow it down
-          afterwards — the finish is what it&apos;s called.
-          {!canEdit && " Changes to the list are Mitch's; ask him to add one."}
+          {kind === "substrate" ? (
+            <>
+              These are the only boards the handover, the pre-order and the rack card offer, so the
+              board a job is pressed onto is the same word wherever it&apos;s written down. They
+              used to be fixed in the code, which meant a new board was a deploy — now it&apos;s a
+              row.
+            </>
+          ) : (
+            <>
+              These are the only finishes the picking list, the stock register and the pre-order
+              form offer, so what Mitch orders against, what Alice puts on the racks and what a job
+              is waiting for are the same words. Substrate, thickness and sheet size are how you
+              narrow it down afterwards — the finish is what it&apos;s called.
+            </>
+          )}
+          {!canEdit && ` Changes to the list are Mitch's; ask him to add ${kind === "substrate" ? "a board" : "one"}.`}
         </p>
       </div>
     </main>
