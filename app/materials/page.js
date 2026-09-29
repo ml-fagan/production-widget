@@ -60,10 +60,10 @@ const VIEWS = [
   { key: "outstanding", label: "Outstanding" },
   { key: "ordered", label: "Ordered" },
   { key: "complete", label: "All in — completed orders" },
-  // Material that was never bought for this job — it was already on a rack.
-  // Not an order, so it doesn't belong in the three above; still Alice's,
-  // because she's the one who knows what's on the floor and what it was
-  // promised to.
+  // Material that was never bought for this job — it was already on a rack,
+  // and Alice has confirmed it really is. Not an order, so it doesn't belong
+  // in the three above; the unconfirmed ones aren't here either, they're in
+  // Outstanding with the rest of what she has to settle.
   //
   // "Off the rack" rather than "From stock": this is how a line was filled,
   // not a view of the register. The Stock tab two controls away is the
@@ -705,9 +705,24 @@ export default function MaterialsPage() {
    * still on a truck somewhere.
    */
   const bucketOf = (m) => {
-    // Nothing was ordered, so none of the ordering stages apply: a stock line
-    // is either still to be fetched off the rack or it's been confirmed.
-    if (m.fromStock) return "stock";
+    /**
+     * "It's on the rack" is a claim, not a fact.
+     *
+     * Mitch writes a handover from what he expects to be there. Whether it
+     * actually is — right colour, right size, right quantity, not already
+     * promised to another job — is Alice's to establish, and she is the only
+     * one who can. So a line off the rack starts in Outstanding beside
+     * everything else she has to settle, and only reaches the Off the rack tab
+     * once she's confirmed it.
+     *
+     * It used to go straight to that tab unconfirmed, which put the claim
+     * somewhere she had to go and look for it, on a tab that read as a record
+     * of decided things. Material nobody had checked sat there looking
+     * settled, and the first anyone knew was the job asking for it.
+     */
+    if (m.fromStock) {
+      return effectiveState(m) === "completed" ? "stock" : "outstanding";
+    }
     const state = effectiveState(m);
     if (state === "completed") return "complete";
     if (state === "ordered" || state === "part_received") return "ordered";
@@ -715,30 +730,22 @@ export default function MaterialsPage() {
   };
   /**
    * Completed is a record of what we bought, so material fetched off a rack
-   * isn't in it.
-   *
-   * A stock line is confirmed rather than ordered — no supplier, no PO, no
-   * lead time, nothing to review. Ten of them under two real orders made the
-   * list read as noise. They still need confirming, so they stay in
-   * Outstanding until somebody ticks them; after that the job's own record is
-   * where they live.
+   * isn't in it — nothing was bought.
    */
   const isPurchase = (m) => !m.fromStock;
   const counts = {
     outstanding: allLines.filter((m) => bucketOf(m) === "outstanding").length,
     ordered: allLines.filter((m) => bucketOf(m) === "ordered").length,
     complete: allLines.filter((m) => bucketOf(m) === "complete").length,
-    // Every line filled off a rack, confirmed or not — the same rule as the
-    // three tabs beside it, so the number on a tab is the number of rows under
-    // it. It used to count only what still needed confirming, which read as
-    // "Off the rack (0)" above ten rows of confirmed material: a tab
-    // apparently empty and a table apparently full. How many still need
-    // fetching is worth knowing, so it moved to the subtitle, where it can say
-    // what it means.
+    // Confirmed off the rack, and only that — the tab is now a record of
+    // material Alice has actually laid eyes on. The number on a tab is the
+    // number of rows under it.
     stock: allLines.filter((m) => bucketOf(m) === "stock").length,
-    stockToConfirm: allLines.filter(
-      (m) => bucketOf(m) === "stock" && effectiveState(m) !== "completed"
-    ).length,
+    // How much of Outstanding is a stock claim waiting on her rather than an
+    // order waiting to be placed. Two different jobs in one list, so the
+    // subtitle says which is which.
+    stockToConfirm: allLines.filter((m) => bucketOf(m) === "outstanding" && m.fromStock)
+      .length,
     preorders: preOrderLines.length,
   };
   // The Pre-orders tab has a list of its own below, so the shared table stands
@@ -772,14 +779,9 @@ export default function MaterialsPage() {
         return x < y ? -1 : x > y ? 1 : 0;
       });
     }
-    // On the stock tab, what still needs fetching comes before what's done.
-    const ordered =
-      view === "stock"
-        ? [...inView].sort((a, b) => {
-            const done = (m) => (effectiveState(m) === "completed" ? 1 : 0);
-            return done(a) - done(b);
-          })
-        : inView;
+    // The stock tab holds only confirmed lines now, so there is no longer an
+    // unconfirmed half to float to the top of it.
+    const ordered = inView;
     const byJob = new Map();
     for (const m of ordered) {
       const key = String(m.jobId || "");
@@ -933,14 +935,14 @@ export default function MaterialsPage() {
                 ? "Material wanted for a job that hasn't been handed over yet"
                 : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${
                     view === "stock"
-                      ? // Only ask for work when there is some. The line used
-                        // to say "fetch it and confirm" over a table where
-                        // every row was already ticked.
-                        counts.stockToConfirm > 0
-                        ? `filled off the racks · ${counts.stockToConfirm} still to fetch and confirm`
-                        : "filled off the racks · all confirmed, nothing to fetch"
+                      ? "confirmed off the racks — checked, and this job's"
                       : view === "outstanding"
-                      ? "order each one, then mark it Ordered"
+                        ? // Two jobs in one list: place the orders, and settle
+                          // whether the stock somebody expects is really there.
+                          // Only mention the second when there is some.
+                          counts.stockToConfirm > 0
+                          ? `order each one, then mark it Ordered · ${counts.stockToConfirm} off the rack to check`
+                          : "order each one, then mark it Ordered"
                       : view === "ordered"
                         ? "waiting on the supplier — tick each one as it lands"
                         : "in, and nothing more to do"
