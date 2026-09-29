@@ -183,7 +183,6 @@ function stockForJob(stockEntries, jobId) {
 
 const SECTIONS = [
   { key: "hand", label: "On hand" },
-  { key: "tracking", label: "Tracking" },
   // The same register, arranged as the building rather than as a list. "Have
   // we got any Blackbutt" is the On hand question; "where is it" is this one,
   // and they were the same page answering only the first.
@@ -231,8 +230,6 @@ export default function MaterialStockPage() {
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [query, setQuery] = useState("");
-  const [trackQuery, setTrackQuery] = useState("");
-  const [trackBy, setTrackBy] = useState("project");
   const [section, setSection] = useState("hand");
   const [user, setUser] = useState(null);
   const caps = useCapabilities(user);
@@ -897,19 +894,6 @@ export default function MaterialStockPage() {
   );
   const bayRows = bay ? byLocation.get(bay) ?? [] : [];
 
-  // Tracking follows work in progress, so a job drops off it the moment
-  // Duncan marks it complete — and disappears outright if it's deleted, since
-  // the record it was drawn from is gone.
-  const trackable = jobs.filter((h) => !h.schedule?.completedAt);
-  const tq = trackQuery.trim().toLowerCase();
-  const trackingJobs = tq
-    ? trackable.filter((h) =>
-        [h.jobId, h.project, h.client, ...(h.materials || []).map((m) => m.name)]
-          .join(" ")
-          .toLowerCase()
-          .includes(tq)
-      )
-    : trackable;
 
   return (
     <main
@@ -962,17 +946,6 @@ export default function MaterialStockPage() {
 
         <SubTabs items={SECTIONS} current={section} onChange={setSection} />
 
-        {section === "tracking" && (
-          <SubTabs
-            level={3}
-            items={[
-              { key: "project", label: "By project" },
-              { key: "material", label: "By material" },
-            ]}
-            current={trackBy}
-            onChange={setTrackBy}
-          />
-        )}
 
         {actionError && (
           <div
@@ -1611,11 +1584,13 @@ export default function MaterialStockPage() {
                                     ? "Leftover"
                                     : e.source === "preorder"
                                       ? "Pre-order"
-                                      : e.source === "scheduled"
-                                        ? "Scheduled"
-                                        : e.source === "count"
-                                          ? "Counted"
-                                          : "Manual"}
+                                      : e.source === "delivery"
+                                        ? "Delivered"
+                                        : e.source === "scheduled"
+                                          ? "Scheduled"
+                                          : e.source === "count"
+                                            ? "Counted"
+                                            : "Manual"}
                                   {e.jobId ? ` · ${e.jobId}` : ""}
                                   {e.note ? ` · ${e.note}` : ""}
                                   {/* The note is the one part of an entry
@@ -1698,28 +1673,6 @@ export default function MaterialStockPage() {
                 </section>
               ))}
             </div>
-          </>
-        )}
-
-        {section === "tracking" && (
-          <>
-            <input
-              value={trackQuery}
-              onChange={(e) => setTrackQuery(e.target.value)}
-              placeholder="Filter by job, project or material"
-              style={{
-                width: "100%",
-                border: `1px solid ${BRAND.line}`,
-                background: BRAND.card,
-                borderRadius: 8,
-                padding: "8px 12px",
-                fontSize: 14,
-                fontFamily: "inherit",
-                marginBottom: 16,
-                boxSizing: "border-box",
-              }}
-            />
-            <MaterialTracking jobs={trackingJobs} trackBy={trackBy} stockEntries={entries} />
           </>
         )}
 
@@ -2562,129 +2515,6 @@ function CapacityBar({ capacities, saving, canEdit, onSave }) {
 
 // Where each material actually is, read straight off Duncan's schedule board
 // rather than anyone asking around the factory.
-function MaterialTracking({ jobs, trackBy, stockEntries }) {
-  if (jobs.length === 0) {
-    return <p style={{ fontSize: 13, color: BRAND.sub }}>Nothing handed over yet.</p>;
-  }
-
-  if (trackBy === "project") {
-    return (
-      <div style={{ display: "grid", gap: 12 }}>
-        {jobs.map((h) => {
-          const fromStock = stockForJob(stockEntries, h.jobId);
-          return (
-            <section
-              key={h.jobId}
-              style={{
-                background: "#fff",
-                border: `1px solid ${BRAND.line}`,
-                borderRadius: 10,
-                padding: "14px 16px",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>{h.jobId}</span>
-                <span style={{ fontSize: 14 }}>{h.project || h.client || "—"}</span>
-                <span style={{ marginLeft: "auto" }}>
-                  <StageBadge handover={h} />
-                </span>
-              </div>
-              {(h.materials || []).length === 0 ? (
-                <p style={{ fontSize: 13, color: BRAND.sub, margin: 0 }}>No materials listed yet.</p>
-              ) : (
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ textAlign: "left", color: BRAND.sub }}>
-                      <th style={{ fontWeight: 500, padding: "2px 0" }}>Size</th>
-                      <th style={{ fontWeight: 500, width: 70 }}>Qty</th>
-                      <th style={{ fontWeight: 500 }}>Material</th>
-                      <th style={{ fontWeight: 500, width: 110 }}>Order status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(h.materials || []).map((m) => (
-                      <tr key={m.id} style={{ borderTop: `1px solid ${BRAND.line}` }}>
-                        <td style={{ padding: "6px 0" }}>{size(m)}</td>
-                        <td>{m.quantity || "—"}</td>
-                        <td>{m.name || "—"}</td>
-                        <td style={{ color: BRAND.sub }}>{effectiveState(m).replace("_", " ")}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              {fromStock.length > 0 && (
-                <div style={{ marginTop: 8, fontSize: 12, color: BRAND.red, fontWeight: 500 }}>
-                  {fromStock.map((s, i) => (
-                    <div key={i}>
-                      From stock: {s.qty} × {s.name}
-                      {s.size ? ` (${s.size})` : ""}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          );
-        })}
-      </div>
-    );
-  }
-
-  // By material: the same lines, regrouped so every job needing "Blackbutt
-  // NTV" (say) shows in one place regardless of which job it's for.
-  const groups = buildMaterialGroups(jobs);
-  return (
-    <div style={{ display: "grid", gap: 12 }}>
-      {groups.map((g) => (
-        <section
-          key={materialSignature(g)}
-          style={{
-            background: "#fff",
-            border: `1px solid ${BRAND.line}`,
-            borderRadius: 10,
-            padding: "14px 16px",
-          }}
-        >
-          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10 }}>
-            {g.name || "—"}
-            {g.length && g.width ? (
-              <span style={{ fontWeight: 400, color: BRAND.sub, marginLeft: 8 }}>
-                {g.length} × {g.width}
-                {g.thickness ? ` × ${g.thickness}` : ""}
-              </span>
-            ) : null}
-          </div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ textAlign: "left", color: BRAND.sub }}>
-                <th style={{ fontWeight: 500, padding: "2px 0" }}>Job</th>
-                <th style={{ fontWeight: 500 }}>Project</th>
-                <th style={{ fontWeight: 500, width: 70 }}>Qty</th>
-                <th style={{ fontWeight: 500, width: 110 }}>Order status</th>
-                <th style={{ fontWeight: 500, width: 130 }}>Stage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {g.rows.map((r) => (
-                <tr key={`${r.jobId}:${r.id}`} style={{ borderTop: `1px solid ${BRAND.line}` }}>
-                  <td style={{ padding: "6px 0" }}>{r.jobId}</td>
-                  <td>{r.project || "—"}</td>
-                  <td>{r.quantity || "—"}</td>
-                  <td style={{ color: BRAND.sub }}>{effectiveState(r).replace("_", " ")}</td>
-                  <td>
-                    <StageBadge handover={r.handover} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      ))}
-    </div>
-  );
-}
-
-/** "Smartlook Blackbutt" + "FR MDF" → "Smartlook Blackbutt on FR MDF". */
 function materialNameOf(finish, substrate) {
   return [finish.trim(), substrate.trim()].filter(Boolean).join(" on ");
 }

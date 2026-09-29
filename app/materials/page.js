@@ -60,17 +60,11 @@ const VIEWS = [
   { key: "outstanding", label: "Outstanding" },
   { key: "ordered", label: "Ordered" },
   { key: "complete", label: "All in — completed orders" },
-  // Material that was never bought for this job — it was already on a rack,
-  // and Alice has confirmed it really is. Not an order, so it doesn't belong
-  // in the three above; the unconfirmed ones aren't here either, they're in
-  // Outstanding with the rest of what she has to settle.
-  //
-  // "Off the rack" rather than "From stock": this is how a line was filled,
-  // not a view of the register. The Stock tab two controls away is the
-  // register, and two near-identical names next to each other meant reading
-  // the table to find out which one you'd clicked. The key stays "stock" —
-  // it's internal, and the state behind it hasn't changed.
-  { key: "stock", label: "Off the rack" },
+  // There is no "Off the rack" tab any more. Where material physically is
+  // belongs on the Stock register, which is the one place that answers it for
+  // the whole factory; this board's job is the paperwork — what was ordered,
+  // and what has been confirmed in. A line filled off a rack finishes here
+  // like any other, under All in.
   // Last, because it's the start of the list's life rather than a stage of
   // it: raised here, and from that moment it's sitting in Outstanding with
   // everything else waiting to be ordered.
@@ -721,7 +715,7 @@ export default function MaterialsPage() {
      * settled, and the first anyone knew was the job asking for it.
      */
     if (m.fromStock) {
-      return effectiveState(m) === "completed" ? "stock" : "outstanding";
+      return effectiveState(m) === "completed" ? "complete" : "outstanding";
     }
     const state = effectiveState(m);
     if (state === "completed") return "complete";
@@ -737,10 +731,6 @@ export default function MaterialsPage() {
     outstanding: allLines.filter((m) => bucketOf(m) === "outstanding").length,
     ordered: allLines.filter((m) => bucketOf(m) === "ordered").length,
     complete: allLines.filter((m) => bucketOf(m) === "complete").length,
-    // Confirmed off the rack, and only that — the tab is now a record of
-    // material Alice has actually laid eyes on. The number on a tab is the
-    // number of rows under it.
-    stock: allLines.filter((m) => bucketOf(m) === "stock").length,
     // How much of Outstanding is a stock claim waiting on her rather than an
     // order waiting to be placed. Two different jobs in one list, so the
     // subtitle says which is which.
@@ -779,8 +769,6 @@ export default function MaterialsPage() {
         return x < y ? -1 : x > y ? 1 : 0;
       });
     }
-    // The stock tab holds only confirmed lines now, so there is no longer an
-    // unconfirmed half to float to the top of it.
     const ordered = inView;
     const byJob = new Map();
     for (const m of ordered) {
@@ -934,9 +922,7 @@ export default function MaterialsPage() {
               {view === "preorders"
                 ? "Material wanted for a job that hasn't been handed over yet"
                 : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${
-                    view === "stock"
-                      ? "confirmed off the racks — checked, and this job's"
-                      : view === "outstanding"
+                    view === "outstanding"
                         ? // Two jobs in one list: place the orders, and settle
                           // whether the stock somebody expects is really there.
                           // Only mention the second when there is some.
@@ -944,8 +930,8 @@ export default function MaterialsPage() {
                           ? `order each one, then mark it Ordered · ${counts.stockToConfirm} off the rack to check`
                           : "order each one, then mark it Ordered"
                       : view === "ordered"
-                        ? "waiting on the supplier — tick each one as it lands"
-                        : "in, and nothing more to do"
+                        ? "placed, and waiting on the supplier — tick each one as it lands"
+                        : "the record: everything ordered in, and everything confirmed off the racks"
                   }`}
             </p>
           </div>
@@ -1373,13 +1359,11 @@ export default function MaterialsPage() {
           <p style={{ fontSize: 13, color: BRAND.sub }}>
             {all.length === 0
               ? "Nothing handed over yet."
-              : view === "stock"
-                ? "No job is taking anything off the racks."
-                : view === "outstanding"
+              : view === "outstanding"
                 ? "Nothing left to order."
                 : view === "ordered"
                   ? "Nothing on order — everything's either still to buy or already in."
-                  : "No completed orders yet — material filled off the racks isn't listed here."}
+                  : "Nothing in yet — this fills up as material arrives and as stock is confirmed."}
           </p>
         )}
 
@@ -1682,120 +1666,7 @@ export default function MaterialsPage() {
             needs this even though there's nothing to buy — it's material spoken
             for, and the only other place it shows is as a reserved figure
             against a material rather than against a job. */}
-        {view === "stock" && lines.length > 0 && (
-          <div
-            style={{
-              overflowX: "auto",
-              background: BRAND.card,
-              border: `1px solid ${BRAND.line}`,
-              borderRadius: 10,
-            }}
-          >
-            <table style={{ borderCollapse: "collapse", width: "100%" }}>
-              <thead>
-                <tr>
-                  <th style={th}>Job</th>
-                  <th style={th}>Project</th>
-                  <th style={th}>Material</th>
-                  <th style={{ ...th, textAlign: "right" }}>Qty</th>
-                  <th style={th}>Confirmed</th>
-                  <th style={{ ...th, textAlign: "right" }}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((m, i) => {
-                  const key = keyOf(m);
-                  const busy = pending[key];
-                  const done = effectiveState(m) === "completed";
-                  const { finish, substrate } = halves(m);
-                  const sameJobAbove = i > 0 && lines[i - 1].jobId === m.jobId;
-                  const sameJobBelow = i + 1 < lines.length && lines[i + 1].jobId === m.jobId;
-                  const cell = { ...td, borderBottom: sameJobBelow ? "none" : td.borderBottom };
-                  return (
-                    <tr key={key}>
-                      <td style={cell}>
-                        {sameJobAbove ? (
-                          <span style={{ color: "#cfcac0" }}>↳</span>
-                        ) : (
-                          <a
-                            href={`${HANDOVER_APP}/${encodeURIComponent(m.jobId)}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
-                          >
-                            {m.jobId}
-                          </a>
-                        )}
-                      </td>
-                      <td style={{ ...cell, whiteSpace: "normal", minWidth: 140 }}>
-                        {sameJobAbove ? "" : m.project || "—"}
-                      </td>
-                      <td style={{ ...cell, whiteSpace: "normal", minWidth: 160 }}>
-                        {finish || m.name || "—"}
-                        {substrate && <span style={{ color: BRAND.sub }}> on {substrate}</span>}
-                        <div style={{ fontSize: 11, color: BRAND.sub }}>{size(m)}</div>
-                      </td>
-                      <td style={{ ...cell, textAlign: "right" }}>
-                        {orderQty(m) || m.quantity || "—"}
-                      </td>
-                      <td style={{ ...cell, color: BRAND.sub, whiteSpace: "nowrap" }}>
-                        {done && m.completedAt ? (
-                          <>
-                            {fmtStamp(m.completedAt)}
-                            {m.completedBy && (
-                              <div style={{ fontSize: 11 }}>{m.completedBy.split("@")[0]}</div>
-                            )}
-                          </>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td style={{ ...cell, textAlign: "right" }}>
-                        {done ? (
-                          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                            <span style={{ color: BRAND.green, fontSize: 12, fontWeight: 500 }}>
-                              ✓ In stock
-                            </span>
-                            <button
-                              onClick={() => setLine(m.jobId, m.id, { state: "to_order" })}
-                              disabled={busy || !canEdit}
-                              style={{
-                                ...btn,
-                                background: BRAND.red,
-                                borderColor: BRAND.red,
-                                color: "#fff",
-                                opacity: busy ? 0.6 : 1,
-                              }}
-                            >
-                              Undo
-                            </button>
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
-                            disabled={busy || !canEdit}
-                            title="It's on the rack and it's this job's — confirmed"
-                            style={{
-                              ...btn,
-                              background: BRAND.green,
-                              borderColor: BRAND.green,
-                              color: "#fff",
-                              opacity: busy ? 0.6 : 1,
-                            }}
-                          >
-                            Confirm stock
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {view !== "complete" && view !== "stock" && lines.length > 0 && (
+        {view !== "complete" && lines.length > 0 && (
           <div
             style={{
               overflowX: "auto",
