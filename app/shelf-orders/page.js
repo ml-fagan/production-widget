@@ -864,6 +864,15 @@ function ChaseRow({
   onCopy,
   copied,
 }) {
+  /**
+   * Deleting is one click away, not none.
+   *
+   * The second click is the answer to "did you mean that one?" — the same
+   * shape the request board uses. Kept local to the row so it resets itself
+   * the moment anything else is touched.
+   */
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   const chase = chaseDate(order);
   const overdue = chase && chase < now;
   const last = lastContact(order);
@@ -925,7 +934,10 @@ function ChaseRow({
           "—"
         )}
       </td>
-      <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+      <td
+        onClick={(e) => e.stopPropagation()}
+        style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}
+      >
         {bucket === "fulfil" ? (
           <span style={{ fontSize: 11, color: BRAND.sub }}>
             {order.packedAt ? "with Alice to send" : "with the warehouse"}
@@ -970,6 +982,44 @@ function ChaseRow({
             style={{ ...miniBtn, color: BRAND.green, borderColor: BRAND.green }}
           >
             Chased
+          </button>
+        )}{" "}
+        {/* An order taken down wrong, or one the client walked away from.
+            There is nothing else to do with those — they would sit on the
+            board for ever being skipped over. */}
+        {confirmDelete ? (
+          <span
+            onClick={(e) => e.stopPropagation()}
+            style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
+          >
+            <span style={{ fontSize: 11, color: BRAND.sub }}>Delete it?</span>
+            <button
+              onClick={() => onSend({ action: "remove", id: order.id })}
+              disabled={saving || !canEdit}
+              style={{
+                ...miniBtn,
+                background: BRAND.red,
+                borderColor: BRAND.red,
+                color: "#fff",
+              }}
+            >
+              {saving ? "Deleting…" : "Yes"}
+            </button>
+            <button onClick={() => setConfirmDelete(false)} style={miniBtn}>
+              Keep
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setConfirmDelete(true);
+            }}
+            disabled={saving || !canEdit}
+            title="Remove this order — for one taken down wrong, or one that came to nothing"
+            style={{ ...miniBtn, color: BRAND.sub }}
+          >
+            Delete
           </button>
         )}
       </td>
