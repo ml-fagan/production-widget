@@ -128,6 +128,46 @@ function currentStage(handover) {
   return { stage: relevant[0], state: "todo" };
 }
 
+/**
+ * The three numbers a rack card is for.
+ *
+ * Free is what somebody can walk over and take. Assigned is on the floor but
+ * a job is counting on it. Coming is bought and not landed.
+ *
+ * It used to be one figure — "65 free" — with the rest as a sentence
+ * underneath: "136 on hand · 71 spoken for · 1 size". On hand is the sum of
+ * the other two and answers nothing on its own; the sentence had to be read
+ * to find the one number that decides anything. Three figures, always in the
+ * same order and the same colours, can be read without reading.
+ *
+ * A nought is shown rather than hidden. "0 free" is the most important thing
+ * a card can say, and a missing figure reads as "not applicable" when it
+ * means "none".
+ */
+function StockFigures({ free, assigned, incoming, size = 13 }) {
+  const cell = (value, colour, label, title) => (
+    <span
+      title={title}
+      style={{
+        fontSize: size,
+        fontWeight: 600,
+        color: value > 0 ? colour : "#b3afa6",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {value}
+      <span style={{ fontSize: size - 3, fontWeight: 400, marginLeft: 3 }}>{label}</span>
+    </span>
+  );
+  return (
+    <span style={{ display: "inline-flex", gap: 10, alignItems: "baseline", marginLeft: "auto" }}>
+      {cell(free, BRAND.green, "free", "On the floor and unspoken for — take it")}
+      {cell(assigned, BRAND.red, "assigned", "Here, but a job is counting on it")}
+      {cell(incoming, BRAND.sub, "coming", "Bought and not landed yet")}
+    </span>
+  );
+}
+
 function StageBadge({ handover }) {
   const stage = currentStage(handover);
   if (!stage) return <span style={{ color: BRAND.sub, fontSize: 12 }}>—</span>;
@@ -755,12 +795,16 @@ export default function MaterialStockPage() {
           products: [],
           onHand: 0,
           free: 0,
+          reserved: 0,
+          incoming: 0,
         });
       }
       const stack = map.get(key);
       stack.products.push(group);
       stack.onHand += group.onHand;
       stack.free += group.free;
+      stack.reserved += group.reserved;
+      stack.incoming += group.incoming;
     }
     for (const stack of map.values()) {
       // Thinnest first, the way a board list is read.
@@ -1195,16 +1239,11 @@ export default function MaterialStockPage() {
                       used to be two cards at opposite ends of the page. */}
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                     <span style={{ fontWeight: 600, fontSize: 14 }}>{stack.finish}</span>
-                    <span
-                      style={{
-                        marginLeft: "auto",
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: stack.free > 0 ? BRAND.green : BRAND.sub,
-                      }}
-                    >
-                      {stack.free} free
-                    </span>
+                    <StockFigures
+                      free={stack.free}
+                      assigned={stack.reserved}
+                      incoming={stack.incoming}
+                    />
                   </div>
                   {/* Plenty of these are a board with no face on it —
                       Versilux, Villabord — where the finish is the whole name
@@ -1257,16 +1296,11 @@ export default function MaterialStockPage() {
                       <span style={{ fontSize: 11, color: BRAND.sub }}>
                         {group.rows.length} {group.rows.length === 1 ? "size" : "sizes"}
                       </span>
-                      <span
-                        style={{
-                          marginLeft: "auto",
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: group.free > 0 ? BRAND.green : BRAND.sub,
-                        }}
-                      >
-                        {group.free} free
-                      </span>
+                      <StockFigures
+                        free={group.free}
+                        assigned={group.reserved}
+                        incoming={group.incoming}
+                      />
                       <span aria-hidden="true" style={{ fontSize: 10, color: BRAND.sub }}>
                         {open ? "▾" : "▸"}
                       </span>
@@ -1275,14 +1309,6 @@ export default function MaterialStockPage() {
                   {single && (
                     <div style={{ fontSize: 12, color: BRAND.sub }}>
                       {group.thickness !== "" ? `${group.thickness}mm` : "no thickness"}
-                    </div>
-                  )}
-                  {/* Only worth a line when some of it is spoken for. Each
-                      claim counted once, however many sizes it sits across. */}
-                  {open && group.reserved > 0 && (
-                    <div style={{ fontSize: 12, color: BRAND.sub, marginTop: 2 }}>
-                      {group.onHand} on hand · {group.reserved} spoken for ·{" "}
-                      {group.rows.length} {group.rows.length === 1 ? "size" : "sizes"}
                     </div>
                   )}
 
@@ -1309,22 +1335,13 @@ export default function MaterialStockPage() {
                                 ? `${dimension(b.length)} × ${dimension(b.width)}`
                                 : "size not recorded"}
                             </span>
-                            <span
-                              style={{
-                                marginLeft: "auto",
-                                fontSize: 13,
-                                fontWeight: 600,
-                                color: b.free > 0 ? BRAND.green : BRAND.sub,
-                              }}
-                            >
-                              {b.free} free
-                            </span>
+                            <StockFigures
+                              free={b.free}
+                              assigned={b.reserved}
+                              incoming={b.incoming}
+                              size={12}
+                            />
                           </div>
-                          {b.reserved > 0 && (
-                            <div style={{ fontSize: 12, color: BRAND.sub }}>
-                              {b.total} on hand · {b.reserved} spoken for
-                            </div>
-                          )}
 
                           {/* The whole point of the colour: these sheets are on
                               the floor but already belong to a job. The job
