@@ -131,8 +131,10 @@ function currentStage(handover) {
 /**
  * The three numbers a rack card is for.
  *
- * Free is what somebody can walk over and take. Assigned is on the floor but
- * a job is counting on it. Coming is bought and not landed.
+ * The three places a material can be. Available is here and unspoken for, so
+ * any job can take it. Assigned is here too, but a job is counting on it. On
+ * order is bought and not arrived — and becomes one of the first two the
+ * moment somebody confirms it in.
  *
  * It used to be one figure — "65 free" — with the rest as a sentence
  * underneath: "136 on hand · 71 spoken for · 1 size". On hand is the sum of
@@ -161,9 +163,9 @@ function StockFigures({ free, assigned, incoming, size = 13 }) {
   );
   return (
     <span style={{ display: "inline-flex", gap: 10, alignItems: "baseline", marginLeft: "auto" }}>
-      {cell(free, BRAND.green, "free", "On the floor and unspoken for — take it")}
+      {cell(free, BRAND.green, "available", "Here and unspoken for — any job can take it")}
       {cell(assigned, BRAND.red, "assigned", "Here, but a job is counting on it")}
-      {cell(incoming, BRAND.sub, "coming", "Bought and not landed yet")}
+      {cell(incoming, BRAND.sub, "on order", "Bought and not arrived. It becomes available or assigned when somebody confirms it in.")}
     </span>
   );
 }
@@ -746,7 +748,36 @@ export default function MaterialStockPage() {
   const balances = useMemo(() => balancesFrom(entries), [entries]);
   const q = query.trim().toLowerCase();
   const matchingBalances = q ? balances.filter((b) => (b.name || "").toLowerCase().includes(q)) : balances;
-  const onHand = matchingBalances.filter((b) => b.total > 0);
+  /**
+   * Every material the board has something to say about.
+   *
+   * What's on the rack, plus what's on order and hasn't arrived — which has
+   * no ledger entry, because nothing has landed to log. Leaving those out
+   * made the board a list of what was already here rather than an overview of
+   * where each material is up to, and it dropped the one figure worth having
+   * when a bay reads empty.
+   *
+   * A row with nothing on it still groups, sorts and counts like any other;
+   * it simply has no history behind it yet.
+   */
+  const onHand = useMemo(() => {
+    const here = matchingBalances.filter((b) => b.total > 0);
+    const known = new Set(here.map((b) => signature(b)));
+    const coming = available
+      .filter((m) => (m.incoming || 0) > 0 && !known.has(signature(m)))
+      .filter((m) => !q || (m.name || "").toLowerCase().includes(q))
+      .map((m) => ({
+        name: m.name,
+        length: m.length,
+        width: m.width,
+        thickness: m.thickness,
+        total: 0,
+        entries: [],
+      }));
+    return [...here, ...coming];
+    // Rebuilt from what decides it, not from the array identity — see below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [balances, q, available]);
   /**
    * Materials the register says we have less than none of.
    *
@@ -764,10 +795,8 @@ export default function MaterialStockPage() {
   const overdrawn = matchingBalances.filter((b) => b.total < 0);
   const productGroups = useMemo(
     () => groupByProduct(onHand, available),
-    // onHand is rebuilt each render from balances and the filter, so depend on
-    // what actually decides it rather than on the array identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [balances, q, available]
+    [onHand, available]
   );
 
   /**
@@ -793,18 +822,13 @@ export default function MaterialStockPage() {
           finish: group.finish,
           substrate: group.substrate,
           products: [],
+          // Kept for ordering the cards, not for showing: see the heading.
           onHand: 0,
-          free: 0,
-          reserved: 0,
-          incoming: 0,
         });
       }
       const stack = map.get(key);
       stack.products.push(group);
       stack.onHand += group.onHand;
-      stack.free += group.free;
-      stack.reserved += group.reserved;
-      stack.incoming += group.incoming;
     }
     for (const stack of map.values()) {
       // Thinnest first, the way a board list is read.
@@ -1239,11 +1263,12 @@ export default function MaterialStockPage() {
                       used to be two cards at opposite ends of the page. */}
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                     <span style={{ fontWeight: 600, fontSize: 14 }}>{stack.finish}</span>
-                    <StockFigures
-                      free={stack.free}
-                      assigned={stack.reserved}
-                      incoming={stack.incoming}
-                    />
+                    {/* No total across thicknesses. 6mm and 9mm are not
+                        interchangeable, so a figure spanning them is one
+                        nobody can cut a job from — and when it was labelled
+                        "free" it was worse than useless, because most of it
+                        was already assigned to different jobs. The numbers
+                        that decide anything are on the thicknesses below. */}
                   </div>
                   {/* Plenty of these are a board with no face on it —
                       Versilux, Villabord — where the finish is the whole name
@@ -1372,25 +1397,33 @@ export default function MaterialStockPage() {
                                 boards do it: what the page can do stays
                                 visible, and the header says why it's out of
                                 reach. */}
-                            <button
-                              onClick={() => setUseRow(useRow === key ? null : key)}
-                              disabled={!canKeep}
-                              style={{ ...miniBtn, opacity: canKeep ? 1 : 0.5 }}
-                            >
-                              − Use
-                            </button>
-                            <button
-                              onClick={() => clearMaterial(b)}
-                              disabled={saving || !canKeep}
-                              title="Remove this material from the register — for something entered by mistake"
-                              style={{
-                                ...miniBtn,
-                                color: BRAND.sub,
-                                opacity: saving || !canKeep ? 0.5 : 1,
-                              }}
-                            >
-                              Clear
-                            </button>
+                            {/* Nothing has landed yet, so there is nothing to
+                                take off the register or to clear off it. The
+                                two that do apply stay: count what turns up,
+                                and say which bay it went on. */}
+                            {b.total > 0 && (
+                              <>
+                                <button
+                                  onClick={() => setUseRow(useRow === key ? null : key)}
+                                  disabled={!canKeep}
+                                  style={{ ...miniBtn, opacity: canKeep ? 1 : 0.5 }}
+                                >
+                                  − Use
+                                </button>
+                                <button
+                                  onClick={() => clearMaterial(b)}
+                                  disabled={saving || !canKeep}
+                                  title="Remove this material from the register — for something entered by mistake"
+                                  style={{
+                                    ...miniBtn,
+                                    color: BRAND.sub,
+                                    opacity: saving || !canKeep ? 0.5 : 1,
+                                  }}
+                                >
+                                  Clear
+                                </button>
+                              </>
+                            )}
                             {/* The warehouse's own button, and the only one
                                 they get: what's actually on the rack,
                                 whatever the register thinks. */}
