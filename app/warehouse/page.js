@@ -352,6 +352,18 @@ export default function WarehousePage() {
   }, [all, stored, preOrders]);
 
   const cutoff = useMemo(() => Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000, []);
+
+  /**
+   * What went out, lately.
+   *
+   * An order used to vanish off this board the moment Alice booked the
+   * freight, so the dock had no way to answer "did that go?" — the one
+   * question anybody rings them about. The same week's window the delivery
+   * side uses, for the same reason.
+   */
+  const sent = shelf
+    .filter((o) => o.dispatchedAt && new Date(o.dispatchedAt).getTime() >= cutoff)
+    .sort((a, b) => String(b.dispatchedAt).localeCompare(String(a.dispatchedAt)));
   const expected = lines.filter(
     (m) => !m.fromStock && (m.state === "ordered" || m.state === "part_received")
   );
@@ -673,6 +685,47 @@ export default function WarehousePage() {
                 </section>
               );
             })}
+
+            {/* The register of what went out. Without it an order vanished
+                off this board the moment the freight was booked, and the dock
+                had no way to answer the one question anybody rings them
+                about. */}
+            {sent.length > 0 && (
+              <div style={{ marginTop: 18 }}>
+                <p style={{ fontSize: 12, color: BRAND.sub, margin: "0 0 8px" }}>
+                  Sent in the last week
+                </p>
+                {sent.map((order) => (
+                  <div
+                    key={`sent:${order.id}`}
+                    style={{
+                      display: "flex",
+                      gap: 10,
+                      alignItems: "baseline",
+                      flexWrap: "wrap",
+                      fontSize: 12,
+                      color: BRAND.sub,
+                      padding: "5px 0",
+                      borderBottom: `1px solid ${BRAND.line}`,
+                    }}
+                  >
+                    <strong style={{ color: BRAND.ink, fontSize: 13 }}>{order.product}</strong>
+                    <span>
+                      {order.qty ? `${order.qty} · ` : ""}
+                      {order.customer}
+                    </span>
+                    <span style={{ marginLeft: "auto", whiteSpace: "nowrap" }}>
+                      {new Date(order.dispatchedAt).toLocaleDateString("en-AU", {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                      })}
+                      {order.dispatchedBy ? ` · ${order.dispatchedBy.split("@")[0]}` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         )}
 

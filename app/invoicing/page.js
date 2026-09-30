@@ -52,13 +52,12 @@ function pollWhenVisible(run, everyMs) {
 const REFRESH_MS = 15 * 60 * 1000;
 const HANDOVER_APP = "https://decorhandover.lyphex.com";
 
+// Two tabs, because there are two states: owed, and done. Stock a client
+// bought with no job behind it is a charge like any other — it was on a tab of
+// its own, which meant looking in two places to answer "what's left to bill".
 const VIEWS = [
   { key: "to_charge", label: "To charge" },
   { key: "charged", label: "Charged" },
-  // Stock a client bought with no job behind it. It reaches this list when
-  // Veronica sends it over from her own board, and leaves it when she says
-  // she's charged for it — which is the last thing that happens to one.
-  { key: "shelf", label: "Off the shelf" },
 ];
 
 function fmtTime(iso) {
@@ -258,10 +257,11 @@ export default function InvoicingPage() {
   const shelfToCharge = shelf.filter((o) => o.releasedAt && !o.invoicedAt);
   const shelfCharged = shelf.filter((o) => o.invoicedAt);
   const counts = {
-    to_charge: matching.filter((h) => stateOf(h) === "to_charge").length,
-    charged: matching.filter((h) => stateOf(h) === "charged").length,
-    shelf: shelfToCharge.length,
+    to_charge: matching.filter((h) => stateOf(h) === "to_charge").length + shelfToCharge.length,
+    charged: matching.filter((h) => stateOf(h) === "charged").length + shelfCharged.length,
   };
+  // Whichever kind of charge this tab is about.
+  const shelfHere = view === "charged" ? shelfCharged : shelfToCharge;
   const jobs = matching
     .filter((h) => stateOf(h) === view)
     // Out the door and uncharged first: that's the work waiting on her.
@@ -324,7 +324,13 @@ export default function InvoicingPage() {
               Invoicing
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-              {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
+              {/* Everything on this tab, not just the jobs — it read "0 jobs"
+                  over an off-the-shelf order sitting right underneath it. */}
+              {jobs.length + shelfHere.length}{" "}
+              {jobs.length + shelfHere.length === 1 ? "charge" : "charges"}
+              {shelfHere.length > 0 && jobs.length > 0 && (
+                <span style={{ color: BRAND.sub }}> · {shelfHere.length} off the shelf</span>
+              )}
               {view === "to_charge" && readyToCharge > 0 && (
                 <>
                   {" · "}
@@ -411,16 +417,21 @@ export default function InvoicingPage() {
         {/* Stock with no job behind it. Its own list, because none of the
             machinery below applies to it — no handover, no lines, no m2, just
             a customer, a product and a figure. */}
-        {view === "shelf" && (
+        {shelfHere.length > 0 && (
           <>
-            {shelfToCharge.length === 0 && shelfCharged.length === 0 && !loading && (
-              <p style={{ fontSize: 13, color: BRAND.sub }}>
-                Nothing here. Off-the-shelf orders arrive when Veronica sends one over from her own
-                board.
-              </p>
-            )}
-            <div style={{ display: "grid", gap: 8 }}>
-              {[...shelfToCharge, ...shelfCharged].map((order) => {
+            <div
+              style={{
+                fontSize: 11,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: BRAND.sub,
+                margin: "0 0 6px",
+              }}
+            >
+              Off the shelf — no job behind it
+            </div>
+            <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+              {shelfHere.map((order) => {
                 const charged = Boolean(order.invoicedAt);
                 return (
                   <section
@@ -488,7 +499,7 @@ export default function InvoicingPage() {
           </>
         )}
 
-        {view !== "shelf" && !loading && jobs.length === 0 && (
+        {!loading && jobs.length === 0 && shelfHere.length === 0 && (
           <p style={{ fontSize: 13, color: BRAND.sub }}>
             {all.length === 0
               ? "Nothing handed over yet."
@@ -498,7 +509,24 @@ export default function InvoicingPage() {
           </p>
         )}
 
-        <div style={{ display: view === "shelf" ? "none" : "grid", gap: 10 }}>
+        {/* The jobs, under whatever off-the-shelf orders came first: those are
+            a line each and a click, where a job is a card with figures to
+            check. */}
+        {jobs.length > 0 && shelfHere.length > 0 && (
+          <div
+            style={{
+              fontSize: 11,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: BRAND.sub,
+              margin: "0 0 6px",
+            }}
+          >
+            Jobs
+          </div>
+        )}
+
+        <div style={{ display: "grid", gap: 10 }}>
           {jobs.map((h) => {
             const invoice = invoiceOf(h);
             const lines = h.invoiceLines ?? [];
