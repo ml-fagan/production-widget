@@ -359,18 +359,25 @@ export default function WarehousePage() {
       m.state === "completed" &&
       (!m.completedAt || new Date(m.completedAt).getTime() >= cutoff)
   );
-  // Claimed off a rack and not yet checked. The whole list, not a recent
-  // window: one nobody has walked over to look at is still owed, however long
-  // it has been sitting there.
-  const stockToCheck = lines.filter((m) => m.fromStock && m.state !== "completed");
-  // Checked lately, kept on screen so whoever just did it can see that it
-  // took — the same reason "Just arrived" exists.
-  const stockDone = lines.filter(
-    (m) =>
-      m.fromStock &&
-      m.state === "completed" &&
-      (!m.completedAt || new Date(m.completedAt).getTime() >= cutoff)
+  // Claimed off a rack and nobody has walked over to look yet. The whole
+  // list, not a recent window: one still owed is still owed, however long it
+  // has been sitting there.
+  //
+  // A line leaves the moment somebody reports what they found, whatever they
+  // found — an empty rack is a finished job for the dock, and what happens
+  // next is Alice's.
+  const stockToCheck = lines.filter(
+    (m) => m.fromStock && m.state !== "completed" && !m.rackCheckedAt
   );
+  // Checked lately, kept on screen so whoever just did it can see that it
+  // took — the same reason "Just arrived" exists. Short and bare racks stay
+  // here too, because those are the ones somebody may want to look at twice.
+  const stockDone = lines.filter((m) => {
+    if (!m.fromStock) return false;
+    const when = m.rackCheckedAt || m.completedAt;
+    if (!m.rackCheckedAt && m.state !== "completed") return false;
+    return !when || new Date(when).getTime() >= cutoff;
+  });
 
   const q = query.trim().toLowerCase();
   const matches = (m) =>
@@ -734,27 +741,119 @@ export default function WarehousePage() {
                             {[m.length, m.width, m.thickness].filter(Boolean).join(" × ") || "—"}
                           </div>
                         </div>
-                        <div style={{ fontSize: 14, fontWeight: 600, minWidth: 60 }}>
-                          {orderQty(m) || m.quantity || "—"}
-                        </div>
-                        <button
-                          onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
-                          disabled={busy || !canReceive}
-                          title={
-                            canReceive
-                              ? "It's on the rack and it's this job's"
-                              : "Confirming stock is the dock's or Alice's"
-                          }
-                          style={{
-                            ...btn,
-                            background: canReceive ? BRAND.green : BRAND.card,
-                            borderColor: canReceive ? BRAND.green : BRAND.line,
-                            color: canReceive ? "#fff" : BRAND.sub,
-                            opacity: busy ? 0.6 : 1,
-                          }}
-                        >
-                          {busy ? "Confirming…" : "It's there"}
-                        </button>
+                        {(() => {
+                          /**
+                           * Three answers, because a rack gives three.
+                           *
+                           * It used to give one — "It's there" — which meant a
+                           * rack holding twelve of the twenty a job wanted got
+                           * ticked off as twenty, and a bare one either got
+                           * ticked off anyway or sat on the list for a
+                           * fortnight while everybody assumed somebody else
+                           * had looked.
+                           */
+                          const want = orderQty(m) || countOf(m.quantity) || 0;
+                          const typed = received[key];
+                          const found = typed === undefined ? String(want || "") : typed;
+                          const n = countOf(found);
+                          const short = n > 0 && want > 0 && n < want;
+                          const clearBox = () =>
+                            setReceived((r) => {
+                              const next = { ...r };
+                              delete next[key];
+                              return next;
+                            });
+                          return (
+                            <>
+                              <span
+                                style={{ display: "inline-flex", gap: 4, alignItems: "center" }}
+                              >
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={found}
+                                  onChange={(e) =>
+                                    setReceived((r) => ({ ...r, [key]: e.target.value }))
+                                  }
+                                  disabled={busy || !canReceive}
+                                  aria-label={`How many of ${want} are on the rack`}
+                                  title="How many are actually on the rack"
+                                  style={{
+                                    width: 60,
+                                    border: `1px solid ${short ? BRAND.amber : BRAND.line}`,
+                                    borderRadius: 6,
+                                    padding: "4px 6px",
+                                    fontSize: 13,
+                                    fontFamily: "inherit",
+                                  }}
+                                />
+                                <span style={{ fontSize: 12, color: BRAND.sub }}>of {want || "—"}</span>
+                              </span>
+
+                              <button
+                                onClick={() => {
+                                  // What's on the rack is what the job gets.
+                                  // Sent as the found count rather than as
+                                  // "done", so a short rack closes nothing it
+                                  // shouldn't.
+                                  setLine(m.jobId, m.id, {
+                                    rackFound: n,
+                                    receivedQty: String(n),
+                                    ...(short ? {} : { state: "completed" }),
+                                  });
+                                  clearBox();
+                                }}
+                                disabled={busy || !canReceive || n <= 0}
+                                title={
+                                  short
+                                    ? `Only ${n} of ${want} on the rack — the rest goes back to Alice to buy`
+                                    : "It's on the rack and it's this job's"
+                                }
+                                style={{
+                                  ...btn,
+                                  background: canReceive
+                                    ? short
+                                      ? BRAND.amber
+                                      : BRAND.green
+                                    : BRAND.card,
+                                  borderColor: canReceive
+                                    ? short
+                                      ? BRAND.amber
+                                      : BRAND.green
+                                    : BRAND.line,
+                                  color: canReceive ? "#fff" : BRAND.sub,
+                                  opacity: busy || n <= 0 ? 0.6 : 1,
+                                }}
+                              >
+                                {busy ? "Saving…" : short ? `Only ${n} there` : "It's all there"}
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  // Nothing on the rack. The line goes back to
+                                  // needing an order, and says so was checked
+                                  // — otherwise it reads as never looked at.
+                                  setLine(m.jobId, m.id, {
+                                    rackFound: 0,
+                                    receivedQty: "",
+                                    state: "to_order",
+                                  });
+                                  clearBox();
+                                }}
+                                disabled={busy || !canReceive}
+                                title="Nothing on the rack — Alice will have to buy it"
+                                style={{
+                                  ...btn,
+                                  color: canReceive ? BRAND.red : BRAND.sub,
+                                  borderColor: canReceive ? BRAND.red : BRAND.line,
+                                  opacity: busy ? 0.6 : 1,
+                                }}
+                              >
+                                Not there
+                              </button>
+                            </>
+                          );
+                        })()}
                       </div>
                     );
                   })}
@@ -767,28 +866,67 @@ export default function WarehousePage() {
                 <p style={{ fontSize: 12, color: BRAND.sub, margin: "0 0 8px" }}>
                   Confirmed in the last week
                 </p>
-                {stockDoneShown.map((m) => (
-                  <div
-                    key={`done:${m.jobId}:${m.id}`}
-                    style={{
-                      fontSize: 12,
-                      color: BRAND.sub,
-                      padding: "4px 0",
-                      borderBottom: `1px solid ${BRAND.line}`,
-                    }}
-                  >
-                    <strong style={{ color: BRAND.ink }}>{m.jobId}</strong> · {m.name || "—"} ·{" "}
-                    {orderQty(m) || m.quantity || "—"}
-                    {m.completedBy ? ` · ${m.completedBy.split("@")[0]}` : ""}
-                  </div>
-                ))}
+                {stockDoneShown.map((m) => {
+                  const want = orderQty(m) || countOf(m.quantity) || 0;
+                  const found = m.rackFound === null || m.rackFound === undefined ? want : m.rackFound;
+                  const bare = found === 0;
+                  const short = found > 0 && want > 0 && found < want;
+                  const who = m.rackCheckedBy || m.completedBy || "";
+                  return (
+                    <div
+                      key={`done:${m.jobId}:${m.id}`}
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        fontSize: 12,
+                        color: BRAND.sub,
+                        padding: "5px 0",
+                        borderBottom: `1px solid ${BRAND.line}`,
+                      }}
+                    >
+                      <strong style={{ color: BRAND.ink }}>{m.jobId}</strong>
+                      <span>{m.name || "—"}</span>
+                      {/* What was found, not what was asked for. The whole
+                          point of the three buttons is that those differ. */}
+                      <span
+                        style={{
+                          color: bare ? BRAND.red : short ? BRAND.amber : BRAND.green,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {bare ? "nothing on the rack" : short ? `${found} of ${want}` : `all ${want}`}
+                      </span>
+                      {who && <span>· {who.split("@")[0]}</span>}
+                      {(bare || short) && (
+                        <span style={{ color: BRAND.sub }}>
+                          · {bare ? want : want - found} back to Alice to buy
+                        </span>
+                      )}
+                      <button
+                        onClick={() => setLine(m.jobId, m.id, { rackFound: null })}
+                        disabled={!canReceive}
+                        title="Put it back on the list to be looked at again"
+                        style={{ ...btn, marginLeft: "auto", color: BRAND.sub }}
+                      >
+                        Check again
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
-            <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 18 }}>
+            <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 18, maxWidth: 760 }}>
               Confirming one here is the same as Alice confirming it on her board — it leaves her
               Outstanding list and lands on All in, and the sheets stay on the register until
-              somebody draws them.
+              somebody draws them. A short rack or a bare one stays on her list for the difference,
+              so she can buy it.
+              <br />
+              If the rack holds less than the register says it should, that gap is worth closing
+              too — count the material on the <a href="/material-stock" style={{ color: BRAND.blue }}>Stock</a> tab and
+              the register squares up against what you found.
             </p>
           </>
         )}

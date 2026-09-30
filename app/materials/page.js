@@ -2157,19 +2157,51 @@ export default function MaterialsPage() {
                               </button>
                             </span>
                           ) : (
-                            <button
-                              onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
-                              disabled={busy}
-                              style={{
-                                ...btn,
-                                background: BRAND.green,
-                                borderColor: BRAND.green,
-                                color: "#fff",
-                                opacity: busy ? 0.6 : 1,
-                              }}
+                            <span
+                              style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
                             >
-                              Confirm stock
-                            </button>
+                              {/* What the warehouse found when they went and
+                                  looked. A short rack or a bare one is the
+                                  thing she has to act on, and without this it
+                                  reached her as an ordinary unconfirmed line
+                                  with no hint that anybody had been. */}
+                              {m.rackCheckedAt && (() => {
+                                const want = orderQty(m) || countOf(m.quantity) || 0;
+                                const got = Number(m.rackFound) || 0;
+                                const bare = got === 0;
+                                return (
+                                  <span
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      color: bare ? BRAND.red : BRAND.amber,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                    title={`Checked${
+                                      m.rackCheckedBy ? ` by ${m.rackCheckedBy}` : ""
+                                    } — ${bare ? "nothing on the rack" : `${got} of ${want} there`}. ${
+                                      bare ? want : want - got
+                                    } to buy.`}
+                                  >
+                                    {bare ? "rack bare" : `only ${got}/${want}`} · buy{" "}
+                                    {bare ? want : want - got}
+                                  </span>
+                                );
+                              })()}
+                              <button
+                                onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
+                                disabled={busy}
+                                style={{
+                                  ...btn,
+                                  background: BRAND.green,
+                                  borderColor: BRAND.green,
+                                  color: "#fff",
+                                  opacity: busy ? 0.6 : 1,
+                                }}
+                              >
+                                Confirm stock
+                              </button>
+                            </span>
                           )
                         ) : (
                           <span style={{ display: "inline-flex", gap: 6 }}>
