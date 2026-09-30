@@ -889,6 +889,26 @@ export default function MaterialsPage() {
     whiteSpace: "nowrap",
   };
 
+  /**
+   * The column you act in, pinned to the right edge.
+   *
+   * Eleven columns don't fit a laptop, so the table scrolls sideways — and the
+   * buttons were the thing that scrolled off, which is the one column that
+   * can't. Pinned, they're always under the cursor and the detail slides
+   * beneath them.
+   *
+   * The background has to be set explicitly or the scrolling cells show
+   * through, and it has to match the row: a pre-order row is tinted. The edge
+   * is a shadow rather than a border because a collapsed-border table drops
+   * the border on a sticky cell.
+   */
+  const stickyEnd = (background) => ({
+    position: "sticky",
+    right: 0,
+    background,
+    boxShadow: `-1px 0 0 ${BRAND.line}, -7px 0 7px -7px rgba(0,0,0,0.14)`,
+  });
+
   return (
     <main
       style={{
@@ -1540,7 +1560,7 @@ export default function MaterialsPage() {
                   <th style={th}>Ordered</th>
                   <th style={th}>Arrived</th>
                   <th style={{ ...th, textAlign: "right" }}>Lead</th>
-                  <th style={th}></th>
+                  <th style={{ ...th, ...stickyEnd(BRAND.card), zIndex: 2 }} />
                 </tr>
               </thead>
               <tbody>
@@ -1641,7 +1661,13 @@ export default function MaterialsPage() {
                           <strong>{days} {days === 1 ? "day" : "days"}</strong>
                         )}
                       </td>
-                      <td style={{ ...cell, textAlign: "right" }}>
+                      <td
+                        style={{
+                          ...cell,
+                          ...stickyEnd(pre ? "#fdf8ee" : BRAND.card),
+                          textAlign: "right",
+                        }}
+                      >
                         {!pre && (
                           <button
                             onClick={() => setLine(m.jobId, m.id, { state: "ordered" })}
@@ -1690,7 +1716,7 @@ export default function MaterialsPage() {
                     OC
                   </th>
                   <th style={th}>Expected</th>
-                  <th style={th}>Status</th>
+                  <th style={{ ...th, ...stickyEnd(BRAND.card), zIndex: 2 }}>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -1988,7 +2014,13 @@ export default function MaterialsPage() {
                           );
                         })()}
                       </td>
-                      <td style={{ ...td, textAlign: "right" }}>
+                      <td
+                        style={{
+                          ...td,
+                          ...stickyEnd(pre ? "#fdf8ee" : BRAND.card),
+                          textAlign: "right",
+                        }}
+                      >
                         {/* Correctable until it's ordered, and only until
                             then — after that the line is what a supplier was
                             asked for. Stock lines aren't being bought. */}

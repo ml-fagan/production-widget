@@ -471,6 +471,22 @@ export default function BoardPage() {
     // than as text sliding under text.
     boxShadow: `1px 0 0 ${BRAND.line}`,
   };
+  /**
+   * The other edge. Twenty-one columns don't fit a screen, and the two that
+   * scrolled out of reach were the job number — already pinned — and the
+   * buttons at the far end, which is the column you actually click in.
+   *
+   * Unpinned for print, where there is no scrollport and a sticky cell only
+   * lands on top of something else. The `sticky-end` class is what the print
+   * block overrides.
+   */
+  const stickyEnd = {
+    position: "sticky",
+    right: 0,
+    background: BRAND.card,
+    zIndex: 2,
+    boxShadow: `-1px 0 0 ${BRAND.line}, -7px 0 7px -7px rgba(0,0,0,0.14)`,
+  };
   const totalCols = 11 + PROCESS_COLUMNS.length;
 
   return (
@@ -493,6 +509,12 @@ export default function BoardPage() {
             overflow: visible !important;
             border: none !important;
             border-radius: 0 !important;
+          }
+          /* Nothing is scrolling on paper, so a pinned column would only sit
+             on top of the one beside it. */
+          .sticky-end {
+            position: static !important;
+            box-shadow: none !important;
           }
           .print-table {
             min-width: 0 !important;
@@ -678,7 +700,7 @@ export default function BoardPage() {
                   <th style={th} title="Priority">Pri</th>
                   <th style={{ ...th, textAlign: "center" }}>Note</th>
                   <th style={th}>Material</th>
-                  <th style={th}></th>
+                  <th className="sticky-end" style={{ ...th, ...stickyEnd }} />
                 </tr>
               </thead>
               <tbody>
@@ -954,7 +976,7 @@ export default function BoardPage() {
                           );
                         })()}
                       </td>
-                      <td style={{ ...td, whiteSpace: "nowrap" }}>
+                      <td className="sticky-end" style={{ ...td, ...stickyEnd, whiteSpace: "nowrap" }}>
                         <button
                           onClick={() => {
                             if (leftoverOpen === row.jobId) {
