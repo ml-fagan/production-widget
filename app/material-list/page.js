@@ -74,9 +74,9 @@ export default function MaterialListPage() {
   const canEdit = caps.handover;
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [draft, setDraft] = useState({ finish: "", supplier: "", note: "" });
+  const [draft, setDraft] = useState({ finish: "", decor: "", supplier: "", note: "" });
   const [editId, setEditId] = useState(null);
-  const [edit, setEdit] = useState({ finish: "", supplier: "", note: "" });
+  const [edit, setEdit] = useState({ finish: "", decor: "", supplier: "", note: "" });
   const [showRetired, setShowRetired] = useState(false);
 
   useEffect(() => {
@@ -138,7 +138,9 @@ export default function MaterialListPage() {
   const q = query.trim().toLowerCase();
   const shown = materials
     .filter((m) => (showRetired ? true : m.active))
-    .filter((m) => !q || [m.finish, m.supplier, m.note].join(" ").toLowerCase().includes(q));
+    .filter(
+      (m) => !q || [m.finish, m.decor, m.supplier, m.note].join(" ").toLowerCase().includes(q)
+    );
   const retiredCount = materials.filter((m) => !m.active).length;
 
   const btn = {
@@ -234,7 +236,7 @@ export default function MaterialListPage() {
             // list they were started on.
             setEditId(null);
             setShowAdd(false);
-            setDraft({ finish: "", supplier: "", note: "" });
+            setDraft({ finish: "", decor: "", supplier: "", note: "" });
           }}
         />
 
@@ -281,6 +283,18 @@ export default function MaterialListPage() {
               {showRetired ? "Hide retired" : `Show retired (${retiredCount})`}
             </button>
           )}
+          {canEdit && kind === "finish" && finishes.some((m) => m.active && !m.decor) && (
+            <button
+              onClick={() => send({ action: "seed-decor" })}
+              disabled={saving}
+              title="Work out the timber behind each finish, for anything that hasn't got one. It's a guess you can correct."
+              style={{ ...btn, color: BRAND.blue }}
+            >
+              {saving
+                ? "Filling in…"
+                : `Fill in Decor (${finishes.filter((m) => m.active && !m.decor).length})`}
+            </button>
+          )}
           {canEdit && (
             <button
               onClick={() => setShowAdd((v) => !v)}
@@ -308,7 +322,14 @@ export default function MaterialListPage() {
               marginBottom: 16,
             }}
           >
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr", gap: 8, marginBottom: 10 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: kind === "finish" ? "2fr 1fr 1fr 2fr" : "2fr 1fr 2fr",
+                gap: 8,
+                marginBottom: 10,
+              }}
+            >
               <div>
                 <label style={{ fontSize: 11, color: BRAND.sub }}>{Noun}</label>
                 <input
@@ -319,6 +340,22 @@ export default function MaterialListPage() {
                   placeholder="As everyone should say it — e.g. Blackbutt NTV"
                 />
               </div>
+              {kind === "finish" && (
+                <div>
+                  <label
+                    style={{ fontSize: 11, color: BRAND.sub }}
+                    title="The timber, with the range taken off. Left blank it's worked out from the name, and you can change it after."
+                  >
+                    Decor
+                  </label>
+                  <input
+                    style={input}
+                    value={draft.decor}
+                    onChange={(e) => setDraft((d) => ({ ...d, decor: e.target.value }))}
+                    placeholder="Tasmanian Oak"
+                  />
+                </div>
+              )}
               <div>
                 <label style={{ fontSize: 11, color: BRAND.sub }}>Supplier</label>
                 <input
@@ -343,7 +380,7 @@ export default function MaterialListPage() {
                 onClick={async () => {
                   const ok = await send({ action: "add", ...draft });
                   if (ok) {
-                    setDraft({ finish: "", supplier: "", note: "" });
+                    setDraft({ finish: "", decor: "", supplier: "", note: "" });
                     setShowAdd(false);
                   }
                 }}
@@ -413,6 +450,14 @@ export default function MaterialListPage() {
               <thead>
                 <tr>
                   <th style={th}>{Noun}</th>
+                  {kind === "finish" && (
+                    <th
+                      style={th}
+                      title="The timber, with the range taken off. Smartlook Tasmanian Oak and Tasmanian Oak G2S are one timber, and the stock register groups by it."
+                    >
+                      Decor
+                    </th>
+                  )}
                   <th style={th}>Supplier</th>
                   <th style={th}>Note</th>
                   <th style={th}>Added</th>
@@ -441,6 +486,20 @@ export default function MaterialListPage() {
                           </>
                         )}
                       </td>
+                      {kind === "finish" && (
+                        <td style={td}>
+                          {editing ? (
+                            <input
+                              style={input}
+                              value={edit.decor}
+                              placeholder="Tasmanian Oak"
+                              onChange={(e) => setEdit((x) => ({ ...x, decor: e.target.value }))}
+                            />
+                          ) : (
+                            m.decor || <span style={{ color: BRAND.sub }}>—</span>
+                          )}
+                        </td>
+                      )}
                       <td style={td}>
                         {editing ? (
                           <input
@@ -502,7 +561,7 @@ export default function MaterialListPage() {
                               <button
                                 onClick={() => {
                                   setEditId(m.id);
-                                  setEdit({ finish: m.finish, supplier: m.supplier, note: m.note });
+                                  setEdit({ finish: m.finish, decor: m.decor || "", supplier: m.supplier, note: m.note });
                                 }}
                                 style={{ ...btn, marginRight: 6 }}
                               >

@@ -266,7 +266,10 @@ export default function MaterialStockPage() {
   const [entries, setEntries] = useState([]);
   // What the handover app says is already spoken for — see loadAvailable.
   const [available, setAvailable] = useState([]);
-  const [options, setOptions] = useState({ finishes: [], substrates: [] });
+  const [options, setOptions] = useState({ finishes: [], substrates: [], decors: {} });
+  // Finish (lowercased) to the timber it belongs to — Mitch's column, not a
+  // rule worked out from the name.
+  const decors = options.decors || {};
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -305,6 +308,9 @@ export default function MaterialStockPage() {
   // Which thickness is face up in a stack. One at a time, and only where a
   // material is held in more than one.
   const [openProduct, setOpenProduct] = useState(null);
+  // Which timber is open. One at a time: the register is read by looking one
+  // material up, not by opening six and scrolling.
+  const [openDecor, setOpenDecor] = useState(null);
   const [bay, setBay] = useState(null); // the location being looked at on the plan
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState({});
@@ -340,7 +346,13 @@ export default function MaterialStockPage() {
     try {
       const res = await fetch("/api/materials/options", { cache: "no-store" });
       const json = await res.json();
-      if (json.ok) setOptions({ finishes: json.finishes || [], substrates: json.substrates || [] });
+      if (json.ok) {
+        setOptions({
+          finishes: json.finishes || [],
+          substrates: json.substrates || [],
+          decors: json.decors || {},
+        });
+      }
     } catch {
       // Leaves the pickers on free text rather than blocking an add.
     }
@@ -838,6 +850,55 @@ export default function MaterialStockPage() {
   }, [productGroups]);
 
   /**
+   * One heading per timber, which is how anybody asks for material.
+   *
+   * Smartlook Tasmanian Oak, Smartlook Tasmanian Oak - G2S and NTV Tasmanian
+   * Oak / BAMO are three products and one timber — five cards on a grid, at
+   * opposite ends of it, for a question that was always "have we got any Tas
+   * Oak". The range and the board are how you narrow it down afterwards.
+   *
+   * The timber comes off Mitch's list rather than out of the name: working it
+   * out here would mean a list of range words in code, wrong the day a new
+   * range lands and wrong silently. A finish with nothing set stands for
+   * itself, so nothing ever disappears for want of an answer.
+   */
+  const decorGroups = useMemo(() => {
+    const map = new Map();
+    for (const stack of stacks) {
+      const name = decors[String(stack.finish).trim().toLowerCase()] || stack.finish;
+      const key = name.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, { key, name, stacks: [], free: 0, reserved: 0, incoming: 0 });
+      }
+      const group = map.get(key);
+      group.stacks.push(stack);
+      for (const product of stack.products) {
+        group.free += product.free;
+        group.reserved += product.reserved;
+        group.incoming += product.incoming;
+      }
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [stacks, decors]);
+
+  /**
+   * Names the register is holding that aren't on Mitch's list.
+   *
+   * They stand alone, because nothing says what timber they are — which is
+   * right, and also the reason five Spotted Gums sit apart when they're one.
+   * Said out loud rather than quietly derived: the fix is a row on his list,
+   * and guessing here would take that decision away from him and be wrong
+   * silently the day a range changes.
+   */
+  const unlisted = useMemo(
+    () =>
+      [...new Set(stacks.map((x) => x.finish))]
+        .filter((name) => name && !decors[String(name).trim().toLowerCase()])
+        .sort(),
+    [stacks, decors]
+  );
+
+  /**
    * The same register, laid out as the building.
    *
    * Deliberately not filtered by the box above it: that box belongs to the
@@ -1237,26 +1298,78 @@ export default function MaterialStockPage() {
               </div>
             )}
 
-            {/* One box per finish, several across. Everything under a finish —
-                every substrate, every thickness — lives in its box and scrolls
-                there, so the page stays the size of the number of finishes we
-                hold rather than the number of sizes. */}
-            <div
-              style={{
-                display: "grid",
-                gap: 12,
-                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-                alignItems: "start",
-              }}
-            >
-              {stacks.map((stack) => (
+            {/* A register reads down, not across.
+                
+                This was a grid of cards, and cards are the wrong shape for it:
+                every one was a different height, so the rows left ragged gaps,
+                and no two numbers lined up with each other. One column, one
+                row per timber, and the three figures in the same place on
+                every line — which is the only way a column of numbers can be
+                read without reading it. */}
+            {unlisted.length > 0 && (
+              <p style={{ fontSize: 12, color: BRAND.sub, margin: "0 0 10px", maxWidth: 820 }}>
+                {unlisted.length} {unlisted.length === 1 ? "name isn't" : "names aren't"} on the{" "}
+                <a href="/material-list" style={{ color: BRAND.blue }}>
+                  Material list
+                </a>
+                , so {unlisted.length === 1 ? "it stands" : "they stand"} alone rather than joining
+                a timber: {unlisted.join(" · ")}. Adding{" "}
+                {unlisted.length === 1 ? "it" : "them"} there with a Decor groups{" "}
+                {unlisted.length === 1 ? "it" : "them"} here.
+              </p>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {decorGroups.map((decorGroup) => {
+                const decorOpen = openDecor === decorGroup.key;
+                return (
                 <section
-                  key={stack.key}
+                  key={decorGroup.key}
                   style={{
                     background: BRAND.card,
                     border: `1px solid ${BRAND.line}`,
                     borderRadius: 10,
-                    padding: "12px 14px",
+                  }}
+                >
+                  <button
+                    onClick={() => setOpenDecor(decorOpen ? null : decorGroup.key)}
+                    style={{
+                      display: "flex",
+                      width: "100%",
+                      alignItems: "baseline",
+                      gap: 10,
+                      padding: "10px 14px",
+                      background: "none",
+                      border: "none",
+                      borderBottom: decorOpen ? `1px solid ${BRAND.line}` : "none",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      textAlign: "left",
+                    }}
+                  >
+                    <span aria-hidden="true" style={{ fontSize: 10, color: BRAND.sub, width: 10 }}>
+                      {decorOpen ? "▾" : "▸"}
+                    </span>
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>{decorGroup.name}</span>
+                    {/* Only worth saying when there is more than one. */}
+                    {decorGroup.stacks.length > 1 && (
+                      <span style={{ fontSize: 11, color: BRAND.sub }}>
+                        {decorGroup.stacks.length} products
+                      </span>
+                    )}
+                    <StockFigures
+                      free={decorGroup.free}
+                      assigned={decorGroup.reserved}
+                      incoming={decorGroup.incoming}
+                    />
+                  </button>
+
+                  {decorOpen && decorGroup.stacks.map((stack) => (
+                <div
+                  key={stack.key}
+                  style={{
+                    padding: "10px 14px 12px 24px",
+                    borderTop: `1px solid ${BRAND.bg}`,
                   }}
                 >
                   {/* The material, said once. Versilux SE in 6mm and in 9mm
@@ -1720,8 +1833,11 @@ export default function MaterialStockPage() {
                   </div>
                   );
                   })}
-                </section>
+                </div>
               ))}
+                </section>
+                );
+              })}
             </div>
           </>
         )}
