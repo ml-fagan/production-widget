@@ -9,6 +9,9 @@ import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
 import { JobStateBadge } from "../../lib/jobState.js";
+// The same two helpers Veronica's own board uses, so a figure reads the same
+// on both screens rather than being worked out twice.
+import { orderTotal as shelfTotal, money } from "../../lib/shelfOrders.js";
 
 // Invoicing board.
 //
@@ -52,6 +55,10 @@ const HANDOVER_APP = "https://decorhandover.lyphex.com";
 const VIEWS = [
   { key: "to_charge", label: "To charge" },
   { key: "charged", label: "Charged" },
+  // Stock a client bought with no job behind it. It reaches this list when
+  // Veronica sends it over from her own board, and leaves it when she says
+  // she's charged for it — which is the last thing that happens to one.
+  { key: "shelf", label: "Off the shelf" },
 ];
 
 function fmtTime(iso) {
@@ -96,11 +103,55 @@ export default function InvoicingPage() {
   const canEdit = caps.invoicing;
   const [pending, setPending] = useState({});
   const [stored, setStored] = useState({});
+  const [shelf, setShelf] = useState([]);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!firebaseConfigured()) return;
     return onAuthStateChanged(auth(), setUser);
   }, []);
+
+  /**
+   * Charged for, which closes an off-the-shelf order on her side.
+   *
+   * The last thing that happens to one: the dock packed it, Alice sent it,
+   * and this is the record that it was paid for. It stays on the tab
+   * afterwards — the record is the reason the tab exists.
+   */
+  const chargeShelf = useCallback(
+    async (order) => {
+      const current = firebaseConfigured() ? auth().currentUser : null;
+      if (!current) {
+        setActionError("Sign in first so this is recorded against your name.");
+        return;
+      }
+      setSaving(true);
+      setActionError(null);
+      try {
+        const idToken = await current.getIdToken();
+        const res = await fetch("/api/shelf-orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "contact",
+            id: order.id,
+            kind: "note",
+            mark: "invoiced",
+            note: "Charged",
+            idToken,
+          }),
+        });
+        const json = await res.json();
+        if (!json.ok) throw new Error(json.error || "Save failed");
+        setShelf((list) => list.map((o) => (o.id === order.id ? { ...o, ...json.order } : o)));
+      } catch (e) {
+        setActionError(`Couldn't mark that charged. ${String(e.message || e)}`);
+      } finally {
+        setSaving(false);
+      }
+    },
+    []
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,6 +161,15 @@ export default function InvoicingPage() {
       if (!json.ok) throw new Error(json.error || "Failed to load handovers");
       setData(json);
       setError(null);
+      // The jobs are what this page is for; an off-the-shelf list that can't
+      // be reached shouldn't take them down with it.
+      try {
+        const shelfRes = await fetch("/api/shelf-orders", { cache: "no-store" });
+        const shelfJson = await shelfRes.json();
+        if (shelfJson.ok) setShelf(shelfJson.orders || []);
+      } catch {
+        setShelf([]);
+      }
     } catch (e) {
       setError(String(e.message || e));
     } finally {
@@ -193,9 +253,14 @@ export default function InvoicingPage() {
       )
     : all;
 
+  // Sent over by Veronica and not yet charged for. Charged ones stay on the
+  // tab as the record — which is the reason she asked for it.
+  const shelfToCharge = shelf.filter((o) => o.releasedAt && !o.invoicedAt);
+  const shelfCharged = shelf.filter((o) => o.invoicedAt);
   const counts = {
     to_charge: matching.filter((h) => stateOf(h) === "to_charge").length,
     charged: matching.filter((h) => stateOf(h) === "charged").length,
+    shelf: shelfToCharge.length,
   };
   const jobs = matching
     .filter((h) => stateOf(h) === view)
@@ -343,7 +408,87 @@ export default function InvoicingPage() {
           }}
         />
 
-        {!loading && jobs.length === 0 && (
+        {/* Stock with no job behind it. Its own list, because none of the
+            machinery below applies to it — no handover, no lines, no m2, just
+            a customer, a product and a figure. */}
+        {view === "shelf" && (
+          <>
+            {shelfToCharge.length === 0 && shelfCharged.length === 0 && !loading && (
+              <p style={{ fontSize: 13, color: BRAND.sub }}>
+                Nothing here. Off-the-shelf orders arrive when Veronica sends one over from her own
+                board.
+              </p>
+            )}
+            <div style={{ display: "grid", gap: 8 }}>
+              {[...shelfToCharge, ...shelfCharged].map((order) => {
+                const charged = Boolean(order.invoicedAt);
+                return (
+                  <section
+                    key={order.id}
+                    style={{
+                      background: BRAND.card,
+                      border: `1px solid ${charged ? BRAND.line : BRAND.amber}`,
+                      borderRadius: 10,
+                      padding: "12px 14px",
+                      display: "flex",
+                      gap: 14,
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      opacity: charged ? 0.75 : 1,
+                    }}
+                  >
+                    <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600 }}>{order.customer}</div>
+                      <div style={{ fontSize: 13, color: BRAND.sub }}>
+                        {order.product}
+                        {order.qty ? ` · ${order.qty}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 600, minWidth: 90 }}>
+                      {money(shelfTotal(order))}
+                    </div>
+                    <div style={{ fontSize: 12, color: BRAND.sub, minWidth: 150 }}>
+                      {charged ? (
+                        <>
+                          Charged{" "}
+                          {new Date(order.invoicedAt).toLocaleDateString("en-AU", {
+                            day: "numeric",
+                            month: "short",
+                          })}
+                          {order.invoicedBy && <div>{order.invoicedBy.split("@")[0]}</div>}
+                        </>
+                      ) : order.dispatchedAt ? (
+                        "Sent — waiting to be charged"
+                      ) : order.packedAt ? (
+                        "Packed, not yet sent"
+                      ) : (
+                        "With the warehouse"
+                      )}
+                    </div>
+                    {!charged && (
+                      <button
+                        onClick={() => chargeShelf(order)}
+                        disabled={saving || !canEdit}
+                        title="Charged for — closes it off and keeps the record"
+                        style={{
+                          ...btn,
+                          background: canEdit ? BRAND.green : BRAND.card,
+                          borderColor: canEdit ? BRAND.green : BRAND.line,
+                          color: canEdit ? "#fff" : BRAND.sub,
+                          opacity: saving ? 0.6 : 1,
+                        }}
+                      >
+                        Charged
+                      </button>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {view !== "shelf" && !loading && jobs.length === 0 && (
           <p style={{ fontSize: 13, color: BRAND.sub }}>
             {all.length === 0
               ? "Nothing handed over yet."
@@ -353,7 +498,7 @@ export default function InvoicingPage() {
           </p>
         )}
 
-        <div style={{ display: "grid", gap: 10 }}>
+        <div style={{ display: view === "shelf" ? "none" : "grid", gap: 10 }}>
           {jobs.map((h) => {
             const invoice = invoiceOf(h);
             const lines = h.invoiceLines ?? [];

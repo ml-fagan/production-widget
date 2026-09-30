@@ -231,8 +231,10 @@ export default function WarehousePage() {
     [loadShelf]
   );
 
-  // Paid and still in the building: the dock's to pack, then Alice's to send.
-  const toSend = shelf.filter((o) => o.paidAt && !o.dispatchedAt);
+  // Let go and still in the building: the dock's to pack, then Alice's to
+  // send. Released is the gate Veronica is asked for after she chases one;
+  // paid still counts, so orders taken the old way carry on arriving here.
+  const toSend = shelf.filter((o) => (o.releasedAt || o.paidAt) && !o.dispatchedAt);
 
   const setLine = useCallback(
     async (jobId, lineId, patch) => {
@@ -569,7 +571,7 @@ export default function WarehousePage() {
           <>
             {toSend.length === 0 && !loading && (
               <p style={{ fontSize: 13, color: BRAND.sub }}>
-                Nothing waiting to go out. Orders land here once Veronica marks them paid.
+                Nothing waiting to go out. Orders land here once Veronica sends one over.
               </p>
             )}
             {toSend.map((order) => {
@@ -595,6 +597,20 @@ export default function WarehousePage() {
                       {order.qty ? `${order.qty} · ` : ""}
                       {order.customer}
                     </div>
+                    {/* Where to go and get it, and anything else she was told.
+                        An off-the-shelf order has no picking list behind it,
+                        so whatever Veronica wrote down is all there is. */}
+                    {order.location && (
+                      <div style={{ fontSize: 13, marginTop: 3 }}>
+                        <span style={{ color: BRAND.sub }}>at </span>
+                        <strong style={{ fontWeight: 600 }}>{order.location}</strong>
+                      </div>
+                    )}
+                    {order.note && (
+                      <div style={{ fontSize: 12, color: BRAND.sub, marginTop: 3 }}>
+                        {order.note}
+                      </div>
+                    )}
                   </div>
                   <div style={{ fontSize: 12, color: BRAND.sub, minWidth: 120 }}>
                     {order.siteDate ? (

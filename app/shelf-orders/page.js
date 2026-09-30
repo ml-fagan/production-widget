@@ -19,6 +19,8 @@ import {
   shortDate,
   bucketOf,
   chaseCount,
+  chasedOrders,
+  lastChasedAt,
   lastContact,
   fulfilment,
   FULFILMENT_LABELS,
@@ -98,6 +100,9 @@ const td = {
 const SECTIONS = [
   { key: "new", label: "New order" },
   { key: "chase", label: "Chasing" },
+  // What she has actually rung about, newest first. The board sorts by what
+  // to do next, which is exactly the wrong order for "did I chase them".
+  { key: "chased", label: "Chased" },
 ];
 
 const BLANK = {
@@ -107,6 +112,7 @@ const BLANK = {
   price: "",
   siteDate: "",
   chaseLeadDays: 14,
+  location: "",
   note: "",
 };
 
@@ -124,6 +130,21 @@ export default function ShelfOrdersPage() {
   // The order the email panels are showing: the one just taken, or one picked
   // off the chase board.
   const [showing, setShowing] = useState(null);
+  /**
+   * The order whose chase email is open, right there in the row.
+   *
+   * It used to throw her onto the New order tab to see it, which is a
+   * different screen about a different job. Clicking the order should show
+   * the order.
+   */
+  const [openOrder, setOpenOrder] = useState(null);
+  /**
+   * Just chased, and not yet answered about letting it go.
+   *
+   * Asked rather than assumed: she rings some clients four times before
+   * anything moves, so a chase can't be what releases an order.
+   */
+  const [askRelease, setAskRelease] = useState(null);
   const [editingTemplates, setEditingTemplates] = useState(false);
   const [copied, setCopied] = useState("");
 
@@ -210,6 +231,7 @@ export default function ShelfOrdersPage() {
   }, [orders, now]);
 
   const chaseOn = chaseDate({ siteDate: draft.siteDate, chaseLeadDays: draft.chaseLeadDays });
+  const chased = useMemo(() => chasedOrders(orders), [orders]);
   const outstanding = grouped.get("now")?.length ?? 0;
 
   const copy = async (text, what) => {
@@ -268,7 +290,11 @@ export default function ShelfOrdersPage() {
 
         <SubTabs
           items={SECTIONS.map((sec) =>
-            sec.key === "chase" ? { ...sec, count: outstanding, tone: "warn" } : sec
+            sec.key === "chase"
+              ? { ...sec, count: outstanding, tone: "warn" }
+              : sec.key === "chased"
+                ? { ...sec, count: chased.length }
+                : sec
           )}
           current={section}
           onChange={setSection}
@@ -363,6 +389,30 @@ export default function ShelfOrdersPage() {
                       </option>
                     ))}
                   </select>
+                </label>
+              </div>
+
+              {/* What the dock needs to go and find it, and anything else she
+                  was told. An off-the-shelf order has no picking list behind
+                  it, so whatever she writes here is all they get. */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+                <label style={{ fontSize: 12, color: BRAND.sub }}>
+                  Where it is
+                  <input
+                    value={draft.location}
+                    onChange={(e) => setDraft({ ...draft, location: e.target.value })}
+                    placeholder="Rack B2, near the CNC…"
+                    style={input}
+                  />
+                </label>
+                <label style={{ fontSize: 12, color: BRAND.sub }}>
+                  Note for whoever packs it
+                  <input
+                    value={draft.note}
+                    onChange={(e) => setDraft({ ...draft, note: e.target.value })}
+                    placeholder="Anything they need to know"
+                    style={input}
+                  />
                 </label>
               </div>
 
@@ -560,10 +610,20 @@ export default function ShelfOrdersPage() {
                             now={now}
                             saving={saving}
                             canEdit={canEdit}
+                            open={openOrder === order.id}
                             onOpen={() => {
-                              setShowing(order);
-                              setSection("new");
+                              setOpenOrder(openOrder === order.id ? null : order.id);
+                              setAskRelease(null);
                             }}
+                            templates={templates}
+                            askRelease={askRelease === order.id}
+                            onChased={() => setAskRelease(order.id)}
+                            onAnswered={() => {
+                              setAskRelease(null);
+                              setOpenOrder(null);
+                            }}
+                            onCopy={copy}
+                            copied={copied}
                             onSend={send}
                           />
                         ))}
@@ -573,6 +633,81 @@ export default function ShelfOrdersPage() {
                 </section>
               );
             })}
+          </>
+        )}
+
+        {/* Everything she has actually rung about, newest first — the record
+            rather than the queue. The board above sorts by what to do next,
+            which is the wrong order for "have I chased them, and when". */}
+        {section === "chased" && (
+          <>
+            {chased.length === 0 && !loading && (
+              <p style={{ fontSize: 13, color: BRAND.sub }}>
+                Nothing chased yet. It lands here the moment you mark one chased up.
+              </p>
+            )}
+            {chased.length > 0 && (
+              <div
+                style={{
+                  background: BRAND.card,
+                  border: `1px solid ${BRAND.line}`,
+                  borderRadius: 10,
+                  overflowX: "auto",
+                }}
+              >
+                <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Customer</th>
+                      <th style={th}>Product</th>
+                      <th style={{ ...th, textAlign: "right" }}>Total</th>
+                      <th style={th}>Last chased</th>
+                      <th style={{ ...th, textAlign: "right" }}>Times</th>
+                      <th style={th}>Where it got to</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {chased.map((order) => {
+                      const when = lastChasedAt(order);
+                      return (
+                        <tr key={order.id}>
+                          <td style={{ ...td, fontWeight: 600 }}>{order.customer}</td>
+                          <td style={{ ...td, whiteSpace: "normal", minWidth: 160 }}>
+                            {order.product}
+                            {order.qty && (
+                              <div style={{ fontSize: 11, color: BRAND.sub }}>{order.qty}</div>
+                            )}
+                          </td>
+                          <td style={{ ...td, textAlign: "right" }}>
+                            {money(orderTotal(order))}
+                          </td>
+                          <td style={{ ...td, color: BRAND.sub }}>
+                            {when
+                              ? new Date(when).toLocaleDateString("en-AU", {
+                                  day: "numeric",
+                                  month: "short",
+                                })
+                              : "—"}
+                          </td>
+                          <td style={{ ...td, textAlign: "right" }}>{chaseCount(order)}</td>
+                          {/* What the chasing led to, which is the only
+                              reason to keep the record. */}
+                          <td style={{ ...td, color: BRAND.sub }}>
+                            {order.dispatchedAt
+                              ? "Sent"
+                              : order.invoicedAt
+                                ? "Charged"
+                                : order.releasedAt
+                                  ? "With the warehouse"
+                                  : "Still chasing"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -713,16 +848,41 @@ function EmailPanel({
 }
 
 /** One line on the chase board. */
-function ChaseRow({ order, bucket, now, saving, canEdit, onOpen, onSend }) {
+function ChaseRow({
+  order,
+  bucket,
+  now,
+  saving,
+  canEdit,
+  open,
+  onOpen,
+  onSend,
+  templates,
+  askRelease,
+  onChased,
+  onAnswered,
+  onCopy,
+  copied,
+}) {
   const chase = chaseDate(order);
   const overdue = chase && chase < now;
   const last = lastContact(order);
   const chases = chaseCount(order);
   const daysToSite = daysBetween(now, order.siteDate);
 
+  const total = orderTotal(order);
+
   return (
-    <tr>
+    <>
+    <tr
+      onClick={onOpen}
+      title="Open the chase email for this order"
+      style={{ cursor: "pointer", background: open ? "#fbfaf8" : undefined }}
+    >
       <td style={{ ...td, fontWeight: 600 }}>
+        <span aria-hidden="true" style={{ color: BRAND.sub, fontSize: 10, marginRight: 5 }}>
+          {open ? "▾" : "▸"}
+        </span>
         {order.customer}
         {chases > 1 && (
           <div style={{ fontSize: 11, fontWeight: 400, color: BRAND.amber }}>
@@ -766,9 +926,6 @@ function ChaseRow({ order, bucket, now, saving, canEdit, onOpen, onSend }) {
         )}
       </td>
       <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
-        <button onClick={onOpen} style={{ ...miniBtn, color: BRAND.blue }}>
-          {bucket === "payment" ? "Copy request" : "Copy chase"}
-        </button>{" "}
         {bucket === "fulfil" ? (
           <span style={{ fontSize: 11, color: BRAND.sub }}>
             {order.packedAt ? "with Alice to send" : "with the warehouse"}
@@ -817,5 +974,115 @@ function ChaseRow({ order, bucket, now, saving, canEdit, onOpen, onSend }) {
         )}
       </td>
     </tr>
+
+    {/* The email, under the order it's about.
+        
+        Opening it used to mean being thrown onto the New order tab — a
+        different screen about a different job, with the order she was
+        looking at nowhere on it. */}
+    {open && templates?.[bucket === "payment" ? "payment" : "chase"] && (
+      <tr>
+        <td colSpan={7} style={{ ...td, background: "#fbfaf8", padding: "12px 14px" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>
+            {order.customer} — {order.product}
+          </div>
+          <div style={{ fontSize: 12, color: BRAND.sub, marginBottom: 10 }}>
+            {[
+              order.qty,
+              total ? `$${total.toFixed(2)}` : "",
+              order.siteDate ? `on site ${shortDate(order.siteDate)}` : "",
+              order.location ? `at ${order.location}` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </div>
+
+          <EmailPanel
+            label={bucket === "payment" ? "Ask for payment" : "Chase it up"}
+            template={templates[bucket === "payment" ? "payment" : "chase"]}
+            order={order}
+            saved
+            editing={false}
+            saving={saving}
+            canEdit={canEdit}
+            copied={copied === `row:${order.id}`}
+            onCopy={(text) => onCopy(text, `row:${order.id}`)}
+            onSaveTemplate={() => {}}
+            onSent={null}
+          />
+
+          {/* One question, once, and only after she says she's chased it. */}
+          {askRelease ? (
+            <div
+              style={{
+                marginTop: 12,
+                padding: "10px 12px",
+                background: "#fdf4e6",
+                border: `1px solid ${BRAND.amber}`,
+                borderRadius: 8,
+              }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                Send it to the warehouse and to invoicing?
+              </div>
+              <div style={{ fontSize: 12, color: BRAND.sub, marginBottom: 8 }}>
+                Yes puts it on the dock&apos;s pack-and-send list and on your invoicing list. No
+                leaves it here to chase again.
+              </div>
+              <button
+                onClick={() => {
+                  onSend({
+                    action: "contact",
+                    id: order.id,
+                    kind: "note",
+                    mark: "released",
+                    note: "Sent to the warehouse and invoicing",
+                  });
+                  onAnswered();
+                }}
+                disabled={saving || !canEdit}
+                style={{
+                  ...miniBtn,
+                  background: BRAND.green,
+                  borderColor: BRAND.green,
+                  color: "#fff",
+                }}
+              >
+                Yes, send it
+              </button>{" "}
+              <button onClick={onAnswered} style={miniBtn}>
+                No, not yet
+              </button>
+            </div>
+          ) : (
+            bucket !== "fulfil" &&
+            bucket !== "done" && (
+              <button
+                onClick={() => {
+                  onSend({
+                    action: "contact",
+                    id: order.id,
+                    kind: "chase",
+                    note: "Chased up",
+                  });
+                  onChased();
+                }}
+                disabled={saving || !canEdit}
+                style={{
+                  ...miniBtn,
+                  marginTop: 12,
+                  background: BRAND.green,
+                  borderColor: BRAND.green,
+                  color: "#fff",
+                }}
+              >
+                Chased up
+              </button>
+            )
+          )}
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
