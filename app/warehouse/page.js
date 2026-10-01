@@ -237,7 +237,7 @@ export default function WarehousePage() {
   const toSend = shelf.filter((o) => (o.releasedAt || o.paidAt) && !o.dispatchedAt);
 
   const setLine = useCallback(
-    async (jobId, lineId, patch) => {
+    async (jobId, lineId, patch, pendingKey) => {
       if (!canReceive) {
         setActionError("You can see what's coming, but marking it in is for the warehouse or Alice.");
         return;
@@ -251,7 +251,9 @@ export default function WarehousePage() {
       }
       const idToken = await current.getIdToken();
 
-      const key = `${jobId}:${lineId}`;
+      // One line can be two rows when an order was split, so the spinner is
+      // keyed by the row rather than by the line it belongs to.
+      const key = pendingKey ?? `${jobId}:${lineId}`;
       setPending((p) => ({ ...p, [key]: true }));
       setActionError(null);
       try {
@@ -329,13 +331,51 @@ export default function WarehousePage() {
   // rack, and the delivery views below keep them out so "Expected" stays about
   // things on a truck.
   const lines = useMemo(() => {
+    /**
+     * One row per docket, not one per line.
+     *
+     * Alice can buy one line from two suppliers, and it arrives on two
+     * dockets days apart. The dock works from the number on the paper in
+     * front of them, so each purchase order gets its own row under its own
+     * number, with its own count to book in — and the line's total is the sum
+     * of them, worked out on the server.
+     *
+     * A line with no extras is one row, exactly as it always was.
+     */
     const jobLines = all.flatMap((h) =>
-      (stored[h.jobId] ?? h.materials ?? [])
-        .map((m) => ({
-          ...m,
-          jobId: h.jobId,
-          project: h.project || h.client || "",
-        }))
+      (stored[h.jobId] ?? h.materials ?? []).flatMap((m) => {
+        const base = { ...m, jobId: h.jobId, project: h.project || h.client || "" };
+        const extras = m.extraOrders ?? [];
+        if (extras.length === 0) return [base];
+        return [
+          {
+            ...base,
+            // What this docket is for, as opposed to the line as a whole.
+            orderPo: m.poNumber ?? "",
+            orderQty: m.quantity,
+            orderSpare: m.spare,
+            orderReceived: m.poReceivedQty ?? "",
+            splitOf: extras.length + 1,
+          },
+          ...extras.map((e) => ({
+            ...base,
+            // The key has to be the docket, or two rows of one line would
+            // share a box and overwrite each other.
+            id: `${m.id}::${e.id}`,
+            lineId: m.id,
+            orderPo: e.poNumber ?? "",
+            poNumber: e.poNumber ?? "",
+            ocNumber: e.ocNumber ?? "",
+            supplier: e.supplier || m.supplier,
+            orderQty: e.quantity,
+            orderSpare: "",
+            orderReceived: e.receivedQty ?? "",
+            splitOf: extras.length + 1,
+            // The extras are the line's other orders, not this row's own.
+            extraOrders: [],
+          })),
+        ];
+      })
     );
     // Only pre-orders Alice has actually placed. One still sitting at
     // "to order" isn't on a truck, so it isn't the dock's business yet.
@@ -1063,9 +1103,18 @@ export default function WarehousePage() {
               const pre = Boolean(m.isPreOrder);
               const key = pre ? `pre:${m.id}` : `${m.jobId}:${m.id}`;
               const busy = pending[key];
-              const want = orderQty(m);
-              const had = countOf(m.receivedQty);
-              const savedQty = String(m.receivedQty ?? "");
+              /**
+               * One docket, when the line was bought from more than one place.
+               *
+               * `splitOf` is set by the row builder above. Everything here
+               * then reads this order's figures rather than the line's, which
+               * is what the dock is holding: a docket for twenty-six, not a
+               * line for sixty-six.
+               */
+              const split = Boolean(m.splitOf);
+              const want = split ? countOf(m.orderQty) + countOf(m.orderSpare) : orderQty(m);
+              const savedQty = String((split ? m.orderReceived : m.receivedQty) ?? "");
+              const had = countOf(savedQty);
               const draft = received[key] ?? savedQty;
               const changed = draft.trim() !== savedQty.trim();
               const clear = () =>
@@ -1076,7 +1125,16 @@ export default function WarehousePage() {
                 });
               const savePart = () => {
                 if (!changed) return clear();
-                setLine(m.jobId, m.id, { receivedQty: draft.trim() });
+                // Against the order it came on, when there's more than one.
+                // The line's own total is the sum, worked out on the server.
+                setLine(
+                  m.jobId,
+                  m.lineId ?? m.id,
+                  split
+                    ? { receiveAgainst: { po: m.orderPo ?? "", quantity: draft.trim() } }
+                    : { receivedQty: draft.trim() },
+                  key
+                );
                 clear();
               };
               const late =
@@ -1287,10 +1345,29 @@ export default function WarehousePage() {
                           Save
                         </button>
                       )}
+                      {/* On a split line this books THIS docket in full and
+                          leaves the line open for the other one — closing the
+                          line because one of two suppliers delivered is how a
+                          job gets scheduled against material that isn't
+                          here. The line closes itself once the total reaches
+                          what was ordered. */}
                       <button
-                        onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
+                        onClick={() =>
+                          setLine(
+                            m.jobId,
+                            m.lineId ?? m.id,
+                            split
+                              ? { receiveAgainst: { po: m.orderPo ?? "", quantity: String(want) } }
+                              : { state: "completed" },
+                            key
+                          )
+                        }
                         disabled={busy || !canReceive}
-                        title="The whole line arrived — closes it and tells the schedule"
+                        title={
+                          split
+                            ? `All ${want} on this PO arrived — the rest of the line stays open`
+                            : "The whole line arrived — closes it and tells the schedule"
+                        }
                         style={{
                           ...btn,
                           background: BRAND.green,
