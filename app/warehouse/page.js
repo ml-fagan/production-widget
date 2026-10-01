@@ -396,7 +396,19 @@ export default function WarehousePage() {
   const q = query.trim().toLowerCase();
   const matches = (m) =>
     !q ||
-    [m.poNumber, m.ocNumber, m.supplier, m.jobId, m.project, m.name]
+    [
+      m.poNumber,
+      m.ocNumber,
+      m.supplier,
+      m.jobId,
+      m.project,
+      m.name,
+      // A line split across two suppliers arrives on two dockets with two
+      // numbers. Searching the second one found nothing, which is the moment
+      // the dock needs it most.
+      ...(m.extraOrders ?? []).flatMap((e) => [e.poNumber, e.ocNumber, e.supplier]),
+    ]
+      .filter(Boolean)
       .join(" ")
       .toLowerCase()
       .includes(q);
@@ -1106,6 +1118,23 @@ export default function WarehousePage() {
                         </span>
                       )}
                     </div>
+                    {/* Bought from more than one place, so it arrives on more
+                        than one docket. The card is grouped under the first
+                        PO; without this the second docket's number appears
+                        nowhere on the board. */}
+                    {(m.extraOrders ?? []).length > 0 && (
+                      <div style={{ fontSize: 12, color: BRAND.amber, marginTop: 2 }}>
+                        also on{" "}
+                        {(m.extraOrders ?? [])
+                          .map(
+                            (e) =>
+                              `PO ${e.poNumber || "—"}${e.supplier ? ` (${e.supplier})` : ""}${
+                                e.quantity ? ` · ${e.quantity}` : ""
+                              }`
+                          )
+                          .join(" · ")}
+                      </div>
+                    )}
                     <div style={{ fontSize: 12, color: BRAND.sub, marginTop: 2 }}>
                       {/* Which job it's for, for anyone who wants it — but
                           second, because the dock works from the docket. A

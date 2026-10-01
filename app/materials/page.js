@@ -1946,6 +1946,24 @@ export default function MaterialsPage() {
                             );
                           })()
                         )}
+                        {/* The rest of the order, when it was bought from more
+                            than one place. Under the first PO rather than in a
+                            column of its own: most lines have none, and a
+                            column of blanks is worse than a line that appears
+                            when there's something to say. */}
+                        {(m.extraOrders ?? []).map((extra) => (
+                          <div
+                            key={extra.id}
+                            style={{ fontSize: 11, color: BRAND.sub, marginTop: 2 }}
+                            title={`Also ordered from ${extra.supplier || "somewhere"}${
+                              extra.ocNumber ? ` · their ref ${extra.ocNumber}` : ""
+                            }`}
+                          >
+                            + {extra.poNumber || "no PO"}
+                            {extra.quantity ? ` (${extra.quantity})` : ""}
+                            {extra.supplier ? ` · ${extra.supplier}` : ""}
+                          </div>
+                        ))}
                       </td>
                       {/* Theirs, beside ours. Same rules: typed once where the
                           order is placed, and read by whoever has to chase it. */}
@@ -2036,14 +2054,22 @@ export default function MaterialsPage() {
                       >
                         {/* Correctable until it's ordered, and only until
                             then — after that the line is what a supplier was
-                            asked for. Stock lines aren't being bought. */}
-                        {state === "to_order" && !m.fromStock && canEdit && (
+                            asked for. Stock lines aren't being bought.
+
+                            It stays reachable afterwards for one thing: a
+                            second PO, which is written the day the second
+                            order is placed and so always after this closes. */}
+                        {!m.fromStock && canEdit && (
                           <button
                             onClick={() => setEditLine(editLine === key ? null : key)}
-                            title="Put this line right — the board, the size, the count, the supplier"
+                            title={
+                              state === "to_order"
+                                ? "Put this line right — the board, the size, the count, the supplier"
+                                : "Ordered — the material is fixed, but you can add another PO"
+                            }
                             style={{ ...btn, marginRight: 6 }}
                           >
-                            {editLine === key ? "Close" : "Edit"}
+                            {editLine === key ? "Close" : state === "to_order" ? "Edit" : "+ PO"}
                           </button>
                         )}
                         {pre ? (
@@ -2403,6 +2429,11 @@ export default function MaterialsPage() {
                           <LineEditor
                             brand={BRAND}
                             line={{ ...m, ...halves(m) }}
+                            /* Once it's ordered the material is what a
+                               supplier was asked for, and the server refuses
+                               to change it. Saying so here stops her typing
+                               into a box that will be rejected. */
+                            locked={effectiveState(m) !== "to_order"}
                             saving={lineSaving}
                             onCancel={() => setEditLine(null)}
                             onSave={(patch) => saveLine(m, patch)}
