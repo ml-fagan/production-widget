@@ -146,7 +146,16 @@ function currentStage(handover) {
  * a card can say, and a missing figure reads as "not applicable" when it
  * means "none".
  */
-function StockFigures({ free, assigned, incoming, size = 13 }) {
+/** "14 Oct" — short enough to sit on a figure. */
+function fmtDue(day) {
+  if (!day) return "";
+  const d = new Date(`${day}T12:00:00`);
+  return Number.isNaN(d.getTime())
+    ? ""
+    : d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+}
+
+function StockFigures({ free, assigned, incoming, due, size = 13 }) {
   const cell = (value, colour, label, title) => (
     <span
       title={title}
@@ -165,7 +174,16 @@ function StockFigures({ free, assigned, incoming, size = 13 }) {
     <span style={{ display: "inline-flex", gap: 10, alignItems: "baseline", marginLeft: "auto" }}>
       {cell(free, BRAND.green, "available", "Here and unspoken for — any job can take it")}
       {cell(assigned, BRAND.red, "assigned", "Here, but a job is counting on it")}
-      {cell(incoming, BRAND.sub, "on order", "Bought and not arrived. It becomes available or assigned when somebody confirms it in.")}
+      {cell(
+        incoming,
+        BRAND.sub,
+        // A bay reading nil free is answered by when the next lot lands, so
+        // the date goes on the figure rather than somewhere else on the row.
+        due ? `on order · ${fmtDue(due)}` : "on order",
+        `Bought and not arrived${
+          due ? `, first of it due ${fmtDue(due)}` : ""
+        }. It becomes available or assigned when somebody confirms it in.`
+      )}
     </span>
   );
 }
@@ -868,7 +886,7 @@ export default function MaterialStockPage() {
       const name = decors[String(stack.finish).trim().toLowerCase()] || stack.finish;
       const key = name.toLowerCase();
       if (!map.has(key)) {
-        map.set(key, { key, name, stacks: [], free: 0, reserved: 0, incoming: 0 });
+        map.set(key, { key, name, stacks: [], free: 0, reserved: 0, incoming: 0, incomingDue: "" });
       }
       const group = map.get(key);
       group.stacks.push(stack);
@@ -876,6 +894,12 @@ export default function MaterialStockPage() {
         group.free += product.free;
         group.reserved += product.reserved;
         group.incoming += product.incoming;
+        if (
+          product.incomingDue &&
+          (!group.incomingDue || product.incomingDue < group.incomingDue)
+        ) {
+          group.incomingDue = product.incomingDue;
+        }
       }
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -1361,6 +1385,7 @@ export default function MaterialStockPage() {
                       free={decorGroup.free}
                       assigned={decorGroup.reserved}
                       incoming={decorGroup.incoming}
+                      due={decorGroup.incomingDue}
                     />
                   </button>
 
@@ -1438,6 +1463,7 @@ export default function MaterialStockPage() {
                         free={group.free}
                         assigned={group.reserved}
                         incoming={group.incoming}
+                        due={group.incomingDue}
                       />
                       <span aria-hidden="true" style={{ fontSize: 10, color: BRAND.sub }}>
                         {open ? "▾" : "▸"}
@@ -1477,6 +1503,7 @@ export default function MaterialStockPage() {
                               free={b.free}
                               assigned={b.reserved}
                               incoming={b.incoming}
+                              due={b.incomingDue}
                               size={12}
                             />
                           </div>

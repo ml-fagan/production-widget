@@ -718,7 +718,20 @@ export default function MaterialsPage() {
      * settled, and the first anyone knew was the job asking for it.
      */
     if (m.fromStock) {
-      return effectiveState(m) === "completed" ? "complete" : "outstanding";
+      const stockState = effectiveState(m);
+      if (stockState === "completed") return "complete";
+      /**
+       * The rack was bare, so she bought it.
+       *
+       * A line can start off the rack and end up on order: somebody goes to
+       * look, it isn't there, and Alice orders the shortfall. From that moment
+       * it is an order like any other and belongs with them — it used to sit
+       * in Outstanding however many times she'd ordered it, because being off
+       * the rack was treated as a fact about the line rather than where it
+       * started.
+       */
+      if (stockState === "ordered" || stockState === "part_received") return "ordered";
+      return "outstanding";
     }
     const state = effectiveState(m);
     if (state === "completed") return "complete";
@@ -2230,9 +2243,34 @@ export default function MaterialsPage() {
                                   </span>
                                 );
                               })()}
+                              {/* The other way it can go.
+
+                                  Somebody looks, the rack is bare or short,
+                                  and she buys it instead — from that moment
+                                  it's an order like any other and moves to
+                                  the Ordered tab with its expected date. It
+                                  used to have no way out except confirming
+                                  material that wasn't there. */}
+                              <button
+                                onClick={() =>
+                                  // Giving up the claim as well as ordering it:
+                                  // the line isn't coming off a rack any more,
+                                  // and everything downstream reads that one
+                                  // flag — what it claims, what's on order,
+                                  // which tab it sits on, and whether the
+                                  // delivery books onto the register.
+                                  setLine(m.jobId, m.id, { state: "ordered", fromStock: false })
+                                }
+                                disabled={busy}
+                                title="Not on the rack after all — ordered it instead"
+                                style={{ ...btn, opacity: busy ? 0.6 : 1 }}
+                              >
+                                Ordered
+                              </button>
                               <button
                                 onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
                                 disabled={busy}
+                                title="It's on the rack and it's this job's"
                                 style={{
                                   ...btn,
                                   background: BRAND.green,
