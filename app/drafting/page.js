@@ -16,6 +16,7 @@ import {
   timesOutLabel,
   pillsFor,
   matchesPill,
+  csvFor,
 } from "../../lib/drafting.js";
 
 // Drafting — drawings issued and sitting with a client.
@@ -170,6 +171,26 @@ export default function DraftingPage() {
 
   const aged = rows.filter((r) => bandOf(quietDays(r, now)) === "aged").length;
 
+  /**
+   * The board, as a spreadsheet.
+   *
+   * Exports what's on screen, filter and search included, and names the file
+   * for the day it was taken — a drafting export is a snapshot of a clock, and
+   * two of them a week apart are only comparable if you can tell them apart.
+   *
+   * The BOM is for Excel, which otherwise reads UTF-8 as the system codepage
+   * and turns every dash in a project name into mojibake.
+   */
+  const exportCsv = () => {
+    const text = `﻿${csvFor(shown, now)}`;
+    const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `drafting-${now}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const th = {
     textAlign: "left",
     fontSize: 11,
@@ -298,6 +319,15 @@ export default function DraftingPage() {
               <span style={{ marginLeft: 6, opacity: 0.75 }}>{p.count}</span>
             </button>
           ))}
+          {shown.length > 0 && (
+            <button
+              onClick={exportCsv}
+              style={{ ...btn, marginLeft: "auto", color: BRAND.blue }}
+              title="Exports the rows you're looking at, not the whole register"
+            >
+              Export CSV
+            </button>
+          )}
         </div>
 
         <input
