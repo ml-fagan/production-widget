@@ -1741,7 +1741,15 @@ export default function MaterialStockPage() {
                                       fontWeight: 500,
                                     }}
                                   >
-                                    {e.quantity > 0 ? `+${e.quantity}` : e.quantity}
+                                    {/* A confirmation is a note, not a
+                                        movement: the sheets were already on
+                                        the register. "0" would read as a
+                                        mistake, so it says what it is. */}
+                                    {e.source === "confirmed"
+                                      ? "✓"
+                                      : e.quantity > 0
+                                        ? `+${e.quantity}`
+                                        : e.quantity}
                                   </span>{" "}
                                   {e.source === "leftover"
                                     ? "Leftover"
@@ -1749,6 +1757,8 @@ export default function MaterialStockPage() {
                                       ? "Pre-order"
                                       : e.source === "delivery"
                                         ? "Delivered"
+                                        : e.source === "confirmed"
+                                          ? "Confirmed on the rack"
                                         : e.source === "scheduled"
                                           ? "Scheduled"
                                           : e.source === "count"

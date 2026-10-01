@@ -59,7 +59,10 @@ const VIEWS = [
   // what's left in front of her is only what she still has to do.
   { key: "outstanding", label: "Outstanding" },
   { key: "ordered", label: "Ordered" },
-  { key: "complete", label: "All in — completed orders" },
+  // Two things finish here and the name used to mention only one: material
+  // that was ordered and has landed, and material off the rack that somebody
+  // walked over and confirmed. Nothing was ordered for the second kind.
+  { key: "complete", label: "Ordered / confirmed" },
   // There is no "Off the rack" tab any more. Where material physically is
   // belongs on the Stock register, which is the one place that answers it for
   // the whole factory; this board's job is the paperwork — what was ordered,
