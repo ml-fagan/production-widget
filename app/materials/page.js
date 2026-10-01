@@ -937,9 +937,14 @@ export default function MaterialsPage() {
       }}
     >
       {/* Wide enough for the table this page exists for. It was capped at
-          1000px like a page of prose, which meant a horizontal scrollbar
-          on a screen with 900px of empty margin either side. */}
-      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
+          1000px like a page of prose, which meant a horizontal scrollbar on a
+          screen with 900px of empty margin either side.
+
+          1800 now, like the schedule board and allocation rather than the
+          narrow pages: eleven columns and three editable fields need the room.
+          At 1500 the table still overran by about seventy pixels, and what
+          fell off the end was Expected — the column Alice has to type in. */}
+      <div style={{ maxWidth: 1800, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",
@@ -2056,6 +2061,15 @@ export default function MaterialsPage() {
                                 padding: "2px 6px",
                                 fontSize: 12,
                                 fontFamily: "inherit",
+                                /* Wide enough for dd/mm/yyyy and the picker
+                                   button. A date input has no width of its own
+                                   to defend, so the full-width table squeezed
+                                   it down to "dd/m" and the calendar button
+                                   off the end — leaving a column you could
+                                   read but not set. */
+                                width: 138,
+                                minWidth: 138,
+                                boxSizing: "border-box",
                               }}
                             />
                           );
