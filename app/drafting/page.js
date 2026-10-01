@@ -17,6 +17,7 @@ import {
   pillsFor,
   matchesPill,
   csvFor,
+  plain,
 } from "../../lib/drafting.js";
 
 // Drafting — drawings issued and sitting with a client.
@@ -142,7 +143,9 @@ export default function DraftingPage() {
   }, []);
 
   const now = today();
-  const q = query.trim().toLowerCase();
+  // Normalised, because the names carry non-breaking spaces that no keyboard
+  // produces — see plain().
+  const q = plain(query).toLowerCase();
 
   const shown = useMemo(
     () =>
@@ -151,9 +154,7 @@ export default function DraftingPage() {
         .filter(
           (r) =>
             !q ||
-            [r.crm, r.projectName, r.assignee, r.products]
-              .filter(Boolean)
-              .join(" ")
+            plain([r.crm, r.projectName, r.assignee, r.products].filter(Boolean).join(" "))
               .toLowerCase()
               .includes(q)
         )
