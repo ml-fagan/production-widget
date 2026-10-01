@@ -62,6 +62,10 @@ export default function DraftingPage() {
   const [pill, setPill] = useState("all");
   const [user, setUser] = useState(null);
   const caps = useCapabilities(user);
+  // Chasing is Mitch's and the managers'; reading is anyone's.
+  const canChase = caps.drafting;
+  const [saving, setSaving] = useState("");
+  const [actionError, setActionError] = useState(null);
 
   useEffect(() => {
     if (!firebaseConfigured()) return;
@@ -97,6 +101,44 @@ export default function DraftingPage() {
       window.removeEventListener("focus", onFocus);
     };
   }, [load]);
+
+  /**
+   * Recording a chase.
+   *
+   * The row moves band straight away rather than waiting an hour for the next
+   * sync — the server writes Asana first and the cache second, so by the time
+   * this answers the date is real everywhere.
+   */
+  const markChased = useCallback(async (row) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first — a chase is recorded against a name.");
+      return;
+    }
+    setSaving(row.taskGid);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/drafting/chased", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskGid: row.taskGid, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "That didn't save");
+      setRows((list) =>
+        list.map((r) =>
+          r.taskGid === row.taskGid
+            ? { ...r, followUpAt: json.followUpAt, chasedBy: json.chasedBy }
+            : r
+        )
+      );
+    } catch (e) {
+      setActionError(String(e.message || e));
+    } finally {
+      setSaving("");
+    }
+  }, []);
 
   const now = today();
   const q = query.trim().toLowerCase();
@@ -206,6 +248,21 @@ export default function DraftingPage() {
 
         <Tabs current="drafting" tabs={caps.tabs} />
 
+        {actionError && (
+          <div
+            style={{
+              background: "#fdf4e6",
+              border: `1px solid ${BRAND.amber}`,
+              color: BRAND.amber,
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 13,
+              marginBottom: 16,
+            }}
+          >
+            {actionError}
+          </div>
+        )}
         {error && (
           <div
             style={{
@@ -379,7 +436,26 @@ export default function DraftingPage() {
                             </span>
                           )}
                         </td>
-                        <td style={{ ...td, textAlign: "right" }}>
+                        <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+                          <button
+                            onClick={() => markChased(r)}
+                            disabled={saving === r.taskGid || !canChase}
+                            title={
+                              canChase
+                                ? "Writes today's date to Follow Up in Asana"
+                                : "Chasing is Mitch's and the managers'"
+                            }
+                            style={{
+                              ...btn,
+                              marginRight: 8,
+                              background: canChase ? BRAND.green : BRAND.card,
+                              borderColor: canChase ? BRAND.green : BRAND.line,
+                              color: canChase ? "#fff" : BRAND.sub,
+                              opacity: saving === r.taskGid ? 0.6 : 1,
+                            }}
+                          >
+                            {saving === r.taskGid ? "Saving…" : "Chased today"}
+                          </button>
                           {r.permalink && (
                             <a
                               href={r.permalink}
