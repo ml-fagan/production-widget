@@ -41,6 +41,15 @@ const TABS = [
     title: "Who's on which step today",
   },
   {
+    // Drawings issued and sitting with a client, and how long each has been
+    // quiet. Third under PRODUCTION because it's the step before a job is one.
+    key: "drafting",
+    label: "Drafting",
+    href: "/drafting",
+    group: "production",
+    title: "Drawings out with clients — how long each has been quiet, and who chased it",
+  },
+  {
     key: "materials",
     // Short inside a group: "Material orders" under a heading that already
     // says Material is the same word twice.

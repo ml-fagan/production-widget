@@ -1,0 +1,411 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { onAuthStateChanged } from "firebase/auth";
+import Tabs from "../Tabs.js";
+import SignIn from "../SignIn.js";
+import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
+import { useCapabilities } from "../../lib/useCapabilities.js";
+import {
+  BANDS,
+  bandOf,
+  quietDays,
+  today,
+  shortDay,
+  brisbaneDay,
+  timesOutLabel,
+  pillsFor,
+  matchesPill,
+} from "../../lib/drafting.js";
+
+// Drafting — drawings issued and sitting with a client.
+//
+// A job lands here when Mitch ticks its task complete in Asana, which he means
+// as "issued, with the client". He unticks it when a revision comes back and
+// reticks it when he reissues, so a job can be out several times and the clock
+// restarts each time.
+//
+// Asana owns this. The register is a cache so the board renders in one read,
+// and the only thing that ever gets written back is the Follow Up date.
+//
+// Thirty-six of the forty-one rows have never been chased, and the oldest has
+// been quiet for two hundred and twenty days. That is the whole reason for the
+// board: none of this was visible anywhere.
+
+const BRAND = {
+  bg: "#f5f3ef",
+  card: "#ffffff",
+  ink: "#1c1b19",
+  sub: "#6b6862",
+  line: "#e5e1d8",
+  green: "#408152",
+  amber: "#a86b12",
+  blue: "#004CFB",
+  red: "#a3312c",
+};
+
+const REFRESH_MS = 15 * 60 * 1000;
+
+function pollWhenVisible(run, everyMs) {
+  const id = setInterval(() => {
+    if (!document.hidden) run();
+  }, everyMs);
+  return id;
+}
+
+export default function DraftingPage() {
+  const [rows, setRows] = useState([]);
+  const [syncedAt, setSyncedAt] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [query, setQuery] = useState("");
+  const [pill, setPill] = useState("all");
+  const [user, setUser] = useState(null);
+  const caps = useCapabilities(user);
+
+  useEffect(() => {
+    if (!firebaseConfigured()) return;
+    return onAuthStateChanged(auth(), setUser);
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/drafting", { cache: "no-store" });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Couldn't read the register");
+      setRows(json.rows || []);
+      setSyncedAt(json.syncedAt || "");
+      setError(null);
+    } catch (e) {
+      // Deliberately keeps whatever was already on screen. An empty chase
+      // register reads as "nothing to chase", which is the worst thing this
+      // board could say.
+      setError(String(e.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const id = pollWhenVisible(load, REFRESH_MS);
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [load]);
+
+  const now = today();
+  const q = query.trim().toLowerCase();
+
+  const shown = useMemo(
+    () =>
+      rows
+        .filter((r) => matchesPill(r, pill))
+        .filter(
+          (r) =>
+            !q ||
+            [r.crm, r.projectName, r.assignee, r.products]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase()
+              .includes(q)
+        )
+        .map((r) => ({ ...r, days: quietDays(r, now) }))
+        // Longest quiet first within whatever band it lands in.
+        .sort((a, b) => (b.days ?? -1) - (a.days ?? -1)),
+    [rows, pill, q, now]
+  );
+
+  const pills = useMemo(() => pillsFor(rows, now), [rows, now]);
+  const banded = BANDS.map((band) => ({
+    ...band,
+    rows: shown.filter((r) => bandOf(r.days) === band.key),
+  })).filter((b) => b.rows.length > 0);
+
+  const aged = rows.filter((r) => bandOf(quietDays(r, now)) === "aged").length;
+
+  const th = {
+    textAlign: "left",
+    fontSize: 11,
+    fontWeight: 500,
+    color: BRAND.sub,
+    padding: "7px 10px",
+    borderBottom: `1px solid ${BRAND.line}`,
+    whiteSpace: "nowrap",
+  };
+  const td = {
+    fontSize: 12,
+    padding: "7px 10px",
+    borderBottom: `1px solid ${BRAND.line}`,
+    whiteSpace: "nowrap",
+  };
+  const btn = {
+    border: `1px solid ${BRAND.line}`,
+    background: BRAND.card,
+    color: BRAND.ink,
+    borderRadius: 8,
+    padding: "5px 12px",
+    fontSize: 12,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    whiteSpace: "nowrap",
+  };
+
+  return (
+    <main
+      style={{
+        fontFamily: "Inter, system-ui, sans-serif",
+        background: BRAND.bg,
+        color: BRAND.ink,
+        minHeight: "100vh",
+        padding: 24,
+        boxSizing: "border-box",
+      }}
+    >
+      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
+        <header
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            marginBottom: 20,
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
+          <div>
+            <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.01em" }}>
+              Drafting
+            </h1>
+            <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
+              {rows.length} {rows.length === 1 ? "set" : "sets"} out with clients
+              {aged > 0 && (
+                <>
+                  {" · "}
+                  <strong style={{ color: BRAND.amber }}>{aged} quiet over a month</strong>
+                </>
+              )}
+            </p>
+          </div>
+          <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
+            <SignIn user={user} brand={BRAND} />
+            <button onClick={load} style={{ ...btn, padding: "6px 12px", fontSize: 13 }}>
+              {loading ? "Reading…" : "Refresh"}
+            </button>
+            {/* The age of the cache rather than the time of day: a register
+                that has stopped syncing should look stopped, not look quiet. */}
+            <div style={{ marginTop: 6 }}>
+              {syncedAt ? `From Asana ${shortDay(brisbaneDay(syncedAt))}` : ""}
+            </div>
+          </div>
+        </header>
+
+        <Tabs current="drafting" tabs={caps.tabs} />
+
+        {error && (
+          <div
+            style={{
+              background: "#fbeceb",
+              border: `1px solid ${BRAND.red}`,
+              color: BRAND.red,
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 13,
+              marginBottom: 16,
+            }}
+          >
+            Couldn&apos;t reach the register, so this is the last good copy —
+            not an empty list. {error}
+          </div>
+        )}
+
+        {/* Filters, built from the rows: a new drafter appears the day they're
+            assigned something rather than the day somebody edits a file. */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {pills.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => setPill(p.key)}
+              style={{
+                ...btn,
+                background: pill === p.key ? BRAND.ink : BRAND.card,
+                borderColor: pill === p.key ? BRAND.ink : BRAND.line,
+                color: pill === p.key ? "#fff" : BRAND.sub,
+              }}
+            >
+              {p.label}
+              <span style={{ marginLeft: 6, opacity: 0.75 }}>{p.count}</span>
+            </button>
+          ))}
+        </div>
+
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Filter by job, project, person or product"
+          style={{
+            width: "100%",
+            border: `1px solid ${BRAND.line}`,
+            background: BRAND.card,
+            borderRadius: 8,
+            padding: "8px 12px",
+            fontSize: 14,
+            fontFamily: "inherit",
+            marginBottom: 16,
+            boxSizing: "border-box",
+          }}
+        />
+
+        {!loading && shown.length === 0 && (
+          <p style={{ fontSize: 13, color: BRAND.sub }}>
+            {rows.length === 0
+              ? "Nothing on the register. That either means every set is back, or the sync hasn't run."
+              : "Nothing matches that."}
+          </p>
+        )}
+
+        {banded.map((band) => (
+          <section
+            key={band.key}
+            style={{
+              background: BRAND.card,
+              border: `1px solid ${band.urgent ? BRAND.amber : BRAND.line}`,
+              borderRadius: 10,
+              marginBottom: 14,
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 8,
+                padding: "9px 12px",
+                background: band.urgent ? "#fdf4e6" : "transparent",
+                borderBottom: `1px solid ${BRAND.line}`,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: band.urgent ? BRAND.amber : BRAND.ink,
+                }}
+              >
+                {band.label} ({band.rows.length})
+              </span>
+              {band.hint && (
+                <span style={{ fontSize: 11, color: BRAND.sub }}>{band.hint}</span>
+              )}
+            </div>
+
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...th, textAlign: "right" }}>Quiet</th>
+                    <th style={th}>Job</th>
+                    <th style={th}>Project</th>
+                    <th style={th}>Drafter</th>
+                    <th style={th}>Product</th>
+                    <th style={th}>Issued</th>
+                    <th style={th} title="How many times this set has gone out">
+                      Times out
+                    </th>
+                    <th style={th}>Chased</th>
+                    <th style={{ ...th, textAlign: "right" }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {band.rows.map((r) => {
+                    const times = timesOutLabel(r);
+                    return (
+                      <tr key={r.taskGid}>
+                        {/* The largest thing on the row, because it's the
+                            only number that decides anything. */}
+                        <td
+                          style={{
+                            ...td,
+                            textAlign: "right",
+                            fontSize: 17,
+                            fontWeight: 600,
+                            color: band.urgent ? BRAND.amber : BRAND.ink,
+                          }}
+                        >
+                          {r.days === null ? "—" : r.days}
+                          <span style={{ fontSize: 11, fontWeight: 400, color: BRAND.sub }}>d</span>
+                        </td>
+                        <td style={{ ...td, fontWeight: 600 }}>
+                          {/* A task whose name carries no number still belongs
+                              here — dropping it because a parse failed would
+                              hide the row somebody needs. */}
+                          {r.crm || <span style={{ color: BRAND.sub, fontWeight: 400 }}>—</span>}
+                        </td>
+                        <td style={{ ...td, whiteSpace: "normal", minWidth: 220 }}>
+                          {r.projectName || "—"}
+                        </td>
+                        <td style={td}>{r.assignee || "—"}</td>
+                        <td style={{ ...td, whiteSpace: "normal", maxWidth: 200 }}>
+                          {r.products || <span style={{ color: BRAND.sub }}>—</span>}
+                        </td>
+                        <td style={{ ...td, color: BRAND.sub }}>
+                          {shortDay(brisbaneDay(r.completedAt)) || "—"}
+                        </td>
+                        <td style={{ ...td, color: times.repeat ? BRAND.ink : BRAND.sub }}>
+                          {/* Blank until this row ages into needing the
+                              revision history fetched — not an error state. */}
+                          {r.timesOut === null || r.timesOut === undefined ? (
+                            <span style={{ color: "#b3afa6" }}>—</span>
+                          ) : (
+                            times.text
+                          )}
+                        </td>
+                        <td style={td}>
+                          {r.followUpAt ? (
+                            shortDay(r.followUpAt)
+                          ) : (
+                            <span
+                              style={{
+                                fontStyle: "italic",
+                                color: band.urgent ? BRAND.amber : BRAND.sub,
+                              }}
+                              title="Nobody has recorded chasing this"
+                            >
+                              never
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ ...td, textAlign: "right" }}>
+                          {r.permalink && (
+                            <a
+                              href={r.permalink}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ color: BRAND.blue, textDecoration: "none", fontSize: 12 }}
+                            >
+                              Asana ↗
+                            </a>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ))}
+
+        <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 18, maxWidth: 820 }}>
+          A set lands here when its Asana task is ticked complete, which means issued and with the
+          client. The clock runs from the last chase if there is one, and from the issue date if
+          there isn&apos;t — which is most of them.
+        </p>
+      </div>
+    </main>
+  );
+}
