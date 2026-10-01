@@ -1627,7 +1627,8 @@ export default function MaterialsPage() {
                       <td style={cell}>{m.ocNumber || "—"}</td>
                       {/* A stock line was never ordered from anybody — it was
                           fetched off a rack and confirmed, so there's no lead
-                          to quote and a zero would be a lie. */}
+                          to quote and a zero would be a lie.
+ */}
                       <td style={{ ...cell, color: BRAND.sub, whiteSpace: "nowrap" }}>
                         {m.fromStock || !m.orderedAt ? (
                           "—"
@@ -1815,10 +1816,22 @@ export default function MaterialsPage() {
                             {m.materialNote}
                           </div>
                         )}
-                        {pre && !sameJobAbove && (m.loggedBy || m.note) && (
+                        {/* Who asked for it, and when.
+                            
+                            The name was here; the date wasn't, so there was no
+                            telling a pre-order raised this morning from one
+                            raised three weeks ago — which is the thing that
+                            decides which to ring about first. */}
+                        {pre && !sameJobAbove && (m.loggedBy || m.note || m.loggedAt) && (
                           <div style={{ fontSize: 11, color: BRAND.sub }}>
+                            {m.loggedAt && (
+                              <span title={`Asked for ${fmtStamp(m.loggedAt)}`}>
+                                asked for {fmtStamp(m.loggedAt)}
+                              </span>
+                            )}
+                            {m.loggedAt && m.loggedBy ? " · " : ""}
                             {m.loggedBy ? m.loggedBy.split("@")[0] : ""}
-                            {m.loggedBy && m.note ? " · " : ""}
+                            {(m.loggedAt || m.loggedBy) && m.note ? " · " : ""}
                             {m.note || ""}
                           </div>
                         )}
