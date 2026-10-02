@@ -258,7 +258,7 @@ export default function DraftingPage() {
         >
           <div>
             <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.01em" }}>
-              Drafting
+              Tasks
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
               {drawingsCount} {drawingsCount === 1 ? "set" : "sets"} out with clients

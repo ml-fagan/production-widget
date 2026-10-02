@@ -41,13 +41,16 @@ const TABS = [
     title: "Who's on which step today",
   },
   {
-    // Drawings issued and sitting with a client, and how long each has been
-    // quiet. Third under PRODUCTION because it's the step before a job is one.
+    // Anything sitting with a client and going quiet: drawings issued, and
+    // accounts nobody has spoken to. Called "Tasks" rather than "Drafting"
+    // since the accounts came in — they are Veronica's, not the drafters'.
+    // The key and the route stay `drafting`: they are what the access model
+    // and the Firestore collection are named, and bookmarks point at them.
     key: "drafting",
-    label: "Drafting",
+    label: "Tasks",
     href: "/drafting",
     group: "production",
-    title: "Drawings out with clients — how long each has been quiet, and who chased it",
+    title: "Drawings out with clients and accounts going quiet — how long since anybody touched each",
   },
   {
     key: "materials",
