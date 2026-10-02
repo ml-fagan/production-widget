@@ -19,7 +19,6 @@ import {
   csvFor,
   plain,
   clockFrom,
-  chasedSinceIssue,
   isAccount,
 } from "../../lib/drafting.js";
 
@@ -425,8 +424,11 @@ export default function DraftingPage() {
                     <th style={th} title="How many times this set has gone out">
                       Times out
                     </th>
-                    <th style={th} title="Drawings: when it was last chased. Accounts: when anybody last spoke to the client.">
-                      Chased / contact
+                    <th
+                      style={th}
+                      title="The last time anybody was in touch — a recorded chase, or a comment on the Asana task"
+                    >
+                      Last touch
                     </th>
                     <th style={{ ...th, textAlign: "right" }} />
                   </tr>
@@ -437,7 +439,6 @@ export default function DraftingPage() {
                     // What the quiet count is measured from, so the number can
                     // always be explained without opening Asana.
                     const clock = clockFrom(r);
-                    const chased = chasedSinceIssue(r);
                     const account = isAccount(r);
                     return (
                       <tr
@@ -525,31 +526,30 @@ export default function DraftingPage() {
                             times.text
                           )}
                         </td>
+                        {/* The last time anybody was in touch, however it was
+                            recorded: a chase, or somebody leaving a comment.
+                            Read off the clock, so this column and the day
+                            count can never tell different stories. */}
                         <td style={td}>
-                          {account ? (
-                            r.lastContactAt ? (
-                              <span
-                                title={
-                                  r.lastContactBy
-                                    ? `Last comment by ${r.lastContactBy}`
+                          {clock.basis === "chased" || clock.basis === "contacted" ? (
+                            <span
+                              title={
+                                clock.basis === "chased"
+                                  ? `Chased on ${shortDay(clock.day)}`
+                                  : r.lastContactBy
+                                    ? `Last comment, by ${r.lastContactBy}`
                                     : "Last comment on the Asana task"
-                                }
-                              >
-                                {shortDay(brisbaneDay(r.lastContactAt))}
-                              </span>
-                            ) : (
-                              <span
-                                style={{
-                                  fontStyle: "italic",
-                                  color: band.urgent ? BRAND.amber : BRAND.sub,
-                                }}
-                                title="No comment has ever been left on this account"
-                              >
-                                never
-                              </span>
-                            )
-                          ) : chased ? (
-                            shortDay(chased)
+                              }
+                            >
+                              {shortDay(clock.day)}
+                              {clock.basis === "contacted" && (
+                                <span
+                                  style={{ color: "#b3afa6", fontSize: 11, marginLeft: 5 }}
+                                >
+                                  comment
+                                </span>
+                              )}
+                            </span>
                           ) : (
                             <span
                               style={{
@@ -557,9 +557,11 @@ export default function DraftingPage() {
                                 color: band.urgent ? BRAND.amber : BRAND.sub,
                               }}
                               title={
-                                r.followUpAt
-                                  ? `Last chased ${shortDay(r.followUpAt)}, which was before this set went out again`
-                                  : "Nobody has recorded chasing this"
+                                account
+                                  ? "No comment has ever been left on this account"
+                                  : r.followUpAt
+                                    ? `Last chased ${shortDay(r.followUpAt)}, which was before this set went out again`
+                                    : "Nobody has chased this or commented on it"
                               }
                             >
                               never
@@ -567,7 +569,7 @@ export default function DraftingPage() {
                                   about a job somebody remembers chasing reads
                                   as the board being wrong. It was chased —
                                   just not since the reissue. */}
-                              {r.followUpAt && (
+                              {!account && r.followUpAt && (
                                 <span
                                   style={{
                                     fontStyle: "normal",
@@ -631,13 +633,14 @@ export default function DraftingPage() {
         ))}
 
         <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 18, maxWidth: 820 }}>
-          A drawing set lands here when its Asana task is ticked complete, which means issued and
-          with the client. Its clock runs from whichever came last, the issue or the chase.
+          Every row counts from the last real thing that happened to it — the drawings going out,
+          somebody chasing, or anybody leaving a comment on the Asana task. A set lands here when
+          its task is ticked complete, which means issued and with the client.
           <br />
-          <span style={{ color: BRAND.pink }}>Accounts</span> are never ticked complete, so theirs
-          runs on contact instead: the last comment on the task. Their Follow Up dates are reminders
-          for a date ahead and are deliberately left alone — pressing Touched base adds a comment
-          rather than overwriting one.
+          <span style={{ color: BRAND.pink }}>Accounts</span> are never ticked complete, so they
+          have no issue date and run on contact alone. Their Follow Up dates are reminders for a
+          date ahead and are deliberately left alone — pressing Touched base adds a comment rather
+          than overwriting one.
         </p>
       </div>
     </main>
