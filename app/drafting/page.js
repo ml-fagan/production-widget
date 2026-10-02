@@ -18,6 +18,8 @@ import {
   matchesPill,
   csvFor,
   plain,
+  clockFrom,
+  chasedSinceIssue,
 } from "../../lib/drafting.js";
 
 // Drafting — drawings issued and sitting with a client.
@@ -411,6 +413,10 @@ export default function DraftingPage() {
                 <tbody>
                   {band.rows.map((r) => {
                     const times = timesOutLabel(r);
+                    // What the quiet count is measured from, so the number can
+                    // always be explained without opening Asana.
+                    const clock = clockFrom(r);
+                    const chased = chasedSinceIssue(r);
                     return (
                       <tr key={r.taskGid}>
                         {/* The largest thing on the row, because it's the
@@ -423,6 +429,13 @@ export default function DraftingPage() {
                             fontWeight: 600,
                             color: band.urgent ? BRAND.amber : BRAND.ink,
                           }}
+                          title={
+                            clock.basis === "chased"
+                              ? `Since it was chased, on ${shortDay(clock.day)}`
+                              : clock.basis === "issued"
+                                ? `Since it was last issued, on ${shortDay(clock.day)}`
+                                : "No date to count from"
+                          }
                         >
                           {r.days === null ? "—" : r.days}
                           <span style={{ fontSize: 11, fontWeight: 400, color: BRAND.sub }}>d</span>
@@ -453,17 +466,37 @@ export default function DraftingPage() {
                           )}
                         </td>
                         <td style={td}>
-                          {r.followUpAt ? (
-                            shortDay(r.followUpAt)
+                          {chased ? (
+                            shortDay(chased)
                           ) : (
                             <span
                               style={{
                                 fontStyle: "italic",
                                 color: band.urgent ? BRAND.amber : BRAND.sub,
                               }}
-                              title="Nobody has recorded chasing this"
+                              title={
+                                r.followUpAt
+                                  ? `Last chased ${shortDay(r.followUpAt)}, which was before this set went out again`
+                                  : "Nobody has recorded chasing this"
+                              }
                             >
                               never
+                              {/* The old date still shown, because "never"
+                                  about a job somebody remembers chasing reads
+                                  as the board being wrong. It was chased —
+                                  just not since the reissue. */}
+                              {r.followUpAt && (
+                                <span
+                                  style={{
+                                    fontStyle: "normal",
+                                    color: "#b3afa6",
+                                    fontSize: 11,
+                                    marginLeft: 5,
+                                  }}
+                                >
+                                  last {shortDay(r.followUpAt)}
+                                </span>
+                              )}
                             </span>
                           )}
                         </td>
