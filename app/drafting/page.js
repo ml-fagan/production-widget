@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
@@ -75,6 +75,10 @@ export default function DraftingPage() {
   const canChase = caps.drafting;
   const [saving, setSaving] = useState("");
   const [actionError, setActionError] = useState(null);
+  // Which row has its note open, and what's been typed into it. One at a time:
+  // two half-written notes on screen is a way to put one on the wrong job.
+  const [noting, setNoting] = useState("");
+  const [note, setNote] = useState("");
 
   useEffect(() => {
     if (!firebaseConfigured()) return;
@@ -118,7 +122,7 @@ export default function DraftingPage() {
    * sync — the server writes Asana first and the cache second, so by the time
    * this answers the date is real everywhere.
    */
-  const markChased = useCallback(async (row) => {
+  const markChased = useCallback(async (row, note = "") => {
     const current = firebaseConfigured() ? auth().currentUser : null;
     if (!current) {
       setActionError("Sign in first — a chase is recorded against a name.");
@@ -131,22 +135,38 @@ export default function DraftingPage() {
       const res = await fetch("/api/drafting/chased", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskGid: row.taskGid, idToken }),
+        body: JSON.stringify({ taskGid: row.taskGid, idToken, note }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "That didn't save");
       // Whichever record that board keeps. An accounts row gets a comment and
-      // a contact date; a drawings row gets the Follow Up date. Taken from the
-      // answer rather than guessed at here, so the two can't drift.
+      // a contact date; a drawings row gets the Follow Up date and, now, a
+      // comment as well. Taken from the answer rather than guessed at here, so
+      // the two can't drift — and lastContactAt only arrives if the comment
+      // really posted.
       setRows((list) =>
         list.map((r) =>
           r.taskGid === row.taskGid
             ? json.kind === "accounts"
               ? { ...r, lastContactAt: json.lastContactAt, lastContactBy: json.lastContactBy }
-              : { ...r, followUpAt: json.followUpAt, chasedBy: json.chasedBy }
+              : {
+                  ...r,
+                  followUpAt: json.followUpAt,
+                  chasedBy: json.chasedBy,
+                  ...(json.lastContactAt
+                    ? { lastContactAt: json.lastContactAt, lastContactBy: json.lastContactBy }
+                    : {}),
+                }
             : r
         )
       );
+      // A note that was typed but didn't reach Asana must say so. The chase
+      // itself is recorded either way.
+      if (note.trim() && !json.lastContactAt && json.kind !== "accounts") {
+        setActionError("Chase recorded, but the note didn't post to Asana. Add it there by hand.");
+      }
+      setNoting("");
+      setNote("");
     } catch (e) {
       setActionError(String(e.message || e));
     } finally {
@@ -440,9 +460,10 @@ export default function DraftingPage() {
                     // always be explained without opening Asana.
                     const clock = clockFrom(r);
                     const account = isAccount(r);
+                    const open = noting === r.taskGid;
                     return (
+                      <Fragment key={r.taskGid}>
                       <tr
-                        key={r.taskGid}
                         style={
                           account
                             ? { background: BRAND.pinkSoft, boxShadow: `inset 3px 0 0 ${BRAND.pink}` }
@@ -586,14 +607,17 @@ export default function DraftingPage() {
                         </td>
                         <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
                           <button
-                            onClick={() => markChased(r)}
+                            onClick={() => {
+                              setNote("");
+                              setNoting(noting === r.taskGid ? "" : r.taskGid);
+                            }}
                             disabled={saving === r.taskGid || !canChase}
                             title={
                               !canChase
                                 ? "Chasing is Mitch's and the managers'"
                                 : account
-                                  ? "Adds a comment on the Asana task. Leaves the Follow Up reminder alone."
-                                  : "Writes today's date to Follow Up in Asana"
+                                  ? "Write what came of it. Posts a comment on the Asana task and leaves the Follow Up reminder alone."
+                                  : "Write what came of it. Sets Follow Up to today and posts a comment on the Asana task."
                             }
                             style={{
                               ...btn,
@@ -624,6 +648,109 @@ export default function DraftingPage() {
                           )}
                         </td>
                       </tr>
+
+                      {/* The note, in a row of its own beneath — so opening it
+                          never changes the shape of the row above, and the
+                          box is wide enough to write a sentence in. */}
+                      {open && (
+                        <tr style={account ? { background: BRAND.pinkSoft } : undefined}>
+                          <td colSpan={9} style={{ ...td, whiteSpace: "normal", padding: "10px 12px" }}>
+                            {/* Pinned to the left edge of the scroll window and
+                                held to a readable width. The cell spans all
+                                nine columns, so without this the Post button
+                                sits wherever the table happens to end — which
+                                on a laptop is off the right-hand side, leaving
+                                a note you can type and cannot send. */}
+                            <div
+                              style={{
+                                position: "sticky",
+                                left: 0,
+                                maxWidth: 820,
+                                display: "flex",
+                                gap: 8,
+                                alignItems: "flex-start",
+                              }}
+                            >
+                              <textarea
+                                autoFocus
+                                value={note}
+                                onChange={(e) => setNote(e.target.value)}
+                                maxLength={2000}
+                                rows={2}
+                                placeholder={`What came of it? e.g. "Called and left a message." — goes on the Asana task for ${r.crm || "this job"}`}
+                                onKeyDown={(e) => {
+                                  // Ctrl/Cmd+Enter to send, Escape to drop it.
+                                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                                    e.preventDefault();
+                                    markChased(r, note);
+                                  }
+                                  if (e.key === "Escape") {
+                                    setNoting("");
+                                    setNote("");
+                                  }
+                                }}
+                                style={{
+                                  flex: 1,
+                                  border: `1px solid ${BRAND.line}`,
+                                  borderRadius: 8,
+                                  padding: "8px 10px",
+                                  fontSize: 13,
+                                  fontFamily: "inherit",
+                                  resize: "vertical",
+                                  background: BRAND.card,
+                                  color: BRAND.ink,
+                                }}
+                              />
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                <button
+                                  onClick={() => markChased(r, note)}
+                                  disabled={saving === r.taskGid}
+                                  style={{
+                                    ...btn,
+                                    background: account ? BRAND.pink : BRAND.green,
+                                    borderColor: account ? BRAND.pink : BRAND.green,
+                                    color: "#fff",
+                                    opacity: saving === r.taskGid ? 0.6 : 1,
+                                  }}
+                                >
+                                  {saving === r.taskGid
+                                    ? "Posting…"
+                                    : note.trim()
+                                      ? "Post to Asana"
+                                      : "Record without a note"}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setNoting("");
+                                    setNote("");
+                                  }}
+                                  disabled={saving === r.taskGid}
+                                  style={btn}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                            <p
+                              style={{
+                                position: "sticky",
+                                left: 0,
+                                maxWidth: 820,
+                                fontSize: 11,
+                                color: BRAND.sub,
+                                margin: "6px 0 0",
+                              }}
+                            >
+                              {account
+                                ? "Posts a comment on the Asana task. The Follow Up reminder is left alone."
+                                : "Sets Follow Up to today and posts a comment on the Asana task."}{" "}
+                              Asana stamps it with the time, so the comment is the record of when you
+                              followed up. ⌘/Ctrl + Enter to post.
+                            </p>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     );
                   })}
                 </tbody>
