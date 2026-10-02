@@ -20,6 +20,7 @@ import {
   plain,
   clockFrom,
   chasedSinceIssue,
+  isAccount,
 } from "../../lib/drafting.js";
 
 // Drafting — drawings issued and sitting with a client.
@@ -46,6 +47,11 @@ const BRAND = {
   amber: "#a86b12",
   blue: "#004CFB",
   red: "#a3312c",
+  // Accounts. Pink so the two halves of the board are told apart at a glance
+  // without reading a column — they answer different questions and the action
+  // on them is different.
+  pink: "#a8336d",
+  pinkSoft: "#fdf2f7",
 };
 
 const REFRESH_MS = 15 * 60 * 1000;
@@ -130,10 +136,15 @@ export default function DraftingPage() {
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "That didn't save");
+      // Whichever record that board keeps. An accounts row gets a comment and
+      // a contact date; a drawings row gets the Follow Up date. Taken from the
+      // answer rather than guessed at here, so the two can't drift.
       setRows((list) =>
         list.map((r) =>
           r.taskGid === row.taskGid
-            ? { ...r, followUpAt: json.followUpAt, chasedBy: json.chasedBy }
+            ? json.kind === "accounts"
+              ? { ...r, lastContactAt: json.lastContactAt, lastContactBy: json.lastContactBy }
+              : { ...r, followUpAt: json.followUpAt, chasedBy: json.chasedBy }
             : r
         )
       );
@@ -173,6 +184,8 @@ export default function DraftingPage() {
   })).filter((b) => b.rows.length > 0);
 
   const aged = rows.filter((r) => bandOf(quietDays(r, now)) === "aged").length;
+  const accountsCount = rows.filter(isAccount).length;
+  const drawingsCount = rows.length - accountsCount;
 
   /**
    * The board, as a spreadsheet.
@@ -248,7 +261,13 @@ export default function DraftingPage() {
               Drafting
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-              {rows.length} {rows.length === 1 ? "set" : "sets"} out with clients
+              {drawingsCount} {drawingsCount === 1 ? "set" : "sets"} out with clients
+              {accountsCount > 0 && (
+                <>
+                  {" · "}
+                  <span style={{ color: BRAND.pink }}>{accountsCount} accounts</span>
+                </>
+              )}
               {aged > 0 && (
                 <>
                   {" · "}
@@ -400,13 +419,15 @@ export default function DraftingPage() {
                     <th style={{ ...th, textAlign: "right" }}>Quiet</th>
                     <th style={th}>Job</th>
                     <th style={th}>Project</th>
-                    <th style={th}>Drafter</th>
+                    <th style={th}>Owner</th>
                     <th style={th}>Product</th>
                     <th style={th}>Issued</th>
                     <th style={th} title="How many times this set has gone out">
                       Times out
                     </th>
-                    <th style={th}>Chased</th>
+                    <th style={th} title="Drawings: when it was last chased. Accounts: when anybody last spoke to the client.">
+                      Chased / contact
+                    </th>
                     <th style={{ ...th, textAlign: "right" }} />
                   </tr>
                 </thead>
@@ -417,8 +438,16 @@ export default function DraftingPage() {
                     // always be explained without opening Asana.
                     const clock = clockFrom(r);
                     const chased = chasedSinceIssue(r);
+                    const account = isAccount(r);
                     return (
-                      <tr key={r.taskGid}>
+                      <tr
+                        key={r.taskGid}
+                        style={
+                          account
+                            ? { background: BRAND.pinkSoft, boxShadow: `inset 3px 0 0 ${BRAND.pink}` }
+                            : undefined
+                        }
+                      >
                         {/* The largest thing on the row, because it's the
                             only number that decides anything. */}
                         <td
@@ -434,7 +463,11 @@ export default function DraftingPage() {
                               ? `Since it was chased, on ${shortDay(clock.day)}`
                               : clock.basis === "issued"
                                 ? `Since it was last issued, on ${shortDay(clock.day)}`
-                                : "No date to count from"
+                                : clock.basis === "contacted"
+                                  ? `Since anybody last spoke to the client, on ${shortDay(clock.day)}`
+                                  : clock.basis === "opened"
+                                    ? `Nobody has ever recorded contact. Counting from when the account was opened, on ${shortDay(clock.day)}`
+                                    : "No date to count from"
                           }
                         >
                           {r.days === null ? "—" : r.days}
@@ -445,6 +478,24 @@ export default function DraftingPage() {
                               here — dropping it because a parse failed would
                               hide the row somebody needs. */}
                           {r.crm || <span style={{ color: BRAND.sub, fontWeight: 400 }}>—</span>}
+                          {account && (
+                            <span
+                              style={{
+                                marginLeft: 6,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                letterSpacing: "0.03em",
+                                color: BRAND.pink,
+                                border: `1px solid ${BRAND.pink}`,
+                                borderRadius: 4,
+                                padding: "1px 4px",
+                                verticalAlign: "middle",
+                              }}
+                              title="From 1. Accounts — the clock runs on contact with the client"
+                            >
+                              ACCT
+                            </span>
+                          )}
                         </td>
                         <td style={{ ...td, whiteSpace: "normal", minWidth: 220 }}>
                           {r.projectName || "—"}
@@ -453,20 +504,51 @@ export default function DraftingPage() {
                         <td style={{ ...td, whiteSpace: "normal", maxWidth: 200 }}>
                           {r.products || <span style={{ color: BRAND.sub }}>—</span>}
                         </td>
+                        {/* Accounts are never issued and never completed, so
+                            both of these columns are empty for them by
+                            definition rather than for want of data. */}
                         <td style={{ ...td, color: BRAND.sub }}>
-                          {shortDay(brisbaneDay(r.completedAt)) || "—"}
+                          {account ? (
+                            <span style={{ color: "#b3afa6" }} title="Accounts aren't issued">
+                              —
+                            </span>
+                          ) : (
+                            shortDay(brisbaneDay(r.completedAt)) || "—"
+                          )}
                         </td>
                         <td style={{ ...td, color: times.repeat ? BRAND.ink : BRAND.sub }}>
                           {/* Blank until this row ages into needing the
                               revision history fetched — not an error state. */}
-                          {r.timesOut === null || r.timesOut === undefined ? (
+                          {account || r.timesOut === null || r.timesOut === undefined ? (
                             <span style={{ color: "#b3afa6" }}>—</span>
                           ) : (
                             times.text
                           )}
                         </td>
                         <td style={td}>
-                          {chased ? (
+                          {account ? (
+                            r.lastContactAt ? (
+                              <span
+                                title={
+                                  r.lastContactBy
+                                    ? `Last comment by ${r.lastContactBy}`
+                                    : "Last comment on the Asana task"
+                                }
+                              >
+                                {shortDay(brisbaneDay(r.lastContactAt))}
+                              </span>
+                            ) : (
+                              <span
+                                style={{
+                                  fontStyle: "italic",
+                                  color: band.urgent ? BRAND.amber : BRAND.sub,
+                                }}
+                                title="No comment has ever been left on this account"
+                              >
+                                never
+                              </span>
+                            )
+                          ) : chased ? (
                             shortDay(chased)
                           ) : (
                             <span
@@ -505,20 +587,28 @@ export default function DraftingPage() {
                             onClick={() => markChased(r)}
                             disabled={saving === r.taskGid || !canChase}
                             title={
-                              canChase
-                                ? "Writes today's date to Follow Up in Asana"
-                                : "Chasing is Mitch's and the managers'"
+                              !canChase
+                                ? "Chasing is Mitch's and the managers'"
+                                : account
+                                  ? "Adds a comment on the Asana task. Leaves the Follow Up reminder alone."
+                                  : "Writes today's date to Follow Up in Asana"
                             }
                             style={{
                               ...btn,
                               marginRight: 8,
-                              background: canChase ? BRAND.green : BRAND.card,
-                              borderColor: canChase ? BRAND.green : BRAND.line,
+                              // Pink on an account, so the button that does a
+                              // different thing doesn't look identical.
+                              background: canChase ? (account ? BRAND.pink : BRAND.green) : BRAND.card,
+                              borderColor: canChase ? (account ? BRAND.pink : BRAND.green) : BRAND.line,
                               color: canChase ? "#fff" : BRAND.sub,
                               opacity: saving === r.taskGid ? 0.6 : 1,
                             }}
                           >
-                            {saving === r.taskGid ? "Saving…" : "Chased today"}
+                            {saving === r.taskGid
+                              ? "Saving…"
+                              : account
+                                ? "Touched base"
+                                : "Chased today"}
                           </button>
                           {r.permalink && (
                             <a
@@ -541,9 +631,13 @@ export default function DraftingPage() {
         ))}
 
         <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 18, maxWidth: 820 }}>
-          A set lands here when its Asana task is ticked complete, which means issued and with the
-          client. The clock runs from the last chase if there is one, and from the issue date if
-          there isn&apos;t — which is most of them.
+          A drawing set lands here when its Asana task is ticked complete, which means issued and
+          with the client. Its clock runs from whichever came last, the issue or the chase.
+          <br />
+          <span style={{ color: BRAND.pink }}>Accounts</span> are never ticked complete, so theirs
+          runs on contact instead: the last comment on the task. Their Follow Up dates are reminders
+          for a date ahead and are deliberately left alone — pressing Touched base adds a comment
+          rather than overwriting one.
         </p>
       </div>
     </main>
