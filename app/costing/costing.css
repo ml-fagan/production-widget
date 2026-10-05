@@ -66,7 +66,7 @@
 .cw-block-head { display: flex; justify-content: space-between; margin: 0 2px 8px; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .cw-unit { color: var(--muted); font-size: 12px; }
 .cw-lines col.c-qty { width: 110px; } .cw-lines col.c-rate { width: 130px; } .cw-lines col.c-waste { width: 64px; } .cw-lines col.c-src { width: 96px; } .cw-lines col.c-total { width: 120px; } .cw-lines col.c-act { width: 76px; } .cw-lines td .cw-undo { white-space: nowrap; }
-.cw-lines { width: 100%; border-collapse: collapse; table-layout: fixed; background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+.cw-lines { width: 100%; border-collapse: collapse; table-layout: fixed; background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; }
 .cw-lines th { font-size: 12px; font-weight: 500; color: var(--muted); text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); background: #fafbf9; }
 .cw-adj { table-layout: auto; }
 .cw-lines td { overflow-wrap: anywhere; padding: 8px 10px; border-bottom: 1px solid #eceee9; vertical-align: top; }
@@ -180,3 +180,8 @@
 .cw-warn-text { color: var(--mark); }
 
 @media (max-width: 760px) { .cw-totals { position: static; } }
+
+/* editor floats over its cell */
+.cw-cell { position: relative; display: inline-block; }
+.cw-cell > .cw-editor { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: 220px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 10px; box-shadow: 0 8px 24px -6px rgba(29,39,38,.35); text-align: left; }
+.cw-cell > .cw-editor input { width: 100%; }

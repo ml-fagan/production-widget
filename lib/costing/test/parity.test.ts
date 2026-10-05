@@ -2,7 +2,7 @@
  * Parity tests: default inputs must reproduce the cached results saved in each
  * Excel workbook (values read straight from the uploaded files).
  */
-import { runCosting, createPriceBook } from '..';
+import { runCosting, createPriceBook, needsPrice } from '..';
 import { cewood, decorSlat, slatCreate, decorSlatMax, flatPanel, decorMetl, decorZen } from '../calculators';
 
 let fails = 0, passes = 0;
@@ -94,6 +94,21 @@ near('m² cost (ROUNDUP 0.1)', S(r).costPerUnit, 137.4);
 near('m² sell @60%', S(r).sellPerUnit, 343.5);
 r = runCosting(decorZen, { qtyM2: 10 });
 near('MOQ: 10 m² scales substrate rate to 42.39 × 28.8 / 10', r.lines[0].rate, 42.39 * 28.8 / 10);
+
+console.log('Needs price (unpriced lines)');
+const flagged = (calc: Parameters<typeof runCosting>[0], inputs = {}, opts = {}) =>
+  runCosting(calc, inputs, opts).lines.filter(needsPrice).map((l) => l.id).join(',');
+const same = (name: string, got: string, want: string) => { const ok = got === want; ok ? passes++ : fails++; console.log(`${ok ? '  ✓' : '  ✗'} ${name}: [${got}]${ok ? '' : ` (expected [${want}])`}`); };
+same('DecorSlat defaults: slat lineal has no price', flagged(decorSlat), 'slat-lm');
+same('SlatCreate defaults: sheet and edging have no price', flagged(slatCreate), 'slat-sheet,slat-edging');
+same('DecorSlat with a rate set on purpose', flagged(decorSlat, {}, { overrides: { 'slat-lm': { rate: 3.5, reason: 'test' } } }), '');
+same('DecorSlat with a rate set to $0 on purpose', flagged(decorSlat, {}, { overrides: { 'slat-lm': { rate: 0, reason: 'free issue' } } }), '');
+same('DecorSlat with the line switched off', flagged(decorSlat, {}, { overrides: { 'slat-lm': { enabled: false, reason: 'test' } } }), '');
+same('DecorZen defaults: manual labour rows are not flagged', flagged(decorZen), '');
+same('DecorSlat Max defaults', flagged(decorSlatMax), '');
+same('Flat Panel defaults', flagged(flatPanel), '');
+same('Cewood defaults', flagged(cewood), '');
+same('DecorMetl defaults', flagged(decorMetl), '');
 
 console.log(`\n${passes} passed, ${fails} failed`);
 if (fails) process.exit(1);

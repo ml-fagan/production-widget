@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CALCULATORS, runCosting, emptyPriceBook } from '../../lib/costing';
+import { CALCULATORS, runCosting, emptyPriceBook, needsPrice } from '../../lib/costing';
 import { MATERIALS } from '../../lib/costing/calculators/decorZen';
 import './costing.css';
 
@@ -38,10 +38,6 @@ const SOURCE = {
 // Two decimals, three only under a dollar (edge tape per LM) — "$6.000" reads like a data error.
 const rate$ = (n) => money(n, n > 0 && n < 1 ? 3 : 2);
 const fmtDay = (iso) => { const d = new Date(`${iso}T00:00:00`); return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); };
-// A ticked material line with a quantity and no price: the quote would be missing it entirely.
-// A rate or total that someone set on purpose (even to nothing) counts as priced.
-const needsPrice = (l) => l.enabled && !l.extra && l.qty > 0 && l.rate === 0
-  && (l.section === 'material' || !!l.priceKey) && !l.override?.fields.some((f) => f === 'rate' || f === 'total');
 // What to fill in first, one line per template.
 const HINTS = {
   decorzen: 'Pick the material and profile first, then the quantity.',
@@ -143,10 +139,15 @@ export default function CostingWorkbench({
   }
   // Rate and total are what gets changed day to day, so they show their dashed
   // edge on hover; quantity and waste stay quiet until pointed at.
-  const edit = (l, field, content, title, quiet = false) =>
-    editing?.id === l.id && editing.field === field
-      ? <EditCell editing={editing} setEditing={setEditing} commit={commitEdit} />
-      : <button className={`cw-edit${quiet ? ' is-quiet' : ''}${l.override?.fields.includes(field) ? ' is-changed' : ''}`} onClick={() => startEdit(l, field)} title={title}>{content}</button>;
+  // The editor floats over the cell instead of replacing it, so opening one
+  // doesn't make the row taller and push everything below it down.
+  const edit = (l, field, content, title, quiet = false) => (
+    <span className="cw-cell">
+      <button className={`cw-edit${quiet ? ' is-quiet' : ''}${l.override?.fields.includes(field) ? ' is-changed' : ''}`}
+        onClick={() => startEdit(l, field)} title={title} aria-haspopup="dialog">{content}</button>
+      {editing?.id === l.id && editing.field === field && <EditCell editing={editing} setEditing={setEditing} commit={commitEdit} />}
+    </span>
+  );
 
   function addLine() {
     const amount = parseFloat(adding.amount);

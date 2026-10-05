@@ -38,6 +38,8 @@ export interface CostLine {
   priceKey?: string;
   enabled: boolean;
   total: number;
+  /** Added by hand on the costing rather than produced by the template. */
+  extra?: boolean;
   /** Populated when an override was applied. */
   override?: AppliedOverride;
   /** Value before override, for the "was" display. */
@@ -210,6 +212,17 @@ export function applyOverrides(lines: CostLine[], overrides: Overrides = {}): Co
     return next;
   });
 }
+
+/**
+ * A ticked material line with a quantity and no price: the quote would be
+ * missing it entirely. Labour rows that start at zero for someone to fill in
+ * are not material and carry no price key, so they are left alone. A rate or
+ * total set on purpose, even to nothing, counts as priced.
+ */
+export const needsPrice = (l: CostLine) =>
+  l.enabled && !l.extra && l.qty > 0 && l.rate === 0 &&
+  (l.section === 'material' || !!l.priceKey) &&
+  !l.override?.fields.some((f) => f === 'rate' || f === 'total');
 
 export const sectionTotal = (lines: CostLine[], s: Section) =>
   sum(lines.filter((l) => l.section === s && l.enabled).map((l) => l.total));
