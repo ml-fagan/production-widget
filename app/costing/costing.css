@@ -5,7 +5,7 @@
   --order: #1f5f53; --catalog: #46566b; --formula: #6b5d8c;
   font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; color: var(--ink); background: var(--paper);
   display: grid; grid-template-columns: 196px minmax(280px, 330px) minmax(0, 1fr); min-height: 100%;
-  font-size: 14px; line-height: 1.45;
+  font-size: 14px; line-height: 1.45; border-radius: 10px;
 }
 .cw *, .cw *::before, .cw *::after { box-sizing: border-box; }
 .cw button, .cw input, .cw select { font: inherit; color: inherit; }
@@ -44,7 +44,7 @@
 
 /* sheet */
 .cw-sheet { padding: 20px 24px 40px; min-width: 0; }
-.cw-totals { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 18px 20px; display: grid; grid-template-columns: auto 1fr; gap: 8px 32px; }
+.cw-totals { position: sticky; top: 0; z-index: 5; box-shadow: 0 6px 10px -8px rgba(29,39,38,.35); background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 18px 20px; display: grid; grid-template-columns: auto 1fr; gap: 8px 32px; }
 .cw-sell span { color: var(--muted); font-size: 13px; }
 .cw-sell strong { display: block; font-size: 40px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .cw-totals dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px 20px; margin: 0; align-self: center; }
@@ -79,8 +79,10 @@
 .cw-item b { font-weight: 500; }
 .cw-why { color: var(--mark) !important; }
 .cw-was { color: var(--mark) !important; text-decoration: line-through; }
-.cw-edit { background: none; border: 0; border-bottom: 1px dashed #b8beb9; padding: 0; cursor: text; font-variant-numeric: tabular-nums; }
+.cw-edit { background: none; border: 0; border-bottom: 1px dashed transparent; padding: 0; cursor: text; font-variant-numeric: tabular-nums; }
 .cw-edit:hover { border-bottom-color: var(--ink); }
+.cw-edit.is-quiet:hover { border-bottom-color: transparent; background: #eef0ec; border-radius: 3px; box-shadow: 0 0 0 3px #eef0ec; }
+.cw-edit.is-changed { color: var(--mark); }
 .cw-undo { background: none; border: 0; color: var(--mark); cursor: pointer; font-size: 12px; text-decoration: underline; }
 .cw-editor { display: grid; gap: 4px; min-width: 170px; text-align: left; }
 .cw-editor input { padding: 4px 6px; border: 1px solid var(--mark); border-radius: 4px; width: 100%; }
@@ -150,3 +152,31 @@
 .cw-ptable td small { display: block; }
 .cw-prices .cw-reset { margin-top: 0; }
 @media (max-width: 760px) { .cw-addform { grid-template-columns: 1fr; } }
+
+/* ---- review pass ---- */
+/* The page's own button styles were beating .cw-save, leaving black on black. */
+.cw .cw-save, .cw .cw-pbtns .cw-save, .cw .cw-saved .cw-save { color: #fff; background: var(--ink); }
+.cw .cw-save[disabled] { opacity: .5; }
+
+/* unpriced lines */
+.cw-need { background: var(--mark-soft); color: #7a3a07; border: 1px solid #e8c9a4; border-radius: 4px; padding: 0 7px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.cw-need:hover { border-color: var(--mark); }
+.cw-unpriced { grid-column: 1 / -1; margin: 6px 0 0; padding: 8px 12px; border-radius: 6px; background: var(--mark-soft); color: #6b3108; font-size: 13px; }
+.cw-sell strong.is-incomplete { color: var(--mark); }
+.cw-sell strong.is-incomplete::after { content: 'incomplete'; display: block; font-size: 12px; font-weight: 600; letter-spacing: 0; }
+
+/* unused lines folded away */
+.cw-lines tr.cw-offrow td { padding: 6px 10px; background: #fafbf9; }
+.cw-offrow .cw-undo { color: var(--muted); text-decoration: none; }
+.cw-offrow .cw-undo:hover { color: var(--ink); text-decoration: underline; }
+
+/* the badge doubles as the way to set an order price */
+.cw-badge.is-click { border: 0; font: inherit; font-size: 11px; cursor: pointer; }
+.cw-badge.is-click:hover { box-shadow: 0 0 0 1px var(--ink); }
+
+/* file name tucked behind an icon, hint in its place */
+.cw-info { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-left: 8px; border: 1px solid var(--muted); border-radius: 50%; font: italic 600 11px/1 Georgia, serif; color: var(--muted); vertical-align: middle; cursor: help; }
+.cw-hint-first { color: var(--felt) !important; font-size: 13px; }
+.cw-warn-text { color: var(--mark); }
+
+@media (max-width: 760px) { .cw-totals { position: static; } }

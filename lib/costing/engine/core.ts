@@ -100,7 +100,8 @@ export interface Summary {
   headline?: { label: string; value: number }[];
 }
 
-export interface Warning { level: 'info' | 'warn'; message: string }
+/** `message` is plain words for whoever is quoting; `detail` keeps the workbook reference for the people who maintain the template. */
+export interface Warning { level: 'info' | 'warn'; message: string; detail?: string }
 
 export type InputType = 'number' | 'percent' | 'select' | 'text' | 'toggle';
 

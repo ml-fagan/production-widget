@@ -44,6 +44,7 @@ export default function CostingPage() {
   const [prices, setPrices] = useState([]);
   const [costings, setCostings] = useState([]);
   const [saveNote, setSaveNote] = useState("");
+  const [jobs, setJobs] = useState([]);
 
   useEffect(() => {
     if (!firebaseConfigured()) return;
@@ -65,6 +66,34 @@ export default function CostingPage() {
         }
       } catch {
         if (live) setSaveNote("Saved prices and costings aren't available right now — the calculator still works, but nothing can be saved.");
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // The real jobs, so a costing can be tied to one. A quote often comes before
+  // its job exists, so a number that isn't here is flagged, not refused.
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/handovers", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (!live || !json?.ok) return;
+        const seen = new Set();
+        const list = [];
+        for (const h of [...(json.awaiting ?? []), ...(json.scheduled ?? [])]) {
+          const jobId = String(h.jobId ?? "").trim();
+          if (!jobId || seen.has(jobId)) continue;
+          seen.add(jobId);
+          list.push({ jobId, label: [h.project, h.client].filter(Boolean).join(" — ") });
+        }
+        list.sort((a, b) => b.jobId.localeCompare(a.jobId, "en", { numeric: true }));
+        setJobs(list);
+      } catch {
+        // A job list that can't be reached just leaves the field as plain text.
       }
     })();
     return () => {
@@ -193,7 +222,7 @@ export default function CostingPage() {
         <Tabs tabs={caps.tabs} current="costing" />
 
         {allowed ? (
-          <div style={{ border: `1px solid ${BRAND.line}`, borderRadius: 10, overflow: "hidden" }}>
+          <div style={{ border: `1px solid ${BRAND.line}`, borderRadius: 10 }}>
             <CostingWorkbench
               settings={SETTINGS}
               user={user?.displayName || user?.email || ""}
@@ -202,6 +231,7 @@ export default function CostingPage() {
               saveNote={saveNote}
               prices={prices}
               costings={costings}
+              jobs={jobs}
               onSavePrice={savePrice}
               onRemovePrice={removePrice}
               onSaveCosting={saveCosting}

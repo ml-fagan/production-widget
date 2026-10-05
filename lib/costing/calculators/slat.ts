@@ -134,7 +134,7 @@ function compute(variant: Variant, i: SlatInputs, ctx: Ctx) {
 
   const warnings: Warning[] = [];
   if (n <= 0) warnings.push({ level: 'warn', message: 'Slat quantity is zero — check spacing/grid' });
-  if (i.labourUplift) warnings.push({ level: 'info', message: `Labour carries a ${(i.labourUplift * 100).toFixed(0)}% uplift (CALCULATIONS!G3)` });
+  if (i.labourUplift) warnings.push({ level: 'info', message: `Labour includes a ${(i.labourUplift * 100).toFixed(0)}% allowance (set in the template)`, detail: 'CALCULATIONS!G3' });
   return { lines: [...m, ...l], warnings, n };
 }
 

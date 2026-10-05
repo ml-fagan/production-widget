@@ -35,6 +35,26 @@ const SOURCE = {
   formula: { label: 'Cycle time', title: 'Minutes × labour rate' },
   manual: { label: 'Manual', title: 'Entered or overridden on this costing' },
 };
+// Two decimals, three only under a dollar (edge tape per LM) — "$6.000" reads like a data error.
+const rate$ = (n) => money(n, n > 0 && n < 1 ? 3 : 2);
+const fmtDay = (iso) => { const d = new Date(`${iso}T00:00:00`); return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); };
+// A ticked material line with a quantity and no price: the quote would be missing it entirely.
+// A rate or total that someone set on purpose (even to nothing) counts as priced.
+const needsPrice = (l) => l.enabled && !l.extra && l.qty > 0 && l.rate === 0
+  && (l.section === 'material' || !!l.priceKey) && !l.override?.fields.some((f) => f === 'rate' || f === 'total');
+// What to fill in first, one line per template.
+const HINTS = {
+  decorzen: 'Pick the material and profile first, then the quantity.',
+  'flat-panel': 'Start with the m² and the material rate, then add edging or CNC.',
+  decorslat: 'Start with the panel size and slat type, then price the slat material.',
+  slatcreate: 'Start with the panel size and slat type, then price the slat sheet.',
+  'decorslat-max': 'Start with the beam size and type, then price the sheet.',
+  'cewood-baffles': 'Pick the baffle size and fixing method first.',
+  decormetl: 'Pick the system and perforation, then enter the area and a margin.',
+};
+// Prices are set in the table, with a reason, and nowhere else. These inputs
+// were the same rates a second time, with no way to tell which one won.
+const isRateInput = (i) => typeof i.unit === 'string' && i.unit.startsWith('$');
 const opts = (spec, inputs) => (typeof spec.options === 'function' ? spec.options(inputs) : spec.options) || [];
 // The day on the wall here, not in Greenwich — an order entered in the morning
 // shouldn't be dated yesterday.
@@ -49,7 +69,7 @@ const blankPrice = (priceKey = '', rate = '', unit = '') => ({ id: null, priceKe
 
 export default function CostingWorkbench({
   priceBook = emptyPriceBook, settings, initial, user = '', canEdit = true, saveNote = '',
-  prices = [], costings = [], onSavePrice, onRemovePrice, onSaveCosting, onRemoveCosting,
+  prices = [], costings = [], jobs = [], onSavePrice, onRemovePrice, onSaveCosting, onRemoveCosting,
 }) {
   const [calcId, setCalcId] = useState(initial?.calculatorId ?? CALCULATORS[0].id);
   const calc = CALCULATORS.find((c) => c.id === calcId);
@@ -69,6 +89,7 @@ export default function CostingWorkbench({
   const [priceForm, setPriceForm] = useState(null); // blankPrice() shape
   const [priceMsg, setPriceMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showOff, setShowOff] = useState({}); // section -> unused lines expanded
   const priceRef = useRef(null);
 
   const run = useMemo(() => {
@@ -120,10 +141,12 @@ export default function CostingWorkbench({
     setOverride(editing.id, { ...prev, [editing.field]: value, reason: editing.reason.trim(), by: user, at: new Date().toISOString() });
     setEditing(null);
   }
-  const edit = (l, field, content, title) =>
+  // Rate and total are what gets changed day to day, so they show their dashed
+  // edge on hover; quantity and waste stay quiet until pointed at.
+  const edit = (l, field, content, title, quiet = false) =>
     editing?.id === l.id && editing.field === field
       ? <EditCell editing={editing} setEditing={setEditing} commit={commitEdit} />
-      : <button className="cw-edit" onClick={() => startEdit(l, field)} title={title}>{content}</button>;
+      : <button className={`cw-edit${quiet ? ' is-quiet' : ''}${l.override?.fields.includes(field) ? ' is-changed' : ''}`} onClick={() => startEdit(l, field)} title={title}>{content}</button>;
 
   function addLine() {
     const amount = parseFloat(adding.amount);
@@ -147,6 +170,7 @@ export default function CostingWorkbench({
   async function save() {
     if (!onSaveCosting) return;
     if (!current.name.trim()) { setSaveState('Not saved: give the costing a name'); return; }
+    if (unpriced.length && !window.confirm(`${unpriced.length} line${unpriced.length > 1 ? 's have' : ' has'} no price yet (${unpriced.map((l) => l.label).join(', ')}), so the sell price is incomplete.\n\nSave anyway?`)) return;
     setSaveState('saving');
     try {
       const s = run.summary;
@@ -195,12 +219,31 @@ export default function CostingWorkbench({
     setBusy(false);
   }
 
+  // Where the rate came from. On a line that can take an order price the badge
+  // is also the way to set one: "Order 29 Sep" when there is one, otherwise the
+  // template or price list it fell back to.
+  function sourceBadge(l) {
+    const q = l.priceKey ? newestFor.get(l.priceKey) : null;
+    const label = l.rateSource === 'order' && q ? `Order ${fmtDay(q.orderedAt)}` : SOURCE[l.rateSource].label;
+    const title = [SOURCE[l.rateSource].title, l.note].filter(Boolean).join('\n');
+    if (l.enabled && l.priceKey && canSavePrices && !l.extra) {
+      return (
+        <button className={`cw-badge is-${l.rateSource} is-click`} onClick={() => priceForLine(l)}
+          title={`${title}\nClick to ${q ? 'update' : 'enter'} the order price`}>{label}</button>
+      );
+    }
+    return <span className={`cw-badge is-${l.rateSource}`} title={title}>{label}</span>;
+  }
+
   const families = [...new Set(CALCULATORS.map((c) => c.family))];
-  const groups = [...new Set(calc.inputs.map((i) => i.group))];
+  const groups = [...new Set(calc.inputs.filter((i) => !isRateInput(i)).map((i) => i.group))];
   const s = run.summary;
+  const unpriced = (run.lines ?? []).filter(needsPrice);
+  const shownInputs = calc.inputs.filter((i) => !isRateInput(i));
   const usedKeys = new Set((run.lines ?? []).map((l) => l.priceKey).filter(Boolean));
   const knownKeys = [...new Set([...usedKeys, ...MATERIAL_KEYS])];
   const sortedPrices = [...prices].sort((a, b) => (usedKeys.has(b.priceKey) - usedKeys.has(a.priceKey)) || (b.orderedAt > a.orderedAt ? 1 : -1));
+  const jobUnknown = current.jobId.trim() && jobs.length > 0 && !jobs.some((j) => j.jobId.toLowerCase() === current.jobId.trim().toLowerCase());
   const savedList = [...costings].sort((a, b) => ((b.updatedAt ?? '') > (a.updatedAt ?? '') ? 1 : -1));
   const canSavePrices = canEdit && !!onSavePrice;
 
@@ -230,9 +273,9 @@ export default function CostingWorkbench({
 
       <section className="cw-inputs" aria-label="Inputs">
         <header>
-          <h2>{calc.name}</h2>
+          <h2>{calc.name}<span className="cw-info" tabIndex={0} role="img" aria-label={`Built from ${calc.sourceFile}`} title={`Built from ${calc.sourceFile}`}>i</span></h2>
           <p>{calc.description}</p>
-          <p className="cw-src">From {calc.sourceFile}</p>
+          {HINTS[calc.id] && <p className="cw-hint-first">{HINTS[calc.id]}</p>}
           {calc.presets?.length > 0 && (
             <div className="cw-presets">
               {calc.presets.map((p) => <button key={p.name} onClick={() => setInput(p.values)}>{p.name}</button>)}
@@ -242,7 +285,7 @@ export default function CostingWorkbench({
         {groups.map((g) => (
           <fieldset key={g}>
             <legend>{g}</legend>
-            {calc.inputs.filter((i) => i.group === g && (!i.visible || i.visible(inputs))).map((spec) => (
+            {shownInputs.filter((i) => i.group === g && (!i.visible || i.visible(inputs))).map((spec) => (
               <Field key={spec.key} spec={spec} value={inputs[spec.key]} inputs={inputs} onChange={(v) => setInput({ [spec.key]: v })} />
             ))}
           </fieldset>
@@ -269,7 +312,9 @@ export default function CostingWorkbench({
               <input type="text" value={current.name} placeholder="e.g. Level 3 ceiling" onChange={(e) => { setCurrent({ ...current, name: e.target.value }); setSaveState(''); }} />
             </label>
             <label><span>Job no.</span>
-              <input type="text" value={current.jobId} placeholder="optional" onChange={(e) => setCurrent({ ...current, jobId: e.target.value })} />
+              <input list="cw-jobs" type="text" value={current.jobId} placeholder="search jobs" autoComplete="off" onChange={(e) => setCurrent({ ...current, jobId: e.target.value })} />
+              <datalist id="cw-jobs">{jobs.map((j) => <option key={j.jobId} value={j.jobId}>{j.label}</option>)}</datalist>
+              {jobUnknown && <small className="cw-warn-text">Not a job in the feed (yet)</small>}
             </label>
             <button className="cw-save" onClick={save} disabled={!canEdit || saveState === 'saving' || !!saveNote} title={saveNote || (canEdit ? '' : 'Saving needs Money: Edit')}>
               {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : current.id ? 'Update costing' : 'Save costing'}
@@ -285,7 +330,7 @@ export default function CostingWorkbench({
           <div className="cw-totals">
             <div className="cw-sell">
               <span>Sell per {s.basis.label}</span>
-              <strong>{s.sellPerUnit == null ? 'Set a margin' : money(s.sellPerUnit)}</strong>
+              <strong className={unpriced.length ? 'is-incomplete' : ''}>{s.sellPerUnit == null ? 'Set a margin' : money(s.sellPerUnit)}</strong>
             </div>
             <dl>
               <div><dt>Cost per {s.basis.label}</dt><dd>{money(s.costPerUnit)}</dd></div>
@@ -296,15 +341,24 @@ export default function CostingWorkbench({
               {s.headline?.map((h) => <div key={h.label}><dt>{h.label}</dt><dd>{h.label.includes('hours') ? num(h.value, 1) : money(h.value)}</dd></div>)}
             </dl>
             <Split s={s} />
+            {unpriced.length > 0 && (
+              <p className="cw-unpriced" role="alert">
+                <b>{unpriced.length} line{unpriced.length > 1 ? 's' : ''} unpriced — sell price is incomplete.</b>{' '}
+                {unpriced.map((l) => l.label).join(', ')} {unpriced.length > 1 ? 'have' : 'has'} a quantity but no price.
+              </p>
+            )}
           </div>
 
           {run.warnings.length > 0 && (
-            <ul className="cw-warnings">{run.warnings.map((w, k) => <li key={k} className={`is-${w.level}`}>{w.message}</li>)}</ul>
+            <ul className="cw-warnings">{run.warnings.map((w, k) => <li key={k} className={`is-${w.level}`} title={w.detail}>{w.message}</li>)}</ul>
           )}
 
           {['material', 'labour'].map((section) => {
             const rows = run.lines.filter((l) => l.section === section);
             if (!rows.length) return null;
+            // Lines that cost nothing here take as much room as live ones, so they fold away.
+            const off = rows.filter((l) => !l.enabled).length;
+            const shown = rows.filter((l) => l.enabled || showOff[section]);
             return (
               <div key={section} className="cw-block">
               <h4 className="cw-block-head">{section === 'material' ? 'Materials' : 'Labour'}<span>{money(section === 'material' ? s.materialCost : s.labourCost)}</span></h4>
@@ -312,7 +366,7 @@ export default function CostingWorkbench({
                 <colgroup><col /><col className="c-qty" /><col className="c-rate" /><col className="c-waste" /><col className="c-src" /><col className="c-total" /><col className="c-act" /></colgroup>
                 <thead><tr><th>Item</th><th className="n">Qty</th><th className="n">Rate</th><th className="n">Waste</th><th>Source</th><th className="n">Total</th><th /></tr></thead>
                 <tbody>
-                  {rows.map((l) => (
+                  {shown.map((l) => (
                     <tr key={l.id} className={[l.enabled ? '' : 'is-off', l.override ? 'is-overridden' : '', l.extra ? 'is-added' : ''].join(' ')}>
                       <td>
                         <label className="cw-item">
@@ -325,27 +379,22 @@ export default function CostingWorkbench({
                       </td>
                       <td className="n">
                         {l.extra ? <>1 <span className="cw-unit">item</span></> : <>
-                          {edit(l, 'qty', num(l.qty, 3), 'Override quantity')} <span className="cw-unit">{l.unit}</span>
+                          {edit(l, 'qty', num(l.qty, 3), 'Override quantity', true)} <span className="cw-unit">{l.unit}</span>
                           {l.override?.fields.includes('qty') && <small className="cw-was">was {num(l.original.qty, 3)}</small>}
                         </>}
                       </td>
                       <td className="n">
                         {l.extra ? money(l.rate) : <>
-                          {edit(l, 'rate', money(l.rate, l.rate < 10 ? 3 : 2), 'Override rate')}
+                          {needsPrice(l)
+                            ? <button className="cw-need" onClick={() => startEdit(l, 'rate')} title="Nothing is charged for this line yet — click to set the price">Needs price</button>
+                            : edit(l, 'rate', rate$(l.rate), 'Override rate')}
                           {l.override?.fields.includes('rate') && <small className="cw-was">was {money(l.original.rate)}</small>}
                           {l.setup > 0 && <small>+ setup {money(l.setup)}</small>}
                         </>}
                       </td>
-                      <td className="n">{l.extra ? '—' : edit(l, 'wastagePct', l.wastagePct ? `${num(l.wastagePct * 100, 1)}%` : '—', 'Override wastage')}</td>
-                      <td>
-                        <span className={`cw-badge is-${l.rateSource}`} title={[SOURCE[l.rateSource].title, l.note].filter(Boolean).join('\n')}>{SOURCE[l.rateSource].label}</span>
-                        {l.priceKey && canSavePrices && !l.extra && (
-                          <button className="cw-undo" onClick={() => priceForLine(l)} title="Type in the price from a material order, or update the one already saved">
-                            {newestFor.has(l.priceKey) ? 'Update price' : 'Order price'}
-                          </button>
-                        )}
-                      </td>
-                      <td className="n">{edit(l, 'total', money(l.total), l.extra ? 'Change amount' : 'Override line total')}</td>
+                      <td className="n">{l.extra ? '—' : edit(l, 'wastagePct', l.wastagePct ? `${num(l.wastagePct * 100, 1)}%` : '—', 'Override wastage', true)}</td>
+                      <td>{sourceBadge(l)}</td>
+                      <td className="n">{needsPrice(l) ? <span className="cw-unit">—</span> : edit(l, 'total', money(l.total), l.extra ? 'Change amount' : 'Override line total')}</td>
                       <td>
                         {l.extra
                           ? <button className="cw-undo" onClick={() => setExtras((xs) => xs.filter((x) => x.id !== l.id))} title="Remove this line">Remove</button>
@@ -353,6 +402,15 @@ export default function CostingWorkbench({
                       </td>
                     </tr>
                   ))}
+                  {off > 0 && (
+                    <tr className="cw-offrow">
+                      <td colSpan={7}>
+                        <button className="cw-undo" onClick={() => setShowOff((x) => ({ ...x, [section]: !x[section] }))}>
+                          {off} line{off > 1 ? 's' : ''} not used {showOff[section] ? '▾' : '▸'}
+                        </button>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
               </div>

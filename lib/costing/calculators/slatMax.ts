@@ -70,7 +70,7 @@ export const decorSlatMax: Calculator<MaxInputs> = {
       line(ctx, { id: 'edging-labour', section: 'labour', label: 'Edging', description: `${(b.edgeMinPerM * girthM).toFixed(2)} min/beam`,
         qty: (b.edgeMinPerM * girthM * i.beams) / 60, unit: 'hr', rate, wastagePct: i.xEdging, rateSource: 'formula' }),
     ];
-    return { lines, warnings: [{ level: 'info' as const, message: `Cleat cutting time (${c.minEach} min/cleat) is in CALCS but not charged on MAIN` }] };
+    return { lines, warnings: [{ level: 'info' as const, message: 'Cleat cutting time is not charged in this template', detail: `${c.minEach} min/cleat is defined in CALCS but not charged on MAIN` }] };
   },
   summarise(lines, i, ctx) {
     const materialCost = sectionTotal(lines, 'material'), labourCost = sectionTotal(lines, 'labour');
