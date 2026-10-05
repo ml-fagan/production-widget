@@ -54,6 +54,8 @@ const isRateInput = (i) => typeof i.unit === 'string' && i.unit.startsWith('$');
 const opts = (spec, inputs) => (typeof spec.options === 'function' ? spec.options(inputs) : spec.options) || [];
 // The day on the wall here, not in Greenwich — an order entered in the morning
 // shouldn't be dated yesterday.
+const who = (email) => String(email || '').split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'someone';
+const fmtStamp = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); };
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const MATERIAL_KEYS = MATERIALS.flatMap((m) => [`material:${m.id}`, `edgetape:${m.id}`]);
 const toLine = (x) => ({
@@ -200,12 +202,15 @@ export default function CostingWorkbench({
   function openPriceForm(form) { setPriceForm(form); setPriceMsg(''); setTimeout(() => priceRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 0); }
   function priceForLine(l) {
     const have = newestFor.get(l.priceKey);
-    openPriceForm(have ? { ...blankPrice(have.priceKey, have.rate, have.unit), id: have.id, supplier: have.supplier ?? '', orderId: have.orderId === 'manual' ? '' : have.orderId ?? '', orderedAt: have.orderedAt }
+    openPriceForm(have ? { ...blankPrice(have.priceKey, have.rate, have.unit), id: have.id, supplier: have.supplier ?? '', orderId: have.orderId === 'manual' ? '' : have.orderId ?? '', orderedAt: today() }
       : blankPrice(l.priceKey, +Number(l.rate).toFixed(4), l.unit));
   }
   async function savePrice() {
     const rate = parseFloat(priceForm.rate);
     if (!priceForm.priceKey.trim() || !(rate > 0)) { setPriceMsg('Pick the item and enter a price above zero.'); return; }
+    // One price per item: saving over somebody else's replaces it for everyone.
+    const have = newestFor.get(priceForm.priceKey.trim());
+    if (have && !priceForm.id && !window.confirm(`${priceForm.priceKey.trim()} already has a price of ${rate$(have.rate)}${have.unit ? ` per ${have.unit}` : ''}, set by ${who(have.updatedBy)} on ${fmtStamp(have.updatedAt) || have.orderedAt}.\n\nReplace it for everyone?`)) return;
     setBusy(true); setPriceMsg('');
     try {
       await onSavePrice({ ...priceForm, priceKey: priceForm.priceKey.trim(), rate });
@@ -451,8 +456,8 @@ export default function CostingWorkbench({
           <div className="cw-prices" ref={priceRef}>
             <h4 className="cw-block-head">Order prices<span className="cw-unit">{prices.length} saved</span></h4>
             <p className="cw-hint">
-              Prices typed in from material orders. The newest price for an item replaces the price list on every costing, and shows here as <i>Order</i>.
-              Change one by editing it; to record a new order, add another price with the new date.
+              One price for each item, shared by everyone using Costing. Set or change one here and it becomes the price on every costing — it shows as <i>Order</i> in the table
+              and updates on other screens within a minute. The table says who changed it last; hover a price to see what it was before.
             </p>
             {priceForm && (
               <div className="cw-pform" onKeyDown={(e) => { if (e.key === 'Escape') setPriceForm(null); }}>
@@ -464,9 +469,9 @@ export default function CostingWorkbench({
                 <label><span>Per</span><input type="text" value={priceForm.unit} placeholder="m², LM, ea" onChange={(e) => setPriceForm({ ...priceForm, unit: e.target.value })} /></label>
                 <label><span>Supplier</span><input type="text" value={priceForm.supplier} onChange={(e) => setPriceForm({ ...priceForm, supplier: e.target.value })} /></label>
                 <label><span>Order ref</span><input type="text" value={priceForm.orderId} placeholder="PO / order no." onChange={(e) => setPriceForm({ ...priceForm, orderId: e.target.value })} /></label>
-                <label><span>Ordered</span><input type="date" value={priceForm.orderedAt} onChange={(e) => setPriceForm({ ...priceForm, orderedAt: e.target.value })} /></label>
+                <label><span>Price date</span><input type="date" value={priceForm.orderedAt} onChange={(e) => setPriceForm({ ...priceForm, orderedAt: e.target.value })} /></label>
                 <span className="cw-pbtns">
-                  <button type="button" className="cw-save" onClick={savePrice} disabled={busy}>{busy ? 'Saving…' : priceForm.id ? 'Update price' : 'Save price'}</button>
+                  <button type="button" className="cw-save" onClick={savePrice} disabled={busy}>{busy ? 'Saving…' : priceForm.id || newestFor.has(priceForm.priceKey.trim()) ? 'Update price' : 'Save price'}</button>
                   <button type="button" onClick={() => setPriceForm(null)}>Cancel</button>
                 </span>
                 {priceMsg && <small className="cw-error wide">{priceMsg}</small>}
@@ -476,18 +481,19 @@ export default function CostingWorkbench({
             {!priceForm && priceMsg && <p className="cw-error">{priceMsg}</p>}
             {sortedPrices.length > 0 && (
               <table className="cw-lines cw-ptable">
-                <thead><tr><th>Item</th><th className="n">Price</th><th>Supplier</th><th>Order</th><th>Date</th><th /></tr></thead>
+                <thead><tr><th>Item</th><th className="n">Price</th><th>Supplier</th><th>Order</th><th>Price date</th><th>Last changed</th><th /></tr></thead>
                 <tbody>
                   {sortedPrices.map((p) => (
-                    <tr key={p.id} className={newestFor.get(p.priceKey)?.id === p.id ? '' : 'is-off'}>
-                      <td>{p.priceKey}{usedKeys.has(p.priceKey) && <span className="cw-badge is-order" style={{ marginLeft: 6 }}>on this sheet</span>}
-                        {newestFor.get(p.priceKey)?.id !== p.id && <small>Superseded by a newer order</small>}</td>
-                      <td className="n">{money(p.rate, p.rate < 10 ? 3 : 2)}{p.unit && <span className="cw-unit"> / {p.unit}</span>}</td>
+                    <tr key={p.id}>
+                      <td>{p.priceKey}{usedKeys.has(p.priceKey) && <span className="cw-badge is-order" style={{ marginLeft: 6 }}>on this sheet</span>}</td>
+                      <td className="n" title={(p.history ?? []).length ? 'Before this:\n' + [...p.history].reverse().slice(0, 5).map((h) => `${rate$(h.rate)}${h.unit ? ` / ${h.unit}` : ''} — ${who(h.by)}${h.at ? `, ${fmtStamp(h.at)}` : ''}`).join('\n') : undefined}>
+                        {rate$(p.rate)}{p.unit && <span className="cw-unit"> / {p.unit}</span>}</td>
                       <td>{p.supplier || '—'}</td>
                       <td>{p.orderId && p.orderId !== 'manual' ? p.orderId : '—'}</td>
                       <td>{p.orderedAt}</td>
+                      <td>{p.updatedBy ? `${who(p.updatedBy)}${p.updatedAt ? `, ${fmtStamp(p.updatedAt)}` : ''}` : '—'}</td>
                       <td className="n">{canSavePrices && <>
-                        <button className="cw-undo" onClick={() => openPriceForm({ ...blankPrice(p.priceKey, p.rate, p.unit ?? ''), id: p.id, supplier: p.supplier ?? '', orderId: p.orderId === 'manual' ? '' : p.orderId ?? '', orderedAt: p.orderedAt })}>Edit</button>{' '}
+                        <button className="cw-undo" onClick={() => openPriceForm({ ...blankPrice(p.priceKey, p.rate, p.unit ?? ''), id: p.id, supplier: p.supplier ?? '', orderId: p.orderId === 'manual' ? '' : p.orderId ?? '', orderedAt: today() })}>Edit</button>{' '}
                         <button className="cw-undo" onClick={() => removePrice(p)}>Remove</button></>}</td>
                     </tr>
                   ))}

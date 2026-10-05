@@ -37,6 +37,21 @@ const SETTINGS = { labourRate: 175, overheadPct: 0.125 };
 // A price somebody typed in is theirs until they change it, so it shouldn't
 // quietly stop counting after six months the way a scraped one would.
 const KEEP_ORDER_PRICES_DAYS = 3650;
+const REFRESH_MS = 60 * 1000;
+const UNAVAILABLE =
+  "Saved prices and costings aren't available right now — the calculator still works, but nothing can be saved.";
+
+// One price per item. The server keeps it that way; this only guards against an
+// older duplicate from before it did, taking whichever was set last.
+const stamp = (p) => String(p.updatedAt || p.orderedAt || "");
+function onePerItem(list) {
+  const by = new Map();
+  for (const p of list) {
+    const cur = by.get(p.priceKey);
+    if (!cur || stamp(p) >= stamp(cur)) by.set(p.priceKey, p);
+  }
+  return [...by.values()];
+}
 
 export default function CostingPage() {
   const [user, setUser] = useState(null);
@@ -51,27 +66,40 @@ export default function CostingPage() {
     return onAuthStateChanged(auth(), setUser);
   }, []);
 
-  useEffect(() => {
-    let live = true;
-    (async () => {
-      try {
-        const res = await fetch("/api/costing", { cache: "no-store" });
-        const json = await res.json().catch(() => null);
-        if (!live) return;
-        if (json?.ok) {
-          setPrices(json.prices ?? []);
-          setCostings(json.costings ?? []);
-        } else {
-          setSaveNote("Saved prices and costings aren't available right now — the calculator still works, but nothing can be saved.");
-        }
-      } catch {
-        if (live) setSaveNote("Saved prices and costings aren't available right now — the calculator still works, but nothing can be saved.");
+  // Prices are shared: when anyone sets one it is the price for everyone. The
+  // page reads them on opening, again whenever it is looked at after being away
+  // and once a minute while it is in front of someone, so a change made
+  // elsewhere reaches an open screen without a reload.
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/costing", { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (json?.ok) {
+        setPrices(json.prices ?? []);
+        setCostings(json.costings ?? []);
+        setSaveNote("");
+      } else {
+        setSaveNote(UNAVAILABLE);
       }
-    })();
-    return () => {
-      live = false;
-    };
+    } catch {
+      setSaveNote(UNAVAILABLE);
+    }
   }, []);
+
+  useEffect(() => {
+    load();
+    const refresh = () => {
+      if (!document.hidden) load();
+    };
+    const timer = setInterval(refresh, REFRESH_MS);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [load]);
 
   // The real jobs, so a costing can be tied to one. A quote often comes before
   // its job exists, so a number that isn't here is flagged, not refused.
@@ -126,7 +154,6 @@ export default function CostingPage() {
     async (p) => {
       const json = await write({
         action: "price-save",
-        id: p.id || undefined,
         priceKey: p.priceKey,
         rate: p.rate,
         unit: p.unit,
@@ -134,17 +161,20 @@ export default function CostingPage() {
         orderId: p.orderId,
         orderedAt: p.orderedAt,
       });
-      setPrices((xs) => (p.id ? xs.map((x) => (x.id === p.id ? json.price : x)) : [...xs, json.price]));
+      setPrices((xs) => [...xs.filter((x) => x.priceKey !== p.priceKey), json.price]);
+      // Whatever else changed while this was open comes in too.
+      load();
     },
-    [write]
+    [write, load]
   );
 
   const removePrice = useCallback(
     async (id) => {
       await write({ action: "price-remove", id });
       setPrices((xs) => xs.filter((x) => x.id !== id));
+      load();
     },
-    [write]
+    [write, load]
   );
 
   const saveCosting = useCallback(
@@ -165,10 +195,11 @@ export default function CostingPage() {
   );
 
   // The newest order price for an item beats the price list on every template.
+  const shared = useMemo(() => onePerItem(prices), [prices]);
   const priceBook = useMemo(
     () =>
       createPriceBook({
-        orders: prices.map((p) => ({
+        orders: shared.map((p) => ({
           priceKey: p.priceKey,
           rate: Number(p.rate),
           unit: p.unit,
@@ -178,7 +209,7 @@ export default function CostingPage() {
         })),
         maxOrderAgeDays: KEEP_ORDER_PRICES_DAYS,
       }),
-    [prices]
+    [shared]
   );
 
   const allowed = caps.tabs.includes("costing");
@@ -229,7 +260,7 @@ export default function CostingPage() {
               priceBook={priceBook}
               canEdit={caps.invoicing}
               saveNote={saveNote}
-              prices={prices}
+              prices={shared}
               costings={costings}
               jobs={jobs}
               onSavePrice={savePrice}
