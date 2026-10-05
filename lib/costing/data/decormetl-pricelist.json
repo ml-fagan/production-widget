@@ -1,0 +1,347 @@
+{
+ "aedPerUsd": 3.67,
+ "usdToAudFactor": 1.45,
+ "note": "Supplier price per piece in AED, min 1x20ft container",
+ "items": [
+  {
+   "no": 1,
+   "system": "RAM 223 Lay\u2010on Aluminium \u2010 600x1200x0.70mm",
+   "m2PerPanel": 0.72,
+   "type": "Lay-on",
+   "material": "Aluminium",
+   "width": 1200,
+   "length": 600,
+   "thicknessMm": 0.7,
+   "aedPerPanel": {
+    "plain": 38.12,
+    "RS0750": 49,
+    "RD1850": 45.32,
+    "RD3090": 45.32
+   },
+   "excelAudM2": 26.8884
+  },
+  {
+   "no": 2,
+   "system": "RAM 223 Lay\u2010on Aluminium \u2010 600x600x0.70mm",
+   "m2PerPanel": 0.36,
+   "type": "Lay-on",
+   "material": "Aluminium",
+   "width": 600,
+   "length": 600,
+   "thicknessMm": 0.7,
+   "aedPerPanel": {
+    "plain": 19.6,
+    "RS0750": 25,
+    "RD1850": 23.2,
+    "RD3090": 23.2
+   },
+   "excelAudM2": 27.4372
+  },
+  {
+   "no": 3,
+   "system": "RAM 223 Lay\u2010on Galvanized Steel \u2010 600x1200x0.70mm",
+   "m2PerPanel": 0.72,
+   "type": "Lay-on",
+   "material": "Galvanised Steel",
+   "width": 1200,
+   "length": 600,
+   "thicknessMm": 0.7,
+   "aedPerPanel": {
+    "plain": 25.76,
+    "RS0750": 36.56,
+    "RD1850": 33,
+    "RD3090": 33
+   },
+   "excelAudM2": 20.0621
+  },
+  {
+   "no": 4,
+   "system": "RAM 223 Lay\u2010on Galvanized Steel \u2010 600x600x0.70mm",
+   "m2PerPanel": 0.36,
+   "type": "Lay-on",
+   "material": "Galvanised Steel",
+   "width": 600,
+   "length": 600,
+   "thicknessMm": 0.7,
+   "aedPerPanel": {
+    "plain": 13.2,
+    "RS0750": 18.6,
+    "RD1850": 16.8,
+    "RD3090": 16.8
+   },
+   "excelAudM2": 20.4133
+  },
+  {
+   "no": 5,
+   "system": "RAM 241 Snap\u2010on Aluminium \u2010 600x1200x0.70mm",
+   "m2PerPanel": 0.72,
+   "type": "Snap-on",
+   "material": "Aluminium",
+   "width": 1200,
+   "length": 600,
+   "thicknessMm": 0.7,
+   "aedPerPanel": {
+    "plain": 45.32,
+    "RS0750": 56.2,
+    "RD1850": 52.52,
+    "RD3090": 52.52
+   },
+   "excelAudM2": 30.8394
+  },
+  {
+   "no": 6,
+   "system": "RAM 241 Snap\u2010on Aluminium \u2010 600x600x0.70mm",
+   "m2PerPanel": 0.36,
+   "type": "Snap-on",
+   "material": "Aluminium",
+   "width": 600,
+   "length": 600,
+   "thicknessMm": 0.7,
+   "aedPerPanel": {
+    "plain": 24.64,
+    "RS0750": 30.04,
+    "RD1850": 28.24,
+    "RD3090": 28.24
+   },
+   "excelAudM2": 32.9685
+  },
+  {
+   "no": 7,
+   "system": "RAM 241 Snap\u2010on Galvanized Steel \u2010 600x1200x0.70mm",
+   "m2PerPanel": 0.72,
+   "type": "Snap-on",
+   "material": "Galvanised Steel",
+   "width": 1200,
+   "length": 600,
+   "thicknessMm": 0.7,
+   "aedPerPanel": {
+    "plain": 32.9,
+    "RS0750": 43.76,
+    "RD1850": 40.2,
+    "RD3090": 40.2
+   },
+   "excelAudM2": 24.013
+  },
+  {
+   "no": 8,
+   "system": "RAM 241 Snap\u2010on Galvanized Steel \u2010 600x600x0.70mm",
+   "m2PerPanel": 0.36,
+   "type": "Snap-on",
+   "material": "Galvanised Steel",
+   "width": 600,
+   "length": 600,
+   "thicknessMm": 0.7,
+   "aedPerPanel": {
+    "plain": 18.24,
+    "RS0750": 23.64,
+    "RD1850": 21.84,
+    "RD3090": 21.84
+   },
+   "excelAudM2": 25.9446
+  },
+  {
+   "no": 9,
+   "system": "Face Surface Fixed Panel Aluminium \u2010 1.00mm thick 600x1200mm",
+   "m2PerPanel": 0.72,
+   "type": "Face Fix",
+   "material": "Aluminium",
+   "width": 1200,
+   "length": 600,
+   "thicknessMm": 1,
+   "aedPerPanel": {
+    "plain": 75.14,
+    "RS0750": null,
+    "RD1850": 86,
+    "RD3090": 86
+   },
+   "excelAudM2": 47.1919
+  },
+  {
+   "no": 10,
+   "system": "Face Surface Fixed Panel Aluminium \u2010 1.00mm thick 600x1800mm",
+   "m2PerPanel": 1.08,
+   "type": "Face Fix",
+   "material": "Aluminium",
+   "width": 1800,
+   "length": 600,
+   "thicknessMm": 1,
+   "aedPerPanel": {
+    "plain": 111,
+    "RS0750": null,
+    "RD1850": 127.2,
+    "RD3090": 127.2
+   },
+   "excelAudM2": 46.5335
+  },
+  {
+   "no": 11,
+   "system": "Face Surface Fixed Panel Aluminium \u2010 1.00mm thick 600x2400mm",
+   "m2PerPanel": 1.44,
+   "type": "Face Fix",
+   "material": "Aluminium",
+   "width": 2400,
+   "length": 600,
+   "thicknessMm": 1,
+   "aedPerPanel": {
+    "plain": 147,
+    "RS0750": null,
+    "RD1850": 168.6,
+    "RD3090": 168.6
+   },
+   "excelAudM2": 46.2591
+  },
+  {
+   "no": 12,
+   "system": "Face Surface Fixed Panel Galvanized Steel \u2010 0.90mm thick 600x1200mm",
+   "m2PerPanel": 0.72,
+   "type": "Face Fix",
+   "material": "Galvanised Steel",
+   "width": 1200,
+   "length": 600,
+   "thicknessMm": 0.9,
+   "aedPerPanel": {
+    "plain": 61.52,
+    "RS0750": null,
+    "RD1850": 72.32,
+    "RD3090": 72.32
+   },
+   "excelAudM2": 39.6851
+  },
+  {
+   "no": 13,
+   "system": "Face Surface Fixed Panel Galvanized Steel \u2010 0.90mm thick 600x1800mm",
+   "m2PerPanel": 1.08,
+   "type": "Face Fix",
+   "material": "Galvanised Steel",
+   "width": 1800,
+   "length": 600,
+   "thicknessMm": 0.9,
+   "aedPerPanel": {
+    "plain": 101,
+    "RS0750": null,
+    "RD1850": 117.2,
+    "RD3090": 117.2
+   },
+   "excelAudM2": 42.8752
+  },
+  {
+   "no": 14,
+   "system": "Face Surface Fixed Panel Galvanized Steel \u2010 0.90mm thick 600x2400mm",
+   "m2PerPanel": 1.44,
+   "type": "Face Fix",
+   "material": "Galvanised Steel",
+   "width": 2400,
+   "length": 600,
+   "thicknessMm": 0.9,
+   "aedPerPanel": {
+    "plain": 124,
+    "RS0750": null,
+    "RD1850": 145.6,
+    "RD3090": 145.6
+   },
+   "excelAudM2": 39.9485
+  },
+  {
+   "no": 15,
+   "system": "Invisilock Panel with perimeter & access panel Aluminium \u2010 1.00mm thick 600x1200mm",
+   "m2PerPanel": 0.72,
+   "type": "Invisilock",
+   "material": "Aluminium",
+   "width": 1200,
+   "length": 600,
+   "thicknessMm": 1,
+   "aedPerPanel": {
+    "plain": 97.68,
+    "RS0750": null,
+    "RD1850": 108.54,
+    "RD3090": 108.54
+   },
+   "excelAudM2": 59.5606
+  },
+  {
+   "no": 16,
+   "system": "Invisilock Panel with perimeter & access panel Aluminium \u2010 1.00mm thick 600x1800mm",
+   "m2PerPanel": 1.08,
+   "type": "Invisilock",
+   "material": "Aluminium",
+   "width": 1800,
+   "length": 600,
+   "thicknessMm": 1,
+   "aedPerPanel": {
+    "plain": 144.3,
+    "RS0750": null,
+    "RD1850": 160.5,
+    "RD3090": 160.5
+   },
+   "excelAudM2": 58.7156
+  },
+  {
+   "no": 17,
+   "system": "Invisilock Panel with perimeter & access panel Aluminium \u2010 1.00mm thick 600x2400mm",
+   "m2PerPanel": 1.44,
+   "type": "Invisilock",
+   "material": "Aluminium",
+   "width": 2400,
+   "length": 600,
+   "thicknessMm": 1,
+   "aedPerPanel": {
+    "plain": 191.1,
+    "RS0750": null,
+    "RD1850": 212.7,
+    "RD3090": 212.7
+   },
+   "excelAudM2": 58.3589
+  },
+  {
+   "no": 18,
+   "system": "Invisilock Panel with perimeter & access panel Galvanized Steel \u2010 0.90mm thick 600x1200mm",
+   "m2PerPanel": 0.72,
+   "type": "Invisilock",
+   "material": "Galvanised Steel",
+   "width": 1200,
+   "length": 600,
+   "thicknessMm": 0.9,
+   "aedPerPanel": {
+    "plain": 79.98,
+    "RS0750": null,
+    "RD1850": 90.78,
+    "RD3090": 90.78
+   },
+   "excelAudM2": 49.8149
+  },
+  {
+   "no": 19,
+   "system": "Invisilock Panel with perimeter & access panel Galvanized Steel \u2010 0.90mm thick 600x1800mm",
+   "m2PerPanel": 1.08,
+   "type": "Invisilock",
+   "material": "Galvanised Steel",
+   "width": 1800,
+   "length": 600,
+   "thicknessMm": 0.9,
+   "aedPerPanel": {
+    "plain": 131.3,
+    "RS0750": null,
+    "RD1850": 147.5,
+    "RD3090": 147.5
+   },
+   "excelAudM2": 53.9598
+  },
+  {
+   "no": 20,
+   "system": "Invisilock Panel with perimeter & access panel Galvanized Steel \u2010 0.90mm thick 600x2400mm",
+   "m2PerPanel": 1.44,
+   "type": "Invisilock",
+   "material": "Galvanised Steel",
+   "width": 2400,
+   "length": 600,
+   "thicknessMm": 0.9,
+   "aedPerPanel": {
+    "plain": 161.2,
+    "RS0750": null,
+    "RD1850": 182.8,
+    "RD3090": 182.8
+   },
+   "excelAudM2": 50.1552
+  }
+ ]
+}

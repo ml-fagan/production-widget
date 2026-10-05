@@ -94,6 +94,15 @@ const TABS = [
     group: "money",
     title: "Stock orders with no job behind them — take one, and chase it",
   },
+  {
+    // The sales templates as one calculator. Money's because what it produces
+    // is a price, and it rides on the same grant as the other two.
+    key: "costing",
+    label: "Costing",
+    href: "/costing",
+    group: "money",
+    title: "Cost and sell price for DecorZen, flat panel, slat, baffle and metal ceiling jobs",
+  },
 
   // Below the line, off to the side: the things that aren't the day's work. A
   // folder tab says "a place your job takes you"; these aren't that.

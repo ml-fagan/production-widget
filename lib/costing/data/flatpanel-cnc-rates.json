@@ -1,0 +1,488 @@
+{
+ "note": "Minutes per 2400x1200 sheet; $/m2 = MROUND(min/2.88*rate/60,1)",
+ "thicknessColumns": [
+  "12mm MDF",
+  "12mm FR MDF / Plywood",
+  "16mm MDF",
+  "16mm FR MDF / Plywood",
+  "18mm MDF",
+  "18mm FR MDF / Plywood",
+  "25mm MDF",
+  "25mm FR MDF / Plywood"
+ ],
+ "groups": [
+  {
+   "range": "DecorZen",
+   "profiles": [
+    {
+     "profile": "AP125/S/XX",
+     "minPerSheet": {
+      "12mm MDF": 30,
+      "12mm FR MDF / Plywood": 32,
+      "16mm MDF": 32,
+      "16mm FR MDF / Plywood": 34,
+      "18mm MDF": 34,
+      "18mm FR MDF / Plywood": 36,
+      "25mm MDF": 36,
+      "25mm FR MDF / Plywood": 38
+     }
+    },
+    {
+     "profile": "AP125/D/XX",
+     "minPerSheet": {
+      "12mm MDF": 45,
+      "12mm FR MDF / Plywood": 47,
+      "16mm MDF": 47,
+      "16mm FR MDF / Plywood": 49,
+      "18mm MDF": 49,
+      "18mm FR MDF / Plywood": 51,
+      "25mm MDF": 51,
+      "25mm FR MDF / Plywood": 54
+     }
+    },
+    {
+     "profile": "AP125/A/XX",
+     "minPerSheet": {
+      "12mm MDF": 20,
+      "12mm FR MDF / Plywood": 21,
+      "16mm MDF": 21,
+      "16mm FR MDF / Plywood": 22,
+      "18mm MDF": 22,
+      "18mm FR MDF / Plywood": 23,
+      "25mm MDF": 23,
+      "25mm FR MDF / Plywood": 24
+     }
+    },
+    {
+     "profile": "AP250/S/XX",
+     "minPerSheet": {
+      "12mm MDF": 20,
+      "12mm FR MDF / Plywood": 21,
+      "16mm MDF": 21,
+      "16mm FR MDF / Plywood": 22,
+      "18mm MDF": 22,
+      "18mm FR MDF / Plywood": 23,
+      "25mm MDF": 23,
+      "25mm FR MDF / Plywood": 24
+     }
+    },
+    {
+     "profile": "AP250/D/XX",
+     "minPerSheet": {
+      "12mm MDF": 35,
+      "12mm FR MDF / Plywood": 37,
+      "16mm MDF": 37,
+      "16mm FR MDF / Plywood": 39,
+      "18mm MDF": 39,
+      "18mm FR MDF / Plywood": 41,
+      "25mm MDF": 41,
+      "25mm FR MDF / Plywood": 43
+     }
+    },
+    {
+     "profile": "AP250/A/XX",
+     "minPerSheet": {
+      "12mm MDF": 15,
+      "12mm FR MDF / Plywood": 16,
+      "16mm MDF": 16,
+      "16mm FR MDF / Plywood": 17,
+      "18mm MDF": 17,
+      "18mm FR MDF / Plywood": 18,
+      "25mm MDF": 18,
+      "25mm FR MDF / Plywood": 19
+     }
+    }
+   ]
+  },
+  {
+   "range": "DecorTrend",
+   "profiles": [
+    {
+     "profile": "AS26/25/XX",
+     "minPerSheet": {
+      "12mm MDF": 45,
+      "12mm FR MDF / Plywood": 47,
+      "16mm MDF": 47,
+      "16mm FR MDF / Plywood": 49,
+      "18mm MDF": 49,
+      "18mm FR MDF / Plywood": 51,
+      "25mm MDF": 51,
+      "25mm FR MDF / Plywood": 54
+     }
+    },
+    {
+     "profile": "AS26/40/XX",
+     "minPerSheet": {
+      "12mm MDF": 35,
+      "12mm FR MDF / Plywood": 37,
+      "16mm MDF": 37,
+      "16mm FR MDF / Plywood": 39,
+      "18mm MDF": 39,
+      "18mm FR MDF / Plywood": 41,
+      "25mm MDF": 41,
+      "25mm FR MDF / Plywood": 43
+     }
+    },
+    {
+     "profile": "AS26/50/XX",
+     "minPerSheet": {
+      "12mm MDF": 30,
+      "12mm FR MDF / Plywood": 32,
+      "16mm MDF": 32,
+      "16mm FR MDF / Plywood": 34,
+      "18mm MDF": 34,
+      "18mm FR MDF / Plywood": 36,
+      "25mm MDF": 36,
+      "25mm FR MDF / Plywood": 38
+     }
+    },
+    {
+     "profile": "AS11/25/XX",
+     "minPerSheet": {
+      "12mm MDF": 50,
+      "12mm FR MDF / Plywood": 53,
+      "16mm MDF": 53,
+      "16mm FR MDF / Plywood": 56,
+      "18mm MDF": 56,
+      "18mm FR MDF / Plywood": 59,
+      "25mm MDF": 59,
+      "25mm FR MDF / Plywood": 62
+     }
+    },
+    {
+     "profile": "AS11/40/XX",
+     "minPerSheet": {
+      "12mm MDF": 40,
+      "12mm FR MDF / Plywood": 42,
+      "16mm MDF": 42,
+      "16mm FR MDF / Plywood": 44,
+      "18mm MDF": 44,
+      "18mm FR MDF / Plywood": 46,
+      "25mm MDF": 46,
+      "25mm FR MDF / Plywood": 48
+     }
+    },
+    {
+     "profile": "AS11/50/XX",
+     "minPerSheet": {
+      "12mm MDF": 35,
+      "12mm FR MDF / Plywood": 37,
+      "16mm MDF": 37,
+      "16mm FR MDF / Plywood": 39,
+      "18mm MDF": 39,
+      "18mm FR MDF / Plywood": 41,
+      "25mm MDF": 41,
+      "25mm FR MDF / Plywood": 43
+     }
+    }
+   ]
+  },
+  {
+   "range": "DecorEagle",
+   "profiles": [
+    {
+     "profile": "10CDP30",
+     "minPerSheet": {
+      "12mm MDF": 40,
+      "12mm FR MDF / Plywood": 42,
+      "16mm MDF": 42,
+      "16mm FR MDF / Plywood": 44,
+      "18mm MDF": 44,
+      "18mm FR MDF / Plywood": 46,
+      "25mm MDF": 46,
+      "25mm FR MDF / Plywood": 48
+     }
+    },
+    {
+     "profile": "10CDP40",
+     "minPerSheet": {
+      "12mm MDF": 35,
+      "12mm FR MDF / Plywood": 37,
+      "16mm MDF": 37,
+      "16mm FR MDF / Plywood": 39,
+      "18mm MDF": 39,
+      "18mm FR MDF / Plywood": 41,
+      "25mm MDF": 41,
+      "25mm FR MDF / Plywood": 43
+     }
+    },
+    {
+     "profile": "10CDP50",
+     "minPerSheet": {
+      "12mm MDF": 30,
+      "12mm FR MDF / Plywood": 32,
+      "16mm MDF": 32,
+      "16mm FR MDF / Plywood": 34,
+      "18mm MDF": 34,
+      "18mm FR MDF / Plywood": 36,
+      "25mm MDF": 36,
+      "25mm FR MDF / Plywood": 38
+     }
+    },
+    {
+     "profile": "10CDP60",
+     "minPerSheet": {
+      "12mm MDF": 25,
+      "12mm FR MDF / Plywood": 26,
+      "16mm MDF": 26,
+      "16mm FR MDF / Plywood": 27,
+      "18mm MDF": 27,
+      "18mm FR MDF / Plywood": 28,
+      "25mm MDF": 28,
+      "25mm FR MDF / Plywood": 29
+     }
+    },
+    {
+     "profile": "10CDP100",
+     "minPerSheet": {
+      "12mm MDF": 20,
+      "12mm FR MDF / Plywood": 21,
+      "16mm MDF": 21,
+      "16mm FR MDF / Plywood": 22,
+      "18mm MDF": 22,
+      "18mm FR MDF / Plywood": 23,
+      "25mm MDF": 23,
+      "25mm FR MDF / Plywood": 24
+     }
+    },
+    {
+     "profile": "10CDP120",
+     "minPerSheet": {
+      "12mm MDF": 15,
+      "12mm FR MDF / Plywood": 16,
+      "16mm MDF": 16,
+      "16mm FR MDF / Plywood": 17,
+      "18mm MDF": 17,
+      "18mm FR MDF / Plywood": 18,
+      "25mm MDF": 18,
+      "25mm FR MDF / Plywood": 19
+     }
+    }
+   ]
+  },
+  {
+   "range": "DecorStyle / DecorMilano / DecorTone",
+   "profiles": [
+    {
+     "profile": "DecorStyle",
+     "minPerSheet": {
+      "12mm MDF": 8,
+      "12mm FR MDF / Plywood": 9,
+      "16mm MDF": 9,
+      "16mm FR MDF / Plywood": 10,
+      "18mm MDF": 10,
+      "18mm FR MDF / Plywood": 11,
+      "25mm MDF": 11,
+      "25mm FR MDF / Plywood": 12
+     }
+    }
+   ]
+  },
+  {
+   "range": "DecorMilano",
+   "profiles": []
+  },
+  {
+   "range": "DecorTone",
+   "profiles": []
+  },
+  {
+   "range": "DecorLini",
+   "profiles": []
+  },
+  {
+   "range": "DL36-432",
+   "profiles": []
+  },
+  {
+   "range": "DL19-316",
+   "profiles": []
+  },
+  {
+   "range": "DL12-480",
+   "profiles": []
+  },
+  {
+   "range": "DL11-380",
+   "profiles": []
+  },
+  {
+   "range": "DL10-280",
+   "profiles": []
+  },
+  {
+   "range": "DecorZen - CoC",
+   "profiles": [
+    {
+     "profile": "Bark",
+     "minPerSheet": {
+      "12mm MDF": 40,
+      "12mm FR MDF / Plywood": 42,
+      "16mm MDF": 42,
+      "16mm FR MDF / Plywood": 44,
+      "18mm MDF": 44,
+      "18mm FR MDF / Plywood": 46,
+      "25mm MDF": 46,
+      "25mm FR MDF / Plywood": 48
+     }
+    },
+    {
+     "profile": "Seeds - Normal",
+     "minPerSheet": {
+      "12mm MDF": 25,
+      "12mm FR MDF / Plywood": 26,
+      "16mm MDF": 26,
+      "16mm FR MDF / Plywood": 27,
+      "18mm MDF": 27,
+      "18mm FR MDF / Plywood": 28,
+      "25mm MDF": 28,
+      "25mm FR MDF / Plywood": 29
+     }
+    },
+    {
+     "profile": "Seeds - Reverse",
+     "minPerSheet": {
+      "12mm MDF": 35,
+      "12mm FR MDF / Plywood": 37,
+      "16mm MDF": 37,
+      "16mm FR MDF / Plywood": 39,
+      "18mm MDF": 39,
+      "18mm FR MDF / Plywood": 41,
+      "25mm MDF": 41,
+      "25mm FR MDF / Plywood": 43
+     }
+    },
+    {
+     "profile": "Connections to Country - Normal",
+     "minPerSheet": {
+      "12mm MDF": 25,
+      "12mm FR MDF / Plywood": 26,
+      "16mm MDF": 26,
+      "16mm FR MDF / Plywood": 27,
+      "18mm MDF": 27,
+      "18mm FR MDF / Plywood": 28,
+      "25mm MDF": 28,
+      "25mm FR MDF / Plywood": 29
+     }
+    },
+    {
+     "profile": "Connections to Country - Reverse",
+     "minPerSheet": {
+      "12mm MDF": 40,
+      "12mm FR MDF / Plywood": 42,
+      "16mm MDF": 42,
+      "16mm FR MDF / Plywood": 44,
+      "18mm MDF": 44,
+      "18mm FR MDF / Plywood": 46,
+      "25mm MDF": 46,
+      "25mm FR MDF / Plywood": 48
+     }
+    },
+    {
+     "profile": "Reform",
+     "minPerSheet": {
+      "12mm MDF": 30,
+      "12mm FR MDF / Plywood": 32,
+      "16mm MDF": 32,
+      "16mm FR MDF / Plywood": 34,
+      "18mm MDF": 34,
+      "18mm FR MDF / Plywood": 36,
+      "25mm MDF": 36,
+      "25mm FR MDF / Plywood": 38
+     }
+    },
+    {
+     "profile": "Currents - Normal",
+     "minPerSheet": {
+      "12mm MDF": 35,
+      "12mm FR MDF / Plywood": 37,
+      "16mm MDF": 37,
+      "16mm FR MDF / Plywood": 39,
+      "18mm MDF": 39,
+      "18mm FR MDF / Plywood": 41,
+      "25mm MDF": 41,
+      "25mm FR MDF / Plywood": 43
+     }
+    },
+    {
+     "profile": "Currents - Reverse",
+     "minPerSheet": {
+      "12mm MDF": 25,
+      "12mm FR MDF / Plywood": 26,
+      "16mm MDF": 26,
+      "16mm FR MDF / Plywood": 27,
+      "18mm MDF": 27,
+      "18mm FR MDF / Plywood": 28,
+      "25mm MDF": 28,
+      "25mm FR MDF / Plywood": 29
+     }
+    },
+    {
+     "profile": "Turtle Season",
+     "minPerSheet": {
+      "12mm MDF": 30,
+      "12mm FR MDF / Plywood": 32,
+      "16mm MDF": 32,
+      "16mm FR MDF / Plywood": 34,
+      "18mm MDF": 34,
+      "18mm FR MDF / Plywood": 36,
+      "25mm MDF": 36,
+      "25mm FR MDF / Plywood": 38
+     }
+    },
+    {
+     "profile": "Running Water 1A - Normal",
+     "minPerSheet": {
+      "12mm MDF": 30,
+      "12mm FR MDF / Plywood": 32,
+      "16mm MDF": 32,
+      "16mm FR MDF / Plywood": 34,
+      "18mm MDF": 34,
+      "18mm FR MDF / Plywood": 36,
+      "25mm MDF": 36,
+      "25mm FR MDF / Plywood": 38
+     }
+    },
+    {
+     "profile": "Running Water 1A - Reversed",
+     "minPerSheet": {
+      "12mm MDF": 40,
+      "12mm FR MDF / Plywood": 42,
+      "16mm MDF": 42,
+      "16mm FR MDF / Plywood": 44,
+      "18mm MDF": 44,
+      "18mm FR MDF / Plywood": 46,
+      "25mm MDF": 46,
+      "25mm FR MDF / Plywood": 48
+     }
+    },
+    {
+     "profile": "Running Water 1B - Normal",
+     "minPerSheet": {
+      "12mm MDF": 30,
+      "12mm FR MDF / Plywood": 32,
+      "16mm MDF": 32,
+      "16mm FR MDF / Plywood": 34,
+      "18mm MDF": 34,
+      "18mm FR MDF / Plywood": 36,
+      "25mm MDF": 36,
+      "25mm FR MDF / Plywood": 38
+     }
+    },
+    {
+     "profile": "Running Water 1B - Reversed",
+     "minPerSheet": {
+      "12mm MDF": 40,
+      "12mm FR MDF / Plywood": 42,
+      "16mm MDF": 42,
+      "16mm FR MDF / Plywood": 44,
+      "18mm MDF": 44,
+      "18mm FR MDF / Plywood": 46,
+      "25mm MDF": 46,
+      "25mm FR MDF / Plywood": 48
+     }
+    }
+   ]
+  }
+ ]
+}

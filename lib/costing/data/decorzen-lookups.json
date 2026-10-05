@@ -1,0 +1,614 @@
+{
+ "products": [
+  {
+   "name": "DecorZen",
+   "type": "Panel"
+  },
+  {
+   "name": "DecorZen CoC",
+   "type": "Panel"
+  },
+  {
+   "name": "DecorZen Micro",
+   "type": "Panel"
+  },
+  {
+   "name": "DecorTrend",
+   "type": "Panel"
+  },
+  {
+   "name": "DecorStyle",
+   "type": "Panel"
+  },
+  {
+   "name": "DecorEagle",
+   "type": "Panel"
+  },
+  {
+   "name": "DecorArti",
+   "type": "Panel"
+  },
+  {
+   "name": "DecorTile",
+   "type": "Panel"
+  },
+  {
+   "name": "DecorPly",
+   "type": "Panel"
+  },
+  {
+   "name": "DecorLini",
+   "type": "Plank"
+  },
+  {
+   "name": "DecorMilano",
+   "type": "Plank"
+  },
+  {
+   "name": "Cewood",
+   "type": "Cewood"
+  },
+  {
+   "name": "Cewood Create",
+   "type": "Cewood"
+  },
+  {
+   "name": "DecorLux",
+   "type": "Panel"
+  },
+  {
+   "name": "DecorLux CoC",
+   "type": "Panel"
+  },
+  {
+   "name": "DecorLuxMax",
+   "type": "Panel"
+  },
+  {
+   "name": "DecorSlot",
+   "type": "Panel"
+  }
+ ],
+ "paint": [
+  {
+   "productType": "Panel",
+   "paint": "2PP 10-30% Gloss - Clear",
+   "rateM2": 45
+  },
+  {
+   "productType": "Plank",
+   "paint": "2PP 10-30% Gloss - Clear",
+   "rateM2": 65
+  },
+  {
+   "productType": "Tile",
+   "paint": "2PP 10-30% Gloss - Clear",
+   "rateM2": 45
+  },
+  {
+   "productType": "Slat",
+   "paint": "2PP 10-30% Gloss - Clear",
+   "rateM2": 80
+  },
+  {
+   "productType": "Beam",
+   "paint": "2PP 10-30% Gloss - Clear",
+   "rateM2": 90
+  },
+  {
+   "productType": "Panel",
+   "paint": "2PP 10-30% Gloss - Standard Colours",
+   "rateM2": 65
+  },
+  {
+   "productType": "Plank",
+   "paint": "2PP 10-30% Gloss - Standard Colours",
+   "rateM2": 85
+  },
+  {
+   "productType": "Tile",
+   "paint": "2PP 10-30% Gloss - Standard Colours",
+   "rateM2": 65
+  },
+  {
+   "productType": "Slat",
+   "paint": "2PP 10-30% Gloss - Standard Colours",
+   "rateM2": 95
+  },
+  {
+   "productType": "Beam",
+   "paint": "2PP 10-30% Gloss - Standard Colours",
+   "rateM2": 105
+  },
+  {
+   "productType": "Panel",
+   "paint": "2PP 10-30% Gloss - Custom Colours",
+   "rateM2": 85
+  },
+  {
+   "productType": "Plank",
+   "paint": "2PP 10-30% Gloss - Custom Colours",
+   "rateM2": 105
+  },
+  {
+   "productType": "Tile",
+   "paint": "2PP 10-30% Gloss - Custom Colours",
+   "rateM2": 85
+  },
+  {
+   "productType": "Slat",
+   "paint": "2PP 10-30% Gloss - Custom Colours",
+   "rateM2": 120
+  },
+  {
+   "productType": "Beam",
+   "paint": "2PP 10-30% Gloss - Custom Colours",
+   "rateM2": 130
+  },
+  {
+   "productType": "Panel",
+   "paint": "2PP 30% Gloss - Metallics",
+   "rateM2": 120
+  },
+  {
+   "productType": "Plank",
+   "paint": "2PP 30% Gloss - Metallics",
+   "rateM2": 150
+  },
+  {
+   "productType": "Tile",
+   "paint": "2PP 30% Gloss - Metallics",
+   "rateM2": 120
+  },
+  {
+   "productType": "Slat",
+   "paint": "2PP 30% Gloss - Metallics",
+   "rateM2": 180
+  },
+  {
+   "productType": "Beam",
+   "paint": "2PP 30% Gloss - Metallics",
+   "rateM2": 190
+  },
+  {
+   "productType": "Panel",
+   "paint": "Undercoated in white",
+   "rateM2": 30
+  },
+  {
+   "productType": "Panel",
+   "paint": "Undercoated with tint",
+   "rateM2": 35
+  },
+  {
+   "productType": "Panel",
+   "paint": "Stained with clear sealer 10% gloss",
+   "rateM2": 75
+  },
+  {
+   "productType": "Plank",
+   "paint": "Stained with clear sealer 10% gloss",
+   "rateM2": 105
+  },
+  {
+   "productType": "Tile",
+   "paint": "Stained with clear sealer 10% gloss",
+   "rateM2": 75
+  },
+  {
+   "productType": "Slat",
+   "paint": "Stained with clear sealer 10% gloss",
+   "rateM2": 95
+  },
+  {
+   "productType": "Beam",
+   "paint": "Stained with clear sealer 10% gloss",
+   "rateM2": 105
+  },
+  {
+   "productType": "Panel",
+   "paint": "UV Printed Smartlook - Solid Panels",
+   "rateM2": 92
+  },
+  {
+   "productType": "Panel",
+   "paint": "UV Printed Smartlook - Perforated Panels",
+   "rateM2": 105
+  },
+  {
+   "productType": "Panel",
+   "paint": "No painting or finishing",
+   "rateM2": 0
+  },
+  {
+   "productType": "Plank",
+   "paint": "No painting or finishing",
+   "rateM2": 0
+  },
+  {
+   "productType": "Tile",
+   "paint": "No painting or finishing",
+   "rateM2": 0
+  },
+  {
+   "productType": "Slat",
+   "paint": "No painting or finishing",
+   "rateM2": 0
+  },
+  {
+   "productType": "Beam",
+   "paint": "No painting or finishing",
+   "rateM2": 0
+  }
+ ],
+ "edgeDetails": [
+  {
+   "name": "Square - raw",
+   "tape": "Nil",
+   "labourNote": "None - exposed edges",
+   "usesTape": false,
+   "setupMin": 0,
+   "productType": "Panel"
+  },
+  {
+   "name": "Square - matching edging",
+   "tape": "Matching edge tape",
+   "labourNote": "Matching edge tape applied to all sides",
+   "usesTape": true,
+   "setupMin": 20,
+   "productType": "Panel"
+  },
+  {
+   "name": "Arrised - no edging",
+   "tape": "Nil",
+   "labourNote": "None - arrised edges",
+   "usesTape": false,
+   "setupMin": 0,
+   "productType": "Panel"
+  },
+  {
+   "name": "Arrised - matching edging",
+   "tape": "Matching edge tape",
+   "labourNote": "Matching edge tape applied to all sides PRIOR TO ARRIS",
+   "usesTape": true,
+   "setupMin": 20,
+   "productType": "Panel"
+  },
+  {
+   "name": "Tongue & groove",
+   "tape": "Nil",
+   "labourNote": "None - T&G joint",
+   "usesTape": false,
+   "setupMin": 0,
+   "productType": "Plank"
+  },
+  {
+   "name": "Tegular - drop-in tiles",
+   "tape": "Nil",
+   "labourNote": "None - tegular edge for drop-in tiles",
+   "usesTape": false,
+   "setupMin": 0,
+   "productType": "Panel"
+  },
+  {
+   "name": "Square - matching paint finish",
+   "tape": "Nil",
+   "labourNote": "No edging, matching paint finish",
+   "usesTape": false,
+   "setupMin": 0,
+   "productType": "Panel"
+  }
+ ],
+ "sheetSizes": [
+  {
+   "name": "1200x1200",
+   "length": 1200,
+   "width": 1200,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "1500x1200",
+   "length": 1500,
+   "width": 1200,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "1800x1200",
+   "length": 1800,
+   "width": 1200,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2100x1200",
+   "length": 2100,
+   "width": 1200,
+   "operators": 4,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2400x1200",
+   "length": 2400,
+   "width": 1200,
+   "operators": 4,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2700x1200",
+   "length": 2700,
+   "width": 1200,
+   "operators": 4,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "3000x1200",
+   "length": 3000,
+   "width": 1200,
+   "operators": 4,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "3600x1200",
+   "length": 3600,
+   "width": 1200,
+   "operators": 4,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "1200x900",
+   "length": 1200,
+   "width": 900,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "1500x900",
+   "length": 1500,
+   "width": 900,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "1800x900",
+   "length": 1800,
+   "width": 900,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2100x900",
+   "length": 2100,
+   "width": 900,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2400x900",
+   "length": 2400,
+   "width": 900,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2700x900",
+   "length": 2700,
+   "width": 900,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "3000x900",
+   "length": 3000,
+   "width": 900,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "1200x600",
+   "length": 1200,
+   "width": 600,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "1500x600",
+   "length": 1500,
+   "width": 600,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "1800x600",
+   "length": 1800,
+   "width": 600,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2100x600",
+   "length": 2100,
+   "width": 600,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2400x600",
+   "length": 2400,
+   "width": 600,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2700x600",
+   "length": 2700,
+   "width": 600,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "3000x600",
+   "length": 3000,
+   "width": 600,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "1200x300",
+   "length": 1200,
+   "width": 300,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "1500x300",
+   "length": 1500,
+   "width": 300,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "1800x300",
+   "length": 1800,
+   "width": 300,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2100x300",
+   "length": 2100,
+   "width": 300,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2400x300",
+   "length": 2400,
+   "width": 300,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2700x300",
+   "length": 2700,
+   "width": 300,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "3000x300",
+   "length": 3000,
+   "width": 300,
+   "operators": 2,
+   "minPerSheet": 3,
+   "type": "Panel"
+  },
+  {
+   "name": "2400x128",
+   "length": 2400,
+   "width": 128,
+   "operators": null,
+   "minPerSheet": null,
+   "type": "Plank"
+  },
+  {
+   "name": "2700x128",
+   "length": 2700,
+   "width": 128,
+   "operators": null,
+   "minPerSheet": null,
+   "type": "Plank"
+  },
+  {
+   "name": "3000x128",
+   "length": 3000,
+   "width": 128,
+   "operators": null,
+   "minPerSheet": null,
+   "type": "Plank"
+  },
+  {
+   "name": "1195x595",
+   "length": 1195,
+   "width": 595,
+   "operators": null,
+   "minPerSheet": null,
+   "type": "Cewood"
+  },
+  {
+   "name": "2395x595",
+   "length": 2395,
+   "width": 595,
+   "operators": null,
+   "minPerSheet": null,
+   "type": "Cewood"
+  }
+ ],
+ "acoustic": [
+  {
+   "option": "Yes - Black",
+   "material": "Black DecorSorb",
+   "materialRateM2": 4.25,
+   "setupMin": 20,
+   "instruction": "Apply DecorSorb to panels & trim excess"
+  },
+  {
+   "option": "None",
+   "material": "Nil",
+   "materialRateM2": 0,
+   "setupMin": null,
+   "instruction": "Not required"
+  }
+ ],
+ "complexity": [
+  {
+   "grade": "A",
+   "notes": "Standardised panels predominantly, minimal to no wastage - sweet spot projects",
+   "factor": 0.15
+  },
+  {
+   "grade": "B",
+   "notes": "Some standardised panels with custom panels, small wastage",
+   "factor": 0.25
+  },
+  {
+   "grade": "C",
+   "notes": "Custom panels, significant wastage and variance in panel types including custom work to panels outside of our usual scope",
+   "factor": 0.4
+  },
+  {
+   "grade": "D",
+   "notes": "Custom panels predominantly, high wastage with substantial customised processessing involved including heavy administration",
+   "factor": 0.6
+  }
+ ]
+}
