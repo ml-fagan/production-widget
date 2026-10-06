@@ -69,7 +69,18 @@
 .cw-lines { width: 100%; border-collapse: collapse; table-layout: fixed; background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; }
 .cw-lines th { font-size: 12px; font-weight: 500; color: var(--muted); text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); background: #fafbf9; }
 .cw-adj { table-layout: auto; }
-.cw-lines td { overflow-wrap: anywhere; padding: 8px 10px; border-bottom: 1px solid #eceee9; vertical-align: top; }
+/* break-word, not anywhere. Both stop a long word overflowing, but `anywhere`
+   also tells the browser a cell's smallest possible width is one character —
+   which is what let the description column be squeezed to nothing and printed
+   one letter per line. */
+.cw-lines td { overflow-wrap: break-word; padding: 8px 10px; border-bottom: 1px solid #eceee9; vertical-align: top; }
+/* The six fixed columns come to 596px, and the description gets whatever is
+   left. On a sheet narrower than that it got nothing at all: measured at a
+   1180px window the description column was 0px wide and 892px tall.
+   So the table keeps a floor and the block scrolls sideways instead — which
+   the phone breakpoint already did, and every width needed. */
+.cw-block { overflow-x: auto; }
+.cw-lines { min-width: 820px; }
 .cw-lines tr:last-child td { border-bottom: 0; }
 .cw-lines tr.is-off td { color: #a3aba8; }
 .cw-lines tr.is-off .cw-edit { color: #a3aba8; }
@@ -116,8 +127,10 @@
   .cw-inputs { border-right: 0; border-bottom: 1px solid var(--rule); }
   .cw-sheet { padding: 16px 12px 32px; }
   .cw-totals { grid-template-columns: 1fr; }
-  .cw-block { overflow-x: auto; }
-  .cw-block .cw-lines { min-width: 640px; }
+  /* The scroll and the table's floor are base rules now, so they apply at
+     every width rather than only here. The 640px that used to be set is gone
+     with them: two classes beat one, so it would have pulled the floor back
+     down and left the description 44px wide on a phone. */
 }
 
 /* saved costings bar */
