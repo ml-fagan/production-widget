@@ -20,6 +20,7 @@ import {
   plain,
   clockFrom,
   isAccount,
+  groupByJob,
 } from "../../lib/drafting.js";
 
 // Drafting — drawings issued and sitting with a client.
@@ -207,6 +208,21 @@ export default function DraftingPage() {
   const drawingsCount = rows.length - accountsCount;
 
   /**
+   * Which rows belong to the same job.
+   *
+   * Built from every row, not the filtered ones — a drawing set's account
+   * still has to be reported when the filter is showing drawings only, which
+   * is exactly when somebody would otherwise assume it isn't there.
+   */
+  const jobs = useMemo(() => groupByJob(rows), [rows]);
+  // Counted over distinct groups, not over rows: the index holds one entry
+  // per task, so every member of a pair would otherwise count it again.
+  const sharedJobs = useMemo(
+    () => new Set([...jobs.values()].filter((g) => g.length > 1)).size,
+    [jobs]
+  );
+
+  /**
    * The board, as a spreadsheet.
    *
    * Exports what's on screen, filter and search included, and names the file
@@ -291,6 +307,14 @@ export default function DraftingPage() {
                 <>
                   {" · "}
                   <strong style={{ color: BRAND.amber }}>{aged} quiet over a month</strong>
+                </>
+              )}
+              {sharedJobs > 0 && (
+                <>
+                  {" · "}
+                  <span title="Jobs with both a drawing set and an account on the board. Both are shown — they are different stages, with different people on them.">
+                    {sharedJobs} on both sides
+                  </span>
                 </>
               )}
             </p>
@@ -461,6 +485,11 @@ export default function DraftingPage() {
                     const clock = clockFrom(r);
                     const account = isAccount(r);
                     const open = noting === r.taskGid;
+                    // The other stages of this job, so a row can say what the
+                    // rest of it is doing instead of pretending to be alone.
+                    const siblings = (jobs.get(r.taskGid) || []).filter(
+                      (s) => s.taskGid !== r.taskGid
+                    );
                     return (
                       <Fragment key={r.taskGid}>
                       <tr
@@ -517,6 +546,48 @@ export default function DraftingPage() {
                             >
                               ACCT
                             </span>
+                          )}
+                          {/* The rest of the job. Both rows stay on the board;
+                              this is so neither has to be read as the whole
+                              story. Clicking filters to the job. */}
+                          {siblings.length > 0 && (
+                            <div style={{ marginTop: 3 }}>
+                              {siblings.map((s) => {
+                                const sd = quietDays(s, now);
+                                const sAcct = isAccount(s);
+                                return (
+                                  <button
+                                    key={s.taskGid}
+                                    onClick={() => setQuery(s.crm || s.projectName || "")}
+                                    title={`Also on this job: ${s.projectName}${
+                                      s.assignee ? ` (${s.assignee})` : ""
+                                    } — ${sd === null ? "no date" : `${sd} days quiet`}. Click to show it.`}
+                                    style={{
+                                      border: "none",
+                                      background: "transparent",
+                                      padding: 0,
+                                      marginRight: 6,
+                                      fontSize: 10,
+                                      fontWeight: 500,
+                                      fontFamily: "inherit",
+                                      cursor: "pointer",
+                                      color: sAcct ? BRAND.pink : BRAND.green,
+                                      textDecoration: "underline dotted",
+                                    }}
+                                  >
+                                    +{sAcct ? "acct" : "draw"}{" "}
+                                    <span
+                                      style={{
+                                        color: bandOf(sd) === "aged" ? BRAND.amber : "inherit",
+                                        fontWeight: bandOf(sd) === "aged" ? 700 : 500,
+                                      }}
+                                    >
+                                      {sd === null ? "—" : `${sd}d`}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           )}
                         </td>
                         <td style={{ ...td, whiteSpace: "normal", minWidth: 220 }}>
