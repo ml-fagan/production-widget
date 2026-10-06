@@ -652,6 +652,16 @@ export default function MaterialsPage() {
       project: h.project || h.client || "",
       fibreCement: h.fibreCement,
       materialNote: h.materialNote || "",
+      /**
+       * When Mitch sent the handover to production, and who sent it.
+       *
+       * Named `sentAt` rather than `loggedAt` on purpose: a pre-order row
+       * already carries `loggedAt` meaning when Jordan raised it, and the two
+       * would be spread onto rows of the same list. One name, two meanings, in
+       * one array is how a line ends up reporting the wrong date.
+       */
+      sentAt: h.loggedAt || null,
+      sentBy: h.loggedBy || "",
     }))
   );
 
@@ -1843,6 +1853,28 @@ export default function MaterialsPage() {
                             telling a pre-order raised this morning from one
                             raised three weeks ago — which is the thing that
                             decides which to ring about first. */}
+                        {/* When it landed on Alice's board.
+
+                            A pre-order has said this since the pre-order stamp
+                            went in; a handover line said nothing, so a job sent
+                            through this morning looked exactly like one sent a
+                            fortnight ago. That's the thing that decides what to
+                            ring about first. */}
+                        {!pre && !sameJobAbove && m.sentAt && (
+                          <div style={{ fontSize: 11, color: BRAND.sub }}>
+                            {/* Named, not assumed to be Mitch: of the five
+                                jobs on Outstanding today, four were sent by
+                                Sarah. */}
+                            <span
+                              title={`Handover sent to production ${fmtStamp(m.sentAt)}${
+                                m.sentBy ? ` by ${m.sentBy}` : ""
+                              }`}
+                            >
+                              sent {fmtStamp(m.sentAt)}
+                            </span>
+                            {m.sentBy ? ` · ${m.sentBy.split("@")[0]}` : ""}
+                          </div>
+                        )}
                         {pre && !sameJobAbove && (m.loggedBy || m.note || m.loggedAt) && (
                           <div style={{ fontSize: 11, color: BRAND.sub }}>
                             {m.loggedAt && (
