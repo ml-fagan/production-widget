@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
+import Overview from "./Overview.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import {
@@ -381,7 +382,7 @@ export default function DraftingPage() {
               }}
             >
               {p.label}
-              <span style={{ marginLeft: 6, opacity: 0.75 }}>{p.count}</span>
+              {p.count !== null && <span style={{ marginLeft: 6, opacity: 0.75 }}>{p.count}</span>}
             </button>
           ))}
           {shown.length > 0 && (
@@ -395,6 +396,18 @@ export default function DraftingPage() {
           )}
         </div>
 
+        {/* The board totalled rather than listed. Its own view, not a filter:
+            the rows underneath would only repeat it. */}
+        {pill === "overview" && (
+          <Overview
+            rows={rows}
+            now={now}
+            brand={BRAND}
+            onPickPerson={(who) => setPill(`who:${who}`)}
+          />
+        )}
+
+        {pill !== "overview" && (
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -411,8 +424,9 @@ export default function DraftingPage() {
             boxSizing: "border-box",
           }}
         />
+        )}
 
-        {!loading && shown.length === 0 && (
+        {pill !== "overview" && !loading && shown.length === 0 && (
           <p style={{ fontSize: 13, color: BRAND.sub }}>
             {rows.length === 0
               ? "Nothing on the register. That either means every set is back, or the sync hasn't run."
@@ -420,7 +434,7 @@ export default function DraftingPage() {
           </p>
         )}
 
-        {banded.map((band) => (
+        {pill !== "overview" && banded.map((band) => (
           <section
             key={band.key}
             style={{
