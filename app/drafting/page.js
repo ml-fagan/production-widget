@@ -307,7 +307,9 @@ export default function DraftingPage() {
               {aged > 0 && (
                 <>
                   {" · "}
-                  <strong style={{ color: BRAND.amber }}>{aged} quiet over a month</strong>
+                  <strong style={{ color: BRAND.amber }}>
+                    {aged} quiet four weeks or more
+                  </strong>
                 </>
               )}
               {sharedJobs > 0 && (
