@@ -1,7 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CHASE_BANDS, CHASE_FILTERS, overviewFor } from "../../lib/drafting.js";
+import {
+  CHASE_BANDS,
+  CHASE_FILTERS,
+  filterByKey,
+  overviewFor,
+  selectRows,
+  clockFrom,
+  isAccount,
+  shortDay,
+} from "../../lib/drafting.js";
 
 /**
  * Who is carrying what, and how late it is.
@@ -9,12 +18,16 @@ import { CHASE_BANDS, CHASE_FILTERS, overviewFor } from "../../lib/drafting.js";
  * One bar per person, stacked by how long since anybody was in touch. The
  * height answers "how much is on them"; the darkness answers "how much of it
  * has gone quiet". Both at once, because either on its own is misleading —
- * ninety-two rows is only alarming if they are old, and four rows at a
- * hundred days is worse than forty fresh ones.
+ * ninety-two rows is only alarming if they are old, and one row at a hundred
+ * days is worse than forty fresh ones.
  *
  * The colour never says who. Names are nominal, so every bar uses the same
  * ramp; a per-person palette would be eight hues encoding nothing, and the
  * one thing worth seeing would be gone.
+ *
+ * Every piece of it opens. A bar segment is a question — "what are Veronica's
+ * thirty past four weeks?" — and a chart that can't answer it just sends you
+ * somewhere else to look.
  */
 
 const PLOT = { w: 860, h: 300, left: 42, right: 14, top: 18, bottom: 54 };
@@ -29,10 +42,13 @@ function ticksFor(max) {
 }
 
 export default function Overview({ rows, now, brand, onPickPerson }) {
-  const [minDays, setMinDays] = useState(0);
+  const [filterKey, setFilterKey] = useState("all");
   const [hover, setHover] = useState(null);
+  // What's open underneath: a person, or a person and one band of their bar.
+  const [picked, setPicked] = useState(null);
 
-  const data = useMemo(() => overviewFor(rows, now, minDays), [rows, now, minDays]);
+  const filter = filterByKey(filterKey);
+  const data = useMemo(() => overviewFor(rows, now, filter), [rows, now, filter]);
   const shown = data.filter((d) => d.total > 0);
   const max = Math.max(1, ...shown.map((d) => d.total));
   const { top, step } = ticksFor(max);
@@ -40,7 +56,6 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
   const innerW = PLOT.w - PLOT.left - PLOT.right;
   const innerH = PLOT.h - PLOT.top - PLOT.bottom;
   const slot = shown.length ? innerW / shown.length : innerW;
-  // Thin marks: a bar is a mark, not a container.
   const barW = Math.min(64, Math.max(18, slot * 0.52));
   const y = (v) => PLOT.top + innerH - (v / top) * innerH;
 
@@ -48,8 +63,15 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
   for (let v = 0; v <= top + 0.001; v += step) gridlines.push(v);
 
   const total = shown.reduce((a, d) => a + d.total, 0);
-  const filterLabel =
-    CHASE_FILTERS.find((f) => f.min === minDays)?.label ?? "Everything";
+
+  const open = useMemo(
+    () => (picked ? selectRows(rows, now, { filter, who: picked.who, band: picked.band }) : []),
+    [picked, rows, now, filter]
+  );
+  const bandLabel = (key) => CHASE_BANDS.find((b) => b.key === key)?.label ?? "";
+
+  const toggle = (who, band) =>
+    setPicked((p) => (p && p.who === who && p.band === band ? null : { who, band }));
 
   const btn = {
     border: `1px solid ${brand.line}`,
@@ -88,7 +110,6 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
         position: "relative",
       }}
     >
-      {/* Filters in one row above the chart. */}
       <div
         style={{
           display: "flex",
@@ -100,23 +121,27 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
       >
         <strong style={{ fontSize: 14, fontWeight: 600 }}>Who is carrying what</strong>
         <span style={{ fontSize: 12, color: brand.sub, marginRight: "auto" }}>
-          {total} {total === 1 ? "task" : "tasks"}
-          {minDays > 0 ? ` not touched in ${minDays === 14 ? "two" : minDays === 21 ? "three" : "four"} weeks or more` : ""}
+          {total} {total === 1 ? "task" : "tasks"} · click a bar or a name to open it
         </span>
         {CHASE_FILTERS.map((f) => (
           <button
             key={f.key}
-            onClick={() => setMinDays(f.min)}
+            onClick={() => {
+              setFilterKey(f.key);
+              setPicked(null);
+            }}
             title={
-              f.min === 0
+              f.key === "all"
                 ? "Every task on the board"
-                : `Only what nobody has touched in ${f.min} days or more`
+                : f.key === "within"
+                  ? "Touched in the last fortnight — nothing to chase"
+                  : "Nobody has touched these in a fortnight or more"
             }
             style={{
               ...btn,
-              background: minDays === f.min ? brand.ink : brand.card,
-              borderColor: minDays === f.min ? brand.ink : brand.line,
-              color: minDays === f.min ? "#fff" : brand.sub,
+              background: filterKey === f.key ? brand.ink : brand.card,
+              borderColor: filterKey === f.key ? brand.ink : brand.line,
+              color: filterKey === f.key ? "#fff" : brand.sub,
             }}
           >
             {f.label}
@@ -126,7 +151,7 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
 
       {shown.length === 0 ? (
         <p style={{ fontSize: 13, color: brand.sub, margin: "20px 0" }}>
-          Nothing is {filterLabel.toLowerCase()} overdue. That is the good answer.
+          Nothing in that range. That is the good answer.
         </p>
       ) : (
         <>
@@ -134,11 +159,9 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
             viewBox={`0 0 ${PLOT.w} ${PLOT.h}`}
             width="100%"
             role="img"
-            aria-label={`Tasks per person, ${filterLabel}`}
+            aria-label={`Tasks per person, ${filter.label}`}
             style={{ display: "block", overflow: "visible" }}
           >
-            {/* Recessive grid: present enough to read a value off, quiet
-                enough not to compete with the bars. */}
             {gridlines.map((v) => (
               <g key={v}>
                 <line
@@ -149,13 +172,7 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
                   stroke={v === 0 ? brand.line : "#f0ede6"}
                   strokeWidth={1}
                 />
-                <text
-                  x={PLOT.left - 8}
-                  y={y(v) + 4}
-                  textAnchor="end"
-                  fontSize={11}
-                  fill={brand.sub}
-                >
+                <text x={PLOT.left - 8} y={y(v) + 4} textAnchor="end" fontSize={11} fill={brand.sub}>
                   {v}
                 </text>
               </g>
@@ -165,10 +182,10 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
               const cx = PLOT.left + slot * i + slot / 2;
               const x = cx - barW / 2;
               let cursor = 0;
-              // Darkest at the bottom: the part that matters sits on the
-              // baseline where it can be compared across bars, rather than
-              // floating at a different height in every column.
+              // Darkest on the baseline, where it can be compared across bars
+              // rather than floating at a different height in every column.
               const order = [...CHASE_BANDS].reverse();
+              const isPickedPerson = picked && picked.who === d.who;
               return (
                 <g key={d.who}>
                   {order.map((band) => {
@@ -178,54 +195,50 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
                     const yTop = PLOT.top + innerH - cursor - h;
                     cursor += h;
                     const isTop = cursor >= (d.total / top) * innerH - 0.5;
-                    const on = hover && hover.who === d.who && hover.band === band.key;
+                    const isPicked = isPickedPerson && picked.band === band.key;
+                    const dim = (hover && !(hover.who === d.who && hover.band === band.key)) ||
+                      (picked && !isPicked);
                     return (
                       <rect
                         key={band.key}
                         x={x}
-                        // A 2px gap between segments, taken off the top so the
-                        // stack still adds up against the axis.
-                        y={yTop + (isTop ? 0 : 0)}
+                        y={yTop}
                         width={barW}
                         height={Math.max(1, h - 2)}
                         rx={isTop ? 4 : 0}
                         fill={band.color}
-                        opacity={hover && !on ? 0.55 : 1}
-                        onMouseEnter={() => setHover({ who: d.who, band: band.key, n, total: d.total, worst: d.worst })}
+                        opacity={dim ? 0.4 : 1}
+                        stroke={isPicked ? brand.ink : "none"}
+                        strokeWidth={isPicked ? 2 : 0}
+                        onMouseEnter={() =>
+                          setHover({ who: d.who, band: band.key, n, total: d.total, worst: d.worst })
+                        }
                         onMouseLeave={() => setHover(null)}
-                        style={{ cursor: "default" }}
-                      />
+                        onClick={() => toggle(d.who, band.key)}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <title>{`${d.who} — ${n} ${band.label.toLowerCase()}`}</title>
+                      </rect>
                     );
                   })}
-                  {/* The total, labelled directly — so the chart is readable
-                      without hovering and without reading colours. */}
-                  <text
-                    x={cx}
-                    y={y(d.total) - 7}
-                    textAnchor="middle"
-                    fontSize={12}
-                    fontWeight={600}
-                    fill={brand.ink}
-                  >
+                  <text x={cx} y={y(d.total) - 7} textAnchor="middle" fontSize={12} fontWeight={600} fill={brand.ink}>
                     {d.total}
                   </text>
+                  {/* The whole person, not one band of them. */}
                   <text
                     x={cx}
                     y={PLOT.h - PLOT.bottom + 18}
                     textAnchor="middle"
                     fontSize={12}
+                    fontWeight={isPickedPerson && !picked.band ? 600 : 400}
                     fill={brand.ink}
+                    onClick={() => toggle(d.who, null)}
+                    style={{ cursor: "pointer", textDecoration: "underline dotted" }}
                   >
                     {d.first}
                   </text>
                   {d.worst >= 0 && (
-                    <text
-                      x={cx}
-                      y={PLOT.h - PLOT.bottom + 33}
-                      textAnchor="middle"
-                      fontSize={10}
-                      fill={brand.sub}
-                    >
+                    <text x={cx} y={PLOT.h - PLOT.bottom + 33} textAnchor="middle" fontSize={10} fill={brand.sub}>
                       oldest {d.worst}d
                     </text>
                   )}
@@ -234,8 +247,6 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
             })}
           </svg>
 
-          {/* Legend: always present for more than one series, so identity is
-              never carried by colour alone. */}
           <ul
             style={{
               display: "flex",
@@ -250,21 +261,13 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
           >
             {CHASE_BANDS.map((b) => (
               <li key={b.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <i
-                  style={{
-                    width: 9,
-                    height: 9,
-                    borderRadius: 2,
-                    background: b.color,
-                    display: "inline-block",
-                  }}
-                />
+                <i style={{ width: 9, height: 9, borderRadius: 2, background: b.color, display: "inline-block" }} />
                 {b.label}
               </li>
             ))}
           </ul>
 
-          {hover && (
+          {hover && !picked && (
             <div
               style={{
                 position: "absolute",
@@ -281,10 +284,108 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
             >
               <strong>{hover.who}</strong>
               <div>
-                {hover.n} of {hover.total} ·{" "}
-                {CHASE_BANDS.find((b) => b.key === hover.band)?.label.toLowerCase()}
+                {hover.n} of {hover.total} · {bandLabel(hover.band).toLowerCase()}
               </div>
               {hover.worst >= 0 && <div>oldest {hover.worst} days</div>}
+            </div>
+          )}
+
+          {/* What was clicked, opened in place. */}
+          {picked && (
+            <div
+              style={{
+                marginTop: 16,
+                border: `1px solid ${brand.line}`,
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  padding: "9px 12px",
+                  background: "#faf9f6",
+                  borderBottom: `1px solid ${brand.line}`,
+                }}
+              >
+                <strong style={{ fontSize: 13 }}>{picked.who}</strong>
+                <span style={{ fontSize: 12, color: brand.sub }}>
+                  {/* The band when one was clicked, the filter when the whole
+                      person was, and nothing when neither narrows it — the
+                      count already says how many. */}
+                  {picked.band
+                    ? `${bandLabel(picked.band).toLowerCase()} · `
+                    : filter.key === "all"
+                      ? ""
+                      : `${filter.label.toLowerCase()} · `}
+                  {open.length} {open.length === 1 ? "task" : "tasks"}
+                </span>
+                <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                  {/* The pills stay the place to actually work through a list;
+                      this is the look, that is the desk. */}
+                  {onPickPerson && (
+                    <button onClick={() => onPickPerson(picked.who)} style={{ ...btn, color: brand.blue }}>
+                      Open their board →
+                    </button>
+                  )}
+                  <button onClick={() => setPicked(null)} style={btn}>
+                    Close
+                  </button>
+                </span>
+              </div>
+              <div style={{ overflowX: "auto", maxHeight: 340, overflowY: "auto" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 560 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...th, textAlign: "right" }}>Quiet</th>
+                      <th style={th}>Job</th>
+                      <th style={th}>Project</th>
+                      <th style={th}>Last touch</th>
+                      <th style={th} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {open.map((r) => {
+                      const clock = clockFrom(r);
+                      const acct = isAccount(r);
+                      return (
+                        <tr key={r.taskGid} style={acct ? { background: brand.pinkSoft } : undefined}>
+                          <td style={{ ...td, textAlign: "right", fontWeight: 600 }}>
+                            {r.days === null ? "—" : `${r.days}d`}
+                          </td>
+                          <td style={{ ...td, whiteSpace: "nowrap" }}>
+                            {r.crm || "—"}
+                            {acct && (
+                              <span style={{ marginLeft: 5, fontSize: 10, color: brand.pink }}>ACCT</span>
+                            )}
+                          </td>
+                          <td style={{ ...td, whiteSpace: "normal" }}>{r.projectName || "—"}</td>
+                          <td style={{ ...td, color: brand.sub, whiteSpace: "nowrap" }}>
+                            {clock.basis === "chased" || clock.basis === "contacted"
+                              ? shortDay(clock.day)
+                              : "never"}
+                          </td>
+                          <td style={{ ...td, textAlign: "right" }}>
+                            {r.permalink && (
+                              <a
+                                href={r.permalink}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ color: brand.blue, textDecoration: "none" }}
+                              >
+                                Asana ↗
+                              </a>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
@@ -309,13 +410,14 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
                   <tr key={d.who}>
                     <td style={td}>
                       <button
-                        onClick={() => onPickPerson && onPickPerson(d.who)}
-                        title={`Show ${d.who}'s rows`}
+                        onClick={() => toggle(d.who, null)}
+                        title={`Open ${d.who}'s tasks here`}
                         style={{
                           border: "none",
                           background: "transparent",
                           padding: 0,
                           font: "inherit",
+                          fontWeight: picked && picked.who === d.who ? 600 : 400,
                           color: brand.blue,
                           cursor: "pointer",
                         }}
@@ -323,11 +425,33 @@ export default function Overview({ rows, now, brand, onPickPerson }) {
                         {d.who}
                       </button>
                     </td>
-                    {CHASE_BANDS.map((b) => (
-                      <td key={b.key} style={{ ...td, textAlign: "right" }}>
-                        {d.bands[b.key] || <span style={{ color: "#b3afa6" }}>—</span>}
-                      </td>
-                    ))}
+                    {CHASE_BANDS.map((b) => {
+                      const n = d.bands[b.key] || 0;
+                      return (
+                        <td key={b.key} style={{ ...td, textAlign: "right" }}>
+                          {n ? (
+                            <button
+                              onClick={() => toggle(d.who, b.key)}
+                              title={`Open these ${n}`}
+                              style={{
+                                border: "none",
+                                background: "transparent",
+                                padding: 0,
+                                font: "inherit",
+                                fontVariantNumeric: "tabular-nums",
+                                color: brand.ink,
+                                cursor: "pointer",
+                                textDecoration: "underline dotted",
+                              }}
+                            >
+                              {n}
+                            </button>
+                          ) : (
+                            <span style={{ color: "#b3afa6" }}>—</span>
+                          )}
+                        </td>
+                      );
+                    })}
                     <td style={{ ...td, textAlign: "right", fontWeight: 600 }}>{d.total}</td>
                     <td style={{ ...td, textAlign: "right" }}>
                       {d.worst >= 0 ? `${d.worst}d` : "—"}
