@@ -644,9 +644,11 @@ export default function DraftingPage() {
                               title={
                                 clock.basis === "chased"
                                   ? `Chased on ${shortDay(clock.day)}`
-                                  : r.lastContactBy
-                                    ? `Last comment, by ${r.lastContactBy}`
-                                    : "Last comment on the Asana task"
+                                  : `Last comment${r.lastContactBy ? `, by ${r.lastContactBy}` : ""}${
+                                      r.lastContactOn === "job"
+                                        ? ` — written on the job${r.jobName ? ` (${r.jobName})` : ""} rather than this stage`
+                                        : " on this task"
+                                    }`
                               }
                             >
                               {shortDay(clock.day)}
@@ -654,7 +656,11 @@ export default function DraftingPage() {
                                 <span
                                   style={{ color: "#b3afa6", fontSize: 11, marginLeft: 5 }}
                                 >
-                                  comment
+                                  {/* Says where, so a row that looks fresh can
+                                      be explained without opening Asana: the
+                                      comment may have been about a different
+                                      stage of the same job. */}
+                                  {r.lastContactOn === "job" ? "job comment" : "comment"}
                                 </span>
                               )}
                             </span>
