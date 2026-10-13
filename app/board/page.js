@@ -291,6 +291,36 @@ export default function BoardPage() {
         });
         const json = await res.json();
         if (!json.ok) throw new Error(json.error || "Update failed");
+
+        /**
+         * The date is saved. The rack may not agree with it.
+         *
+         * Committing a job no longer takes its stock off the register — that
+         * happens when the job completes and the sheets are actually cut — so
+         * this is the moment to say the material isn't there. Told, not
+         * stopped: scheduling ahead of a delivery is normal, and a block would
+         * only be worked around. Saying yes records who knew.
+         */
+        if (json.shortfalls?.length) {
+          const lines = json.shortfalls
+            .map((s) => `  ${s.name} — wants ${s.wanted}, register has ${s.onRegister}, ${s.short} short`)
+            .join("\n");
+          const go = window.confirm(
+            `${jobId} is short on the rack:\n\n${lines}\n\n` +
+              `The date is saved either way. Record that you've seen this and are going ahead?`
+          );
+          if (go) {
+            await fetch("/api/schedule-edit", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jobId, patch, idToken, acknowledgeShortfall: true }),
+            });
+          }
+          setActionError(
+            `${jobId}: ${json.shortfalls.length} material${json.shortfalls.length === 1 ? "" : "s"} short on the rack. ` +
+              `The date is set; the shortfall shows again when the job completes.`
+          );
+        }
       } catch (e) {
         setActionError(`Couldn't save ${jobId}. ${String(e.message || e)}`);
       }

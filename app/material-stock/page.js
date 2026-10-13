@@ -155,7 +155,7 @@ function fmtDue(day) {
     : d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
 }
 
-function StockFigures({ free, assigned, incoming, due, size = 13 }) {
+function StockFigures({ free, assigned, incoming, due, onFloor = 0, size = 13 }) {
   const cell = (value, colour, label, title) => (
     <span
       title={title}
@@ -173,7 +173,30 @@ function StockFigures({ free, assigned, incoming, due, size = 13 }) {
   return (
     <span style={{ display: "inline-flex", gap: 10, alignItems: "baseline", marginLeft: "auto" }}>
       {cell(free, BRAND.green, "available", "Here and unspoken for — any job can take it")}
-      {cell(assigned, BRAND.red, "assigned", "Here, but a job is counting on it")}
+      {cell(
+        assigned,
+        BRAND.red,
+        "assigned",
+        /**
+         * Assigned covers two different things and the difference matters at
+         * the rack. A job scheduled for next month hasn't touched its sheets;
+         * one being cut today has, and the register won't know until it
+         * completes. So the part already on the floor is named.
+         */
+        onFloor > 0
+          ? `Here, but a job is counting on it — ${onFloor} of these ${onFloor === 1 ? "is" : "are"} ` +
+            `on a job already running, so ${onFloor === 1 ? "it has" : "they have"} likely left the rack. ` +
+            `The register catches up when that job is marked complete.`
+          : "Here, but a job is counting on it"
+      )}
+      {onFloor > 0 && (
+        <span
+          title={`${onFloor} of the assigned sheets are on a job already being cut`}
+          style={{ fontSize: size - 3, color: BRAND.amber, whiteSpace: "nowrap" }}
+        >
+          {onFloor} on the floor
+        </span>
+      )}
       {cell(
         incoming,
         BRAND.sub,
@@ -1395,6 +1418,7 @@ export default function MaterialStockPage() {
                     <StockFigures
                       free={decorGroup.free}
                       assigned={decorGroup.reserved}
+                      onFloor={decorGroup.onFloor}
                       incoming={decorGroup.incoming}
                       due={decorGroup.incomingDue}
                     />
@@ -1473,6 +1497,7 @@ export default function MaterialStockPage() {
                       <StockFigures
                         free={group.free}
                         assigned={group.reserved}
+                        onFloor={group.onFloor}
                         incoming={group.incoming}
                         due={group.incomingDue}
                       />
@@ -1513,6 +1538,7 @@ export default function MaterialStockPage() {
                             <StockFigures
                               free={b.free}
                               assigned={b.reserved}
+                              onFloor={b.onFloor}
                               incoming={b.incoming}
                               due={b.incomingDue}
                               size={12}
