@@ -623,13 +623,15 @@ export default function MaterialStockPage() {
   }, []);
 
   /**
-   * Removes a material from the register entirely — every entry behind its
-   * balance.
+   * Writes a material off the register — every entry behind its balance.
    *
-   * For something typed wrong. Using stock up is a negative entry, which keeps
-   * the history; an entry that was never true has no history worth keeping, and
-   * offsetting it would leave two wrong numbers instead of none. Confirmed
-   * first, because it can't be undone.
+   * It used to delete the rows. Now it posts the opposite entry against each
+   * one with a reason, and the originals stay marked rather than removed: the
+   * register can't tell a typo from sheets that have gone missing, and for the
+   * second the fact that the number was wrong is the part worth keeping.
+   *
+   * A reason is asked for rather than optional, because "where did two hundred
+   * sheets go" is the question this answers six months later.
    */
   const clearMaterial = useCallback(async (balance) => {
     const current = firebaseConfigured() ? auth().currentUser : null;
@@ -642,14 +644,14 @@ export default function MaterialStockPage() {
     const label = [balance.name, balance.length && balance.width
       ? `${balance.length} × ${balance.width}`
       : ""].filter(Boolean).join(" ");
-    if (
-      !window.confirm(
-        `Clear ${label} from the register? This deletes ${ids.length} ` +
-          `${ids.length === 1 ? "entry" : "entries"} and can't be undone.`
-      )
-    ) {
-      return;
-    }
+    const reason = window.prompt(
+      `Write ${label} off the register?\n\n` +
+        `This posts the opposite of ${ids.length} ${ids.length === 1 ? "entry" : "entries"}, ` +
+        `bringing it to nought. The history stays.\n\nWhy?`,
+      ""
+    );
+    // Cancel returns null; an empty box is somebody pressing on regardless.
+    if (reason === null) return;
 
     setSaving(true);
     setActionError(null);
@@ -658,17 +660,26 @@ export default function MaterialStockPage() {
       const res = await fetch("/api/material-stock/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, idToken }),
+        body: JSON.stringify({ ids, idToken, reason }),
       });
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Couldn't clear that material");
-      setEntries((prev) => prev.filter((e) => !ids.includes(e.id)));
+      if (!json.ok) throw new Error(json.error || "Couldn't write that material off");
+      // Re-read rather than filtering the rows out. Nothing is removed any
+      // more — an offsetting entry is added — so the old optimistic filter
+      // would have hidden the very history this change exists to keep.
+      await load();
+      if (json.skipped?.length) {
+        setActionError(
+          `${json.writtenOff} written off, ${json.skipped.length} skipped: ` +
+            [...new Set(json.skipped.map((s) => s.why))].join(", ")
+        );
+      }
     } catch (e) {
       setActionError(String(e.message || e));
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [load]);
 
   /**
    * Accepting that a negative balance is never going to be filled.
