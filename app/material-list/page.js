@@ -189,7 +189,10 @@ export default function MaterialListPage() {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      {/* 1500 for the header and the tab strip, the same as the boards: the
+          strip needs about 1223px for one row, and 1100 wrapped it. The list
+          itself keeps its own narrower column below. */}
+      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",
@@ -220,6 +223,7 @@ export default function MaterialListPage() {
 
         <Tabs tabs={caps.tabs} current="materiallist" />
 
+        <div style={{ maxWidth: 1100 }}>
         <SubTabs
           items={[
             { key: "finish", label: "Finishes", count: finishes.filter((m) => m.active).length },
@@ -612,6 +616,7 @@ export default function MaterialListPage() {
           )}
           {!canEdit && ` Changes to the list are Mitch's; ask him to add ${kind === "substrate" ? "a board" : "one"}.`}
         </p>
+        </div>
       </div>
     </main>
   );

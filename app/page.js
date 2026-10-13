@@ -297,7 +297,13 @@ export default function Page() {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      {/* 1500, the width the boards use, and for the navigation rather than
+          for this page's own content. At 900 the tab strip could not fit on
+          one row, so it wrapped — and because the quiet links are pushed along
+          with margin-left:auto, they ended up beside MONEY on the second row
+          instead of out at the right. The same strip then read differently
+          here than on every board it links to. */}
+      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",

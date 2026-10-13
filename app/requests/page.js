@@ -145,7 +145,12 @@ export default function RequestsPage() {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      {/* 1500 for the header and the tab strip, the same as the boards. The
+          strip needs about 1223px to sit on one row; under that it wraps and
+          the quiet links, pushed along with margin-left:auto, land beside
+          MONEY instead of out at the right. The reading column below keeps its
+          own width — this page is prose and a form, not a table. */}
+      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",
@@ -175,6 +180,7 @@ export default function RequestsPage() {
 
         <Tabs tabs={caps.tabs} current="requests" counts={{ requests: open.length }} />
 
+        <div style={{ maxWidth: 900 }}>
         {actionError && (
           <div
             style={{
@@ -457,6 +463,7 @@ export default function RequestsPage() {
             </section>
           );
         })}
+        </div>
       </div>
     </main>
   );
