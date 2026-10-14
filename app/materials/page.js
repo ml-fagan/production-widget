@@ -409,6 +409,55 @@ export default function MaterialsPage() {
     }
   }, [canEdit, load]);
 
+  /**
+   * Taking an arrival back off, for the one booked in on the wrong row.
+   *
+   * Arriving a pre-order is not a state flip — it puts the load on the stock
+   * register and fills every job line that claimed a share — so undoing it has
+   * to undo all three. The server reverses exactly what that arrival wrote
+   * rather than working it out again, and offsets the ledger entries instead
+   * of deleting them: a mis-click is still something that happened.
+   */
+  const undoArrival = useCallback(async (po) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Undo the arrival of ${po.name || po.id}?\n\n` +
+          `It comes back off the stock register, any job line it filled goes back to waiting, ` +
+          `and the order reopens. The history keeps both halves.`
+      )
+    ) {
+      return;
+    }
+    const key = `pre:${po.id}`;
+    setPending((p) => ({ ...p, [key]: true }));
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/pre-orders/unarrive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: po.id, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Couldn't undo that arrival");
+      load();
+      setActionError(
+        `Arrival undone: ${json.reversedEntries} stock ${json.reversedEntries === 1 ? "entry" : "entries"} reversed` +
+          (json.jobs?.length ? `, ${json.jobs.join(", ")} back to waiting` : "") +
+          `. The order is ${json.state === "ordered" ? "open again for the rest" : "back in Outstanding"}.`
+      );
+    } catch (e) {
+      setActionError(`Couldn't undo that arrival. ${String(e.message || e)}`);
+    } finally {
+      setPending((p) => ({ ...p, [key]: false }));
+    }
+  }, [load]);
+
   // Raising one. Jordan or Duncan know a job's coming — a quote, a heads-up
   // from drafting — and the lead time should start now rather than when Mitch
   // gets round to writing the handover.
@@ -1847,6 +1896,24 @@ export default function MaterialsPage() {
                             {m.materialNote}
                           </div>
                         )}
+                        {/* Mitch's note about THIS material, on every row that
+                            has one rather than once under the job — it names a
+                            line, so it belongs against that line. The job note
+                            above still says what is true of all of them. */}
+                        {m.note && (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: BRAND.amber,
+                              marginTop: 2,
+                              whiteSpace: "pre-wrap",
+                              fontWeight: 500,
+                            }}
+                            title="Mitch's note about this material"
+                          >
+                            ↳ {m.note}
+                          </div>
+                        )}
                         {/* Who asked for it, and when.
                             
                             The name was here; the date wasn't, so there was no
@@ -2015,6 +2082,14 @@ export default function MaterialsPage() {
                             + {extra.poNumber || "no PO"}
                             {extra.quantity ? ` (${extra.quantity})` : ""}
                             {extra.supplier ? ` · ${extra.supplier}` : ""}
+                            {/* Its own due date when it has one. Two suppliers
+                                are two lead times, and the line's single date
+                                could only ever answer for one of them. */}
+                            {extra.expectedDate && (
+                              <span style={{ color: BRAND.amber, marginLeft: 4 }}>
+                                due {fmtDay(extra.expectedDate)}
+                              </span>
+                            )}
                           </div>
                         ))}
                       </td>
@@ -2142,15 +2217,35 @@ export default function MaterialsPage() {
                              stock, which the handover app works out in one go.
                              So the last step is Arrived, not All in. */
                           done ? (
-                            <span
-                              style={{ color: BRAND.green, fontSize: 12, fontWeight: 500 }}
-                              title={
-                                m.arrivedQty
-                                  ? `${m.arrivedQty} arrived — split between the jobs that claimed it and stock`
-                                  : "Arrived — split between the jobs that claimed it and stock"
-                              }
-                            >
-                              ✓ Arrived
+                            <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                              <span
+                                style={{ color: BRAND.green, fontSize: 12, fontWeight: 500 }}
+                                title={
+                                  m.arrivedQty
+                                    ? `${m.arrivedQty} arrived — split between the jobs that claimed it and stock`
+                                    : "Arrived — split between the jobs that claimed it and stock"
+                                }
+                              >
+                                ✓ Arrived
+                              </span>
+                              {/* The one state that had no way back. Booking a
+                                  delivery in on the wrong row put it on the
+                                  register and filled other people's job lines,
+                                  and the only fix was to unpick it by hand. */}
+                              <button
+                                onClick={() => undoArrival(m)}
+                                disabled={busy || !canEdit}
+                                title="Booked in by mistake — takes it back off the register and reopens the order"
+                                style={{
+                                  ...btn,
+                                  background: BRAND.red,
+                                  borderColor: BRAND.red,
+                                  color: "#fff",
+                                  opacity: busy ? 0.6 : 1,
+                                }}
+                              >
+                                Undo
+                              </button>
                             </span>
                           ) : state === "to_order" ? (
                             <button

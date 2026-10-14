@@ -39,6 +39,10 @@ export default function LineEditor({ brand, line, locked = false, saving, onCanc
       poNumber: e.poNumber ?? "",
       ocNumber: e.ocNumber ?? "",
       quantity: String(e.quantity ?? ""),
+      // Two suppliers are two lead times. The line's own date could only hold
+      // one of them, so whichever was typed last answered for both.
+      expectedDate: e.expectedDate ?? "",
+      receivedQty: String(e.receivedQty ?? ""),
     }))
   );
   const setExtra = (id, field, value) =>
@@ -225,6 +229,19 @@ export default function LineEditor({ brand, line, locked = false, saving, onCanc
                 onChange={(e) => setExtra(row.id, "quantity", e.target.value)}
               />
             </div>
+            <div>
+              {/* Its own date, because its own supplier. Blank falls back to
+                  the line's date, which is what a split order with one known
+                  lead time usually means. */}
+              <label style={label}>Expected</label>
+              <input
+                type="date"
+                style={{ ...input, width: 138, minWidth: 138, boxSizing: "border-box" }}
+                value={row.expectedDate}
+                onChange={(e) => setExtra(row.id, "expectedDate", e.target.value)}
+                title="When this supplier's part is due — leave blank to use the line's date"
+              />
+            </div>
             <button
               onClick={() => setExtras((rows) => rows.filter((r) => r.id !== row.id))}
               style={{ ...btn, color: brand.sub, padding: "5px 10px" }}
@@ -245,6 +262,8 @@ export default function LineEditor({ brand, line, locked = false, saving, onCanc
                 poNumber: "",
                 ocNumber: "",
                 quantity: "",
+                expectedDate: "",
+                receivedQty: "",
               },
             ])
           }
@@ -277,7 +296,7 @@ export default function LineEditor({ brand, line, locked = false, saving, onCanc
               // mind; the server drops them too, but not sending them keeps
               // the two ends agreeing.
               extraOrders: extras.filter(
-                (r) => r.supplier || r.poNumber || r.ocNumber || r.quantity
+                (r) => r.supplier || r.poNumber || r.ocNumber || r.quantity || r.expectedDate
               ),
             })
           }
