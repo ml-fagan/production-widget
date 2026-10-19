@@ -11,11 +11,15 @@ import PickOne from "./PickOne.js";
 // The CRM is typed from memory or a quote and may not match anything real
 // yet. That's the point of it.
 //
-// A job rarely needs one material. The job number, the project, when it's
-// wanted and why are said once at the top; underneath is a line per material,
-// and each line is saved as its own pre-order — because that's what they are
+// A job rarely needs one material. The job number, the project and when it's
+// wanted are said once at the top; underneath is a line per material, and each
+// line is saved as its own pre-order — because that's what they are
 // downstream. They're ordered separately, they arrive separately, and a job
 // claims against one of them at a time.
+//
+// Which is why the note belongs to the line too. It was typed once and copied
+// onto all of them, and "ring Polytec first" copied onto the board that goes
+// under the veneer is a note about the wrong material.
 //
 // The same form does the correcting. A pre-order is raised early, from a quote
 // or a phone call, so half the time the finish isn't settled or the count
@@ -31,6 +35,7 @@ const blankRow = () => ({
   width: "",
   thickness: "",
   quantity: "",
+  note: "",
 });
 
 export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initial = null }) {
@@ -41,7 +46,6 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initia
   const [forStock, setForStock] = useState(Boolean(initial?.forStock));
   const [project, setProject] = useState(initial?.project ?? "");
   const [expectedDate, setExpectedDate] = useState(initial?.expectedDate ?? "");
-  const [note, setNote] = useState(initial?.note ?? "");
   // Named the way a handover names a material — the finish, then the board
   // it's pressed on. Two fields rather than one line of free text, because
   // Alice orders the face and the substrate from different people, and because
@@ -61,6 +65,7 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initia
             width: String(initial.width ?? ""),
             thickness: String(initial.thickness ?? ""),
             quantity: String(initial.quantity ?? ""),
+            note: initial.note ?? "",
           },
         ]
       : [blankRow()]
@@ -119,7 +124,7 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initia
         quantity: r.quantity,
         supplier: r.supplier.trim(),
         expectedDate,
-        note: note.trim(),
+        note: r.note.trim(),
       }))
     );
 
@@ -168,13 +173,13 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initia
       </div>
 
       {rows.map((r, i) => (
+        <div key={r.key} style={{ marginBottom: 10 }}>
         <div
-          key={r.key}
           style={{
             display: "grid",
             gridTemplateColumns: "1fr 1fr 140px 80px 80px 70px 70px 24px",
             gap: 8,
-            marginBottom: 8,
+            marginBottom: 4,
             alignItems: "end",
           }}
         >
@@ -254,6 +259,33 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initia
             )}
           </div>
         </div>
+
+        {/* The note sits under the material it's about rather than beside it:
+            it's a sentence to Alice, not a field, and it wants the width.
+            Indented so a form of four materials reads as four materials and
+            not as eight rows. */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "16px 1fr 24px",
+            gap: 8,
+            alignItems: "center",
+          }}
+        >
+          <span style={{ color: brand.sub, fontSize: 12, textAlign: "right" }}>↳</span>
+          <input
+            style={{ ...input, fontSize: 12, color: brand.sub }}
+            value={r.note}
+            onChange={(e) => setRow(r.key, "note", e.target.value)}
+            placeholder={
+              i === 0
+                ? "Note about this material (optional) — e.g. ring Polytec before ordering"
+                : "Note about this material (optional)"
+            }
+          />
+          <span />
+        </div>
+        </div>
       ))}
 
       {!initial && (
@@ -283,10 +315,6 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initia
             value={expectedDate}
             onChange={(e) => setExpectedDate(e.target.value)}
           />
-        </div>
-        <div>
-          <label style={label}>Note (optional)</label>
-          <input style={input} value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
       </div>
 
@@ -329,8 +357,8 @@ export default function PreOrderForm({ brand, onSubmit, onCancel, saving, initia
         >
           Cancel
         </button>
-        {/* The date and the note apply to every line, since they're about the
-            job rather than the board. */}
+        {/* The date applies to every line, since it's about when the job wants
+            the material. The note doesn't: it goes on the line it's about. */}
         {!initial && filled.length > 1 && (
           <span style={{ fontSize: 12, color: brand.sub }}>
             One pre-order each, all under {crm.trim() || "this CRM"}.
