@@ -172,6 +172,10 @@ function size(m) {
  * the stock register does it.
  */
 function halves(m) {
+  // A custom one-off is not a finish on a substrate — it's a rod, an angle, a
+  // length of tube. Splitting its description would make two columns out of a
+  // sentence that was never two things.
+  if (m.custom) return { finish: m.name || "", substrate: "" };
   if (m.finish || m.substrate) return { finish: m.finish || "", substrate: m.substrate || "" };
   return splitMaterialName(m.name || "");
 }
@@ -1982,6 +1986,28 @@ export default function MaterialsPage() {
                       </td>
                       <td style={{ ...td, whiteSpace: "normal", minWidth: 140 }}>
                         {halves(m).finish || "—"}
+                        {/* Not a board off the material list — something to go
+                            and find. Marked, because "ring around for this
+                            one" is a different afternoon to "order this from
+                            Polytec", and the row otherwise looks the same. */}
+                        {m.custom && (
+                          <span
+                            title="A custom one-off — no stock item, nothing on the racks. Source it, PO it, book it in like any other order."
+                            style={{
+                              marginLeft: 5,
+                              fontSize: 10,
+                              fontWeight: 600,
+                              letterSpacing: "0.03em",
+                              color: BRAND.blue,
+                              border: `1px solid ${BRAND.blue}`,
+                              borderRadius: 4,
+                              padding: "0 4px",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            CUSTOM
+                          </span>
+                        )}
                         {/* Another job wants this same board. Said on the line,
                             because this is where she decides what to order. */}
                         {batch && view === "outstanding" && (
