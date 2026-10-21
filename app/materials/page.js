@@ -2561,14 +2561,39 @@ export default function MaterialsPage() {
                               </button>
                             </span>
                           ) : state === "to_order" ? (
-                            <button
-                              onClick={() => patchRow(m, { state: "ordered" })}
-                              disabled={busy || !canEdit}
-                              title="Ordered with the supplier — same as any other line"
-                              style={{ ...btn, opacity: busy ? 0.6 : 1 }}
-                            >
-                              Ordered
-                            </button>
+                            <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                              <button
+                                onClick={() => patchRow(m, { state: "ordered" })}
+                                disabled={busy || !canEdit}
+                                title="Ordered with the supplier — same as any other line"
+                                style={{ ...btn, opacity: busy ? 0.6 : 1 }}
+                              >
+                                Ordered
+                              </button>
+                              {/* The same decision a job line makes with "From
+                                  stock", said about a pre-order: don't buy it,
+                                  we've already got it.
+
+                                  It lives on the Pre-orders tab too, but this
+                                  is where Alice is actually standing when she
+                                  decides — Outstanding is the list of things
+                                  to buy, and the moment to say "not this one"
+                                  is while looking at it, not a tab away.
+
+                                  Only "Already in stock" is mirrored here.
+                                  Move to stock, Cancel and Delete are about
+                                  tidying up a record rather than settling
+                                  today's buying, and they stay on the tab that
+                                  is for the records. */}
+                              <button
+                                onClick={() => preOrderAlreadyInStock(m.id)}
+                                disabled={busy || !canEdit}
+                                title="It's on the racks already — close this without ordering. Nothing is added to the register; the sheets are already on it."
+                                style={{ ...btn, color: BRAND.green, opacity: busy ? 0.6 : 1 }}
+                              >
+                                Already in stock
+                              </button>
+                            </span>
                           ) : (
                             <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                               {(() => {
