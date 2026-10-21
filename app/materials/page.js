@@ -158,6 +158,26 @@ function leadDays(m) {
   return Math.round((to - from) / 86400000);
 }
 
+/**
+ * The three ways a pre-order leaves the board, and what each one meant.
+ *
+ * Said in the words somebody would use rather than the stored value, because
+ * "moved_to_stock" and "already_in_stock" are near opposites and look almost
+ * identical written down: one kept buying and dropped the job, the other
+ * stopped buying because the material was already here.
+ */
+const CLOSED_PRE_ORDER_STATES = {
+  cancelled: { label: "Cancelled", hint: "The order was called off" },
+  moved_to_stock: {
+    label: "Moved to stock",
+    hint: "Still bought, but as general stock — the CRM never became a job",
+  },
+  already_in_stock: {
+    label: "Already in stock",
+    hint: "Never ordered — it was on the racks already",
+  },
+};
+
 function size(m) {
   if (!m.length || !m.width) return "—";
   return `${m.length} × ${m.width}${m.thickness ? ` × ${m.thickness}` : ""}`;
@@ -238,6 +258,9 @@ export default function MaterialsPage() {
   // Which pre-order has its delete-confirm row open, and what's typed in it.
   const [deleteId, setDeleteId] = useState(null);
   const [deleteText, setDeleteText] = useState("");
+  // Whether the closed pre-orders are showing. Shut by default: they aren't
+  // work, they're a record to check when somebody asks.
+  const [showClosed, setShowClosed] = useState(false);
   // What the server stored, adopted after each write so what's on screen is
   // its answer rather than our guess.
   const [stored, setStored] = useState({});
@@ -669,6 +692,50 @@ export default function MaterialsPage() {
     }
   }, []);
 
+  /**
+   * Back on the board after being closed.
+   *
+   * The three ways out sit on one row of small buttons, and all three were
+   * one-way. A mis-click took the record off the board with nothing to undo
+   * it, which is how somebody raises the same pre-order a fortnight later and
+   * the material gets bought twice.
+   *
+   * Folding it into stock wrote a register entry, and the handover app
+   * reverses that one when it reopens — an offset, not a delete, because the
+   * move did happen.
+   */
+  const reopenPreOrder = useCallback(async (id) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return;
+    }
+    const key = `pre:${id}`;
+    setPending((p) => ({ ...p, [key]: true }));
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/pre-orders/reopen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        throw new Error(
+          json.error === "no_stock_entry_recorded"
+            ? "this one was folded into stock before the board started recording which entry it wrote, so reopening it can't take the material back off the register. Do that by hand on the Stock tab."
+            : json.error || "Update failed"
+        );
+      }
+      setPreOrders((prev) => prev.map((p) => (p.id === id ? json.preOrder : p)));
+    } catch (e) {
+      setActionError(`Couldn't reopen that pre-order — ${String(e.message || e)}`);
+    } finally {
+      setPending((p) => ({ ...p, [key]: false }));
+    }
+  }, []);
+
   // Genuinely erases it — for a mis-entry, not for "we don't need this
   // anymore", which is Cancel and keeps the record.
   const deletePreOrder = useCallback(async (id) => {
@@ -813,13 +880,20 @@ export default function MaterialsPage() {
   // list. Cancelled ones, ones already folded into general stock, and ones
   // that turned out to be on the racks already are finished with — the record
   // stays, but there's nothing left to do.
+  /**
+   * The ones that have been closed, newest first.
+   *
+   * Kept out of the working list and findable on purpose: a record that
+   * vanishes is a record nobody can check, and the question "didn't we
+   * already decide about this one?" is exactly what gets asked before someone
+   * raises the same pre-order again.
+   */
+  const closedPreOrders = preOrders
+    .filter((p) => CLOSED_PRE_ORDER_STATES[p.state])
+    .sort((a, b) => String(b.resolvedAt ?? "").localeCompare(String(a.resolvedAt ?? "")));
+
   const preOrderLines = preOrders
-    .filter(
-      (p) =>
-        p.state !== "cancelled" &&
-        p.state !== "moved_to_stock" &&
-        p.state !== "already_in_stock"
-    )
+    .filter((p) => !CLOSED_PRE_ORDER_STATES[p.state])
     .filter(
       (p) =>
         !q ||
@@ -1571,6 +1645,102 @@ export default function MaterialsPage() {
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {/* The ones that have been closed.
+
+                Collapsed, because they are not work — but findable, because a
+                record that vanishes is a record nobody can check, and "didn't
+                we already decide about this one?" is exactly the question
+                asked before somebody raises the same pre-order again. */}
+            {closedPreOrders.length > 0 && (
+              <div style={{ marginTop: 20 }}>
+                <button
+                  onClick={() => setShowClosed((s) => !s)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    color: BRAND.sub,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {showClosed ? "▾" : "▸"} Closed · {closedPreOrders.length}
+                </button>
+                {showClosed && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      overflowX: "auto",
+                      background: BRAND.card,
+                      border: `1px solid ${BRAND.line}`,
+                      borderRadius: 10,
+                    }}
+                  >
+                    <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                      <thead>
+                        <tr>
+                          <th style={th}>CRM</th>
+                          <th style={th}>Project</th>
+                          <th style={th}>Size</th>
+                          <th style={{ ...th, textAlign: "right" }}>Qty</th>
+                          <th style={th}>Finish</th>
+                          <th style={th}>Closed as</th>
+                          <th style={th}>By</th>
+                          <th style={th}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {closedPreOrders.map((p) => {
+                          const closed = CLOSED_PRE_ORDER_STATES[p.state] ?? {
+                            label: p.state,
+                            hint: "",
+                          };
+                          const busy = pending[`pre:${p.id}`];
+                          return (
+                            <tr key={p.id}>
+                              <td style={{ ...td, color: BRAND.sub }}>{p.crm || "Stock"}</td>
+                              <td style={{ ...td, whiteSpace: "normal", minWidth: 160, color: BRAND.sub }}>
+                                {p.project || "—"}
+                              </td>
+                              <td style={{ ...td, color: BRAND.sub }}>{size(p)}</td>
+                              <td style={{ ...td, textAlign: "right", color: BRAND.sub }}>
+                                {p.quantity || "—"}
+                              </td>
+                              <td style={{ ...td, whiteSpace: "normal", color: BRAND.sub }}>
+                                {halves(p).finish || p.name || "—"}
+                              </td>
+                              <td style={td} title={closed.hint}>
+                                {closed.label}
+                              </td>
+                              <td style={{ ...td, color: BRAND.sub, whiteSpace: "nowrap" }}>
+                                {p.resolvedBy ? p.resolvedBy.split("@")[0] : "—"}
+                                {p.resolvedAt ? ` · ${fmtDay(p.resolvedAt)}` : ""}
+                              </td>
+                              <td style={{ ...td, textAlign: "right" }}>
+                                <button
+                                  onClick={() => reopenPreOrder(p.id)}
+                                  disabled={busy || !canEdit}
+                                  title={
+                                    p.state === "moved_to_stock"
+                                      ? "Put it back on the board, and take the material back off the register"
+                                      : "Put it back on the board, waiting to be ordered"
+                                  }
+                                  style={{ ...btn, opacity: busy ? 0.6 : 1 }}
+                                >
+                                  {busy ? "Reopening…" : "Reopen"}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
           </>
