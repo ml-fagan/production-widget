@@ -631,6 +631,44 @@ export default function MaterialsPage() {
     }
   }, []);
 
+  /**
+   * Don't buy it — it's on the racks already.
+   *
+   * The near opposite of Move to stock, which is why it needs its own word:
+   * that one keeps buying and drops the job, this one stops buying because
+   * the material is already here. Cancel used to be the only door, and it is
+   * the wrong one — six weeks later nobody can tell a duplicate from a
+   * mistake from something covered by stock, which is exactly what somebody
+   * needs to know before raising the same pre-order again.
+   *
+   * Nothing is written to the register: the sheets are already on it.
+   */
+  const preOrderAlreadyInStock = useCallback(async (id) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first so this is recorded against your name.");
+      return;
+    }
+    const key = `pre:${id}`;
+    setPending((p) => ({ ...p, [key]: true }));
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/pre-orders/already-in-stock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Update failed");
+      setPreOrders((prev) => prev.map((p) => (p.id === id ? json.preOrder : p)));
+    } catch (e) {
+      setActionError(`Couldn't close that pre-order as already in stock. ${String(e.message || e)}`);
+    } finally {
+      setPending((p) => ({ ...p, [key]: false }));
+    }
+  }, []);
+
   // Genuinely erases it — for a mis-entry, not for "we don't need this
   // anymore", which is Cancel and keeps the record.
   const deletePreOrder = useCallback(async (id) => {
@@ -772,10 +810,16 @@ export default function MaterialsPage() {
   );
 
   // Pre-orders, as rows of the same list, and as the Pre-orders tab's own
-  // list. Cancelled ones and ones already folded into general stock are
-  // finished with — the record stays, but there's nothing left to do.
+  // list. Cancelled ones, ones already folded into general stock, and ones
+  // that turned out to be on the racks already are finished with — the record
+  // stays, but there's nothing left to do.
   const preOrderLines = preOrders
-    .filter((p) => p.state !== "cancelled" && p.state !== "moved_to_stock")
+    .filter(
+      (p) =>
+        p.state !== "cancelled" &&
+        p.state !== "moved_to_stock" &&
+        p.state !== "already_in_stock"
+    )
     .filter(
       (p) =>
         !q ||
@@ -1403,12 +1447,32 @@ export default function MaterialsPage() {
                                     {editId === p.id ? "Close" : "Edit"}
                                   </button>
                                 )}
+                                {/* Don't buy it — we've already got it.
+
+                                    Only before it's been ordered: once there
+                                    is a PO against it there is a delivery
+                                    coming, and closing that as "we had it all
+                                    along" leaves the dock holding a docket
+                                    that matches nothing. That case is a
+                                    cancellation, which is a different word for
+                                    a different thing. The route refuses it
+                                    too. */}
+                                {state === "to_order" && (
+                                  <button
+                                    onClick={() => preOrderAlreadyInStock(p.id)}
+                                    disabled={busy || !canEdit}
+                                    title="It's on the racks already — close this without ordering. Nothing is added to the register; the sheets are already on it, and the job claims them through its picking list when the handover is written."
+                                    style={{ ...btn, color: BRAND.green, opacity: busy ? 0.6 : 1 }}
+                                  >
+                                    Already in stock
+                                  </button>
+                                )}
                                 {state !== "completed" && (
                                   <>
                                     <button
                                       onClick={() => movePreOrderToStock(p.id)}
                                       disabled={busy || !canEdit}
-                                      title="The CRM never turned into a job — keep the material as general stock"
+                                      title="The CRM never turned into a job, but the material is still coming — keep it as general stock when it lands"
                                       style={{ ...btn, color: BRAND.blue, opacity: busy ? 0.6 : 1 }}
                                     >
                                       Move to stock
