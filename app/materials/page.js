@@ -2461,6 +2461,32 @@ export default function MaterialsPage() {
                                 Ordered
                               </button>
                             )}
+                            {/* It came through as something to buy and it's
+                                already on the racks.
+
+                                Alice is the one who knows that, and until now
+                                the board gave her nowhere to say it: she
+                                either bought it again or rang Mitch to change
+                                the handover. This claims the rack rather than
+                                asserting the sheets are there — the line moves
+                                to "off the rack, to confirm", somebody counts,
+                                and a bare rack puts it straight back here.
+
+                                Not offered for a custom one-off (no rack it
+                                could come off) or a line already claiming a
+                                pre-order (that's a share of something bought
+                                for it, a different promise). The route refuses
+                                both as well. */}
+                            {state === "to_order" && !m.custom && !m.preOrderId && (
+                              <button
+                                onClick={() => setLine(m.jobId, m.id, { fromStock: true })}
+                                disabled={busy}
+                                title="It's already on the racks — claim it off stock instead of buying it. Someone still confirms it's there."
+                                style={{ ...btn, opacity: busy ? 0.6 : 1 }}
+                              >
+                                From stock
+                              </button>
+                            )}
                             {(state === "ordered" || state === "part_received") && (
                               <>
                                 {/* What's landed so far. A big order rarely
