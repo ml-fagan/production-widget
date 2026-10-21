@@ -241,6 +241,17 @@ export default function MaterialsPage() {
   // What the server stored, adopted after each write so what's on screen is
   // its answer rather than our guess.
   const [stored, setStored] = useState({});
+  /**
+   * What the racks hold, for the lines claiming to come off them.
+   *
+   * Null until it loads, and null is "don't know" rather than "nothing" —
+   * a slow fetch must never accuse a line of claiming material that isn't
+   * there. Worked out by the handover app from its own open handovers, the
+   * same numbers Mitch sees beside his picking list, because two screens
+   * computing it separately is two screens that can disagree about whether a
+   * sheet is free.
+   */
+  const [available, setAvailable] = useState(null);
 
   useEffect(() => {
     if (!firebaseConfigured()) return;
@@ -250,12 +261,13 @@ export default function MaterialsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // Both lists, together, so Refresh means the whole board. A pre-order
-      // failing to load shouldn't hide the jobs — the handovers are the part
-      // that must be right.
-      const [res, preRes] = await Promise.all([
+      // All three, together, so Refresh means the whole board. A pre-order or
+      // a stock balance failing to load shouldn't hide the jobs — the
+      // handovers are the part that must be right.
+      const [res, preRes, stockRes] = await Promise.all([
         fetch("/api/handovers", { cache: "no-store" }),
         fetch("/api/pre-orders", { cache: "no-store" }).catch(() => null),
+        fetch("/api/material-stock/available", { cache: "no-store" }).catch(() => null),
       ]);
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Failed to load handovers");
@@ -263,6 +275,8 @@ export default function MaterialsPage() {
       setError(null);
       const preJson = preRes ? await preRes.json().catch(() => null) : null;
       if (preJson?.ok) setPreOrders(preJson.preOrders || []);
+      const stockJson = stockRes ? await stockRes.json().catch(() => null) : null;
+      if (stockJson?.ok) setAvailable(stockJson.materials || []);
     } catch (e) {
       setError(String(e.message || e));
     } finally {
@@ -282,6 +296,45 @@ export default function MaterialsPage() {
   }, [load]);
 
   const linesFor = (h) => stored[h.jobId] ?? h.materials ?? [];
+
+  /**
+   * Can the racks actually cover this line?
+   *
+   * Matched on the claim id rather than by re-deciding which rack rows a
+   * material lands on. The handover app worked that out when it built these
+   * rows — name, thickness and size, with a sizeless claim landing on every
+   * size — and a second implementation here would be a second answer to the
+   * same question, disagreeing on exactly the awkward lines it matters for.
+   *
+   * The line's OWN claim is added back before comparing. A line already
+   * claiming the rack is counted in `claimed`, so the free figure has it
+   * subtracted — compare against that and a line perfectly covered by stock
+   * reads as short of it, which is an alarm that fires on the healthy case.
+   *
+   * Null when the balances haven't loaded, when the line isn't claiming the
+   * rack, or when it's already confirmed: all three mean there is nothing to
+   * say, which is different from having nothing to give.
+   */
+  const rackFor = (m) => {
+    if (!available || !m.fromStock || m.stockDrawnAt) return null;
+    const wanted = orderQty(m) || countOf(m.quantity) || 0;
+    if (wanted <= 0) return null;
+    const claimId = `${m.jobId}#${m.id}`;
+    let canGive = 0;
+    let rows = 0;
+    for (const row of available) {
+      const mine = (row.claims || [])
+        .filter((c) => c.id === claimId)
+        .reduce((sum, c) => sum + (Number(c.quantity) || 0), 0);
+      if (!mine) continue;
+      rows += 1;
+      const others = (Number(row.claimed) || 0) - mine;
+      canGive += Math.max(0, (Number(row.onHand) || 0) - others);
+    }
+    // No rack row carries this claim at all: either the register has never
+    // heard of the material, or every sheet of it is spoken for elsewhere.
+    return { wanted, canGive, rows, short: canGive < wanted };
+  };
 
   const setLine = useCallback(async (jobId, lineId, patch) => {
     if (!canEdit) {
@@ -2382,6 +2435,54 @@ export default function MaterialsPage() {
                             <span
                               style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
                             >
+                              {/* What the register makes of the claim, before
+                                  anybody has walked over.
+
+                                  Mitch gets this beside his picking list and
+                                  Alice got nothing, which was the wrong way
+                                  round: he ticks a line weeks out, she is
+                                  deciding today whether to buy. A line that
+                                  reads short here is one where the sheets are
+                                  on no rack the register knows about, so
+                                  confirming it promises Duncan material that
+                                  may not exist.
+
+                                  Said quietly when it adds up, because the
+                                  reassuring case is most of them and a board
+                                  shouting on every row stops being read. */}
+                              {(() => {
+                                const rack = rackFor(m);
+                                if (!rack || m.rackCheckedAt) return null;
+                                return (
+                                  <span
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: rack.short ? 600 : 400,
+                                      color: rack.short ? BRAND.red : BRAND.sub,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                    title={
+                                      rack.short
+                                        ? `This line wants ${rack.wanted}. The register can account for ${rack.canGive} of them${
+                                            rack.rows === 0
+                                              ? " — it has no record of this material at all."
+                                              : ", once the other jobs' claims are taken off."
+                                          } Either it isn't on the racks, or it's there under another name. Worth a look before you confirm it.`
+                                        : `The register can account for all ${rack.wanted} this line wants — ${rack.canGive} on the racks once the other jobs' claims are taken off.`
+                                    }
+                                  >
+                                    {/* Deliberately not the word "free": the
+                                        register's own free figure has THIS
+                                        line's claim taken off it, and two
+                                        screens showing different numbers for
+                                        one word is worse than one screen
+                                        saying less. */}
+                                    {rack.short
+                                      ? `register has ${rack.canGive}/${rack.wanted}`
+                                      : "rack covers it"}
+                                  </span>
+                                );
+                              })()}
                               {/* What the warehouse found when they went and
                                   looked. A short rack or a bare one is the
                                   thing she has to act on, and without this it
@@ -2437,7 +2538,14 @@ export default function MaterialsPage() {
                               <button
                                 onClick={() => setLine(m.jobId, m.id, { state: "completed" })}
                                 disabled={busy}
-                                title="It's on the rack and it's this job's"
+                                title={
+                                  // Says what confirming commits to, which is
+                                  // the question the figure beside it raises.
+                                  // The sheets stay on the register until the
+                                  // job is committed to a date — they are
+                                  // spoken for from here, not spent.
+                                  "It's on the rack and it's this job's. Records the check against your name, marks the line in, and the register keeps these sheets reserved for this job until it's scheduled."
+                                }
                                 style={{
                                   ...btn,
                                   background: BRAND.green,
