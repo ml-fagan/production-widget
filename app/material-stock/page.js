@@ -2076,6 +2076,9 @@ function InventoryTable({ rows, loading, placedFor, onAdd }) {
   const [status, setStatus] = useState("all");
   const [substrate, setSubstrate] = useState("all");
   const [open, setOpen] = useState(null);
+  // Which materials are folded shut. Open by default: this view exists
+  // because the old one hid everything behind a triangle.
+  const [collapsed, setCollapsed] = useState({});
 
   const substrates = useMemo(
     () => [...new Set(rows.map((r) => r.substrate).filter(Boolean))].sort(),
@@ -2131,6 +2134,51 @@ function InventoryTable({ rows, loading, placedFor, onAdd }) {
       incoming: tidy(sum(orders)),
       check: visible.filter((r) => statusOf(r) === "check").length,
     };
+  }, [visible]);
+
+  /**
+   * The rows gathered under the material they are.
+   *
+   * Raw is seventeen rows — every substrate we press it on, in every
+   * thickness, in every sheet size — and the table printed the word "Raw"
+   * seventeen times down the left while the thing that actually told them
+   * apart sat in grey underneath it. The finish is said once now, with its
+   * own figures beside it, and what varies is what's left on each line.
+   *
+   * A material we hold in one size only stays a single line: a heading over
+   * one row is two lines saying what one said.
+   */
+  const groups = useMemo(() => {
+    const map = new Map();
+    for (const row of visible) {
+      const key = String(row.finish).toLowerCase();
+      if (!map.has(key)) map.set(key, { key, finish: row.finish, rows: [] });
+      map.get(key).rows.push(row);
+    }
+    for (const group of map.values()) {
+      // Deduped the same way the tiles are: one claim can land on every size
+      // of its material, so adding the lines up would count it each time.
+      const claims = new Map();
+      const orders = new Map();
+      let free = 0;
+      let onHand = 0;
+      let due = "";
+      for (const r of group.rows) {
+        free += r.free || 0;
+        onHand += r.total || 0;
+        for (const c of r.rawClaims) claims.set(c.id, Number(c.quantity) || 0);
+        for (const c of r.rawIncoming) orders.set(c.id, Number(c.quantity) || 0);
+        if (r.incomingDue && (!due || r.incomingDue < due)) due = r.incomingDue;
+      }
+      const sum = (m) => [...m.values()].reduce((t, n) => t + n, 0);
+      const tidy = (n) => Math.round(n * 100) / 100;
+      group.free = tidy(free);
+      group.onHand = tidy(onHand);
+      group.reserved = tidy(sum(claims));
+      group.incoming = tidy(sum(orders));
+      group.incomingDue = due;
+    }
+    return [...map.values()];
   }, [visible]);
 
   const tile = (value, label, colour, title) => (
@@ -2259,17 +2307,124 @@ function InventoryTable({ rows, loading, placedFor, onAdd }) {
               </tr>
             </thead>
             <tbody>
-              {visible.map((r) => {
-                const key = `${signature(r)}`;
-                const s = STATUSES[statusOf(r)];
-                const isOpen = open === key;
-                const bays = placedFor ? placedFor(r) : [];
+              {groups.map((group) => {
+                // One size of it and nothing to gather — the heading would be
+                // a line repeating the line under it.
+                const alone = group.rows.length === 1;
+                const shut = collapsed[group.key];
                 return (
+                  <Fragment key={group.key}>
+                    {!alone && (
+                      <tr>
+                        <td
+                          style={{
+                            ...td,
+                            background: BRAND.bg,
+                            whiteSpace: "normal",
+                            minWidth: 190,
+                          }}
+                        >
+                          <button
+                            onClick={() =>
+                              setCollapsed((c) => ({ ...c, [group.key]: !c[group.key] }))
+                            }
+                            aria-expanded={!shut}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: 0,
+                              font: "inherit",
+                              fontWeight: 600,
+                              color: BRAND.ink,
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                          >
+                            <span
+                              aria-hidden="true"
+                              style={{ color: BRAND.sub, fontSize: 10, marginRight: 5 }}
+                            >
+                              {shut ? "▸" : "▾"}
+                            </span>
+                            {group.finish}
+                          </button>
+                          <div style={{ fontSize: 11, color: BRAND.sub, marginLeft: 15 }}>
+                            {group.rows.length} sizes
+                          </div>
+                        </td>
+                        <td style={{ ...td, background: BRAND.bg }} />
+                        <td
+                          style={{
+                            ...td,
+                            background: BRAND.bg,
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: group.onHand < 0 ? BRAND.red : "inherit",
+                          }}
+                        >
+                          {group.onHand}
+                        </td>
+                        <td
+                          style={{
+                            ...td,
+                            background: BRAND.bg,
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: group.reserved > 0 ? BRAND.amber : "#b3afa6",
+                          }}
+                        >
+                          {group.reserved || "—"}
+                        </td>
+                        <td
+                          style={{
+                            ...td,
+                            background: BRAND.bg,
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: group.free > 0 ? BRAND.green : "#b3afa6",
+                          }}
+                        >
+                          {group.free}
+                        </td>
+                        <td
+                          style={{
+                            ...td,
+                            background: BRAND.bg,
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: group.incoming > 0 ? BRAND.blue : "#b3afa6",
+                          }}
+                        >
+                          {group.incoming || "—"}
+                          {group.incomingDue && (
+                            <div style={{ fontSize: 10, fontWeight: 400, color: BRAND.sub }}>
+                              from {group.incomingDue}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ ...td, background: BRAND.bg }} colSpan={3} />
+                      </tr>
+                    )}
+                    {!shut &&
+                      group.rows.map((r) => {
+                        const key = `${signature(r)}`;
+                        const s = STATUSES[statusOf(r)];
+                        const isOpen = open === key;
+                        const bays = placedFor ? placedFor(r) : [];
+                        return (
                   <Fragment key={key}>
                     <tr>
                       <td style={{ ...td, whiteSpace: "normal", minWidth: 190 }}>
-                        <div style={{ fontWeight: 500 }}>{r.finish}</div>
-                        <div style={{ fontSize: 11, color: BRAND.sub }}>
+                        {/* Under a heading the finish is already said; on its
+                            own the row has to say it itself. */}
+                        {alone && <div style={{ fontWeight: 500 }}>{r.finish}</div>}
+                        <div
+                          style={{
+                            fontSize: alone ? 11 : 12,
+                            color: alone ? BRAND.sub : BRAND.ink,
+                            paddingLeft: alone ? 0 : 15,
+                          }}
+                        >
                           {[r.substrate, r.thickness ? `${r.thickness}mm` : ""]
                             .filter(Boolean)
                             .join(" · ") || "no substrate recorded"}
@@ -2328,6 +2483,9 @@ function InventoryTable({ rows, loading, placedFor, onAdd }) {
                         </td>
                       </tr>
                     )}
+                  </Fragment>
+                        );
+                      })}
                   </Fragment>
                 );
               })}
