@@ -647,7 +647,9 @@ export default function DraftingPage() {
                                   : `Last comment${r.lastContactBy ? `, by ${r.lastContactBy}` : ""}${
                                       r.lastContactOn === "job"
                                         ? ` — written on the job${r.jobName ? ` (${r.jobName})` : ""} rather than this stage`
-                                        : " on this task"
+                                        : r.lastContactOn === "delivery"
+                                          ? " — written on one of the deliveries underneath, not on the account itself"
+                                          : " on this task"
                                     }`
                               }
                             >
@@ -660,7 +662,11 @@ export default function DraftingPage() {
                                       be explained without opening Asana: the
                                       comment may have been about a different
                                       stage of the same job. */}
-                                  {r.lastContactOn === "job" ? "job comment" : "comment"}
+                                  {r.lastContactOn === "job"
+                                    ? "job comment"
+                                    : r.lastContactOn === "delivery"
+                                      ? "delivery comment"
+                                      : "comment"}
                                 </span>
                               )}
                             </span>
