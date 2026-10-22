@@ -5,6 +5,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
 import Overview from "./Overview.js";
+import ProjectTotals from "./ProjectTotals.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
@@ -67,6 +68,8 @@ function pollWhenVisible(run, everyMs) {
 
 export default function DraftingPage() {
   const [rows, setRows] = useState([]);
+  // A count per project, out of the same document the rows come from.
+  const [projects, setProjects] = useState([]);
   const [syncedAt, setSyncedAt] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -95,6 +98,7 @@ export default function DraftingPage() {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Couldn't read the register");
       setRows(json.rows || []);
+      setProjects(json.projects || []);
       setSyncedAt(json.syncedAt || "");
       setError(null);
     } catch (e) {
@@ -402,13 +406,23 @@ export default function DraftingPage() {
 
         {/* The board totalled rather than listed. Its own view, not a filter:
             the rows underneath would only repeat it. */}
+        {/* Two charts, side by side, answering two different questions: who
+            is carrying what on this board, and how much work is sitting in
+            each department across Asana. The second one fills the space the
+            first one was leaving empty on a wide screen, and wraps under it
+            on a narrow one. */}
         {pill === "overview" && (
-          <Overview
-            rows={rows}
-            now={now}
-            brand={BRAND}
-            onPickPerson={(who) => setPill(`who:${who}`)}
-          />
+          <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 900px", minWidth: 320 }}>
+              <Overview
+                rows={rows}
+                now={now}
+                brand={BRAND}
+                onPickPerson={(who) => setPill(`who:${who}`)}
+              />
+            </div>
+            <ProjectTotals projects={projects} brand={BRAND} syncedAt={syncedAt} />
+          </div>
         )}
 
         {pill !== "overview" && (
