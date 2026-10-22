@@ -265,18 +265,21 @@ function stockForJob(stockEntries, jobId) {
 }
 
 const SECTIONS = [
-  { key: "hand", label: "On hand" },
   /**
-   * The same register as one flat table.
+   * The register, picked from rather than scrolled through.
    *
-   * On hand groups by timber, then product, then thickness, which is how you
-   * look for something when you know what you want. It is the wrong shape for
-   * the other question — "what have we got, and how much of it can I actually
-   * use" — because the answer is spread down three levels of accordion and no
-   * two numbers line up. One row per stock item, one set of columns, and a
-   * search box that reaches all of it.
+   * This was two tabs doing one job badly. On hand was a column of accordions
+   * down a fifteen-hundred-pixel page, with the material's name at one edge
+   * and its figures at the other and half a screen of nothing between them;
+   * Inventory was the same register as a flat table, which read better but
+   * could only look, never act.
+   *
+   * One view now: every material as a cell, four across so sixty of them fit
+   * without scrolling, and the one you pick opens beside them with its sizes,
+   * its figures and everything you can do to it. Choosing and acting in the
+   * same place, which is what both halves were missing.
    */
-  { key: "inventory", label: "Inventory" },
+  { key: "materials", label: "Materials" },
   // The same register, arranged as the building rather than as a list. "Have
   // we got any Blackbutt" is the On hand question; "where is it" is this one,
   // and they were the same page answering only the first.
@@ -327,7 +330,11 @@ export default function MaterialStockPage() {
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [query, setQuery] = useState("");
-  const [section, setSection] = useState("hand");
+  const [section, setSection] = useState("materials");
+  // Which material's breakdown is open beside the cells, by finish.
+  const [picked, setPicked] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [substrateFilter, setSubstrateFilter] = useState("all");
   const [user, setUser] = useState(null);
   const caps = useCapabilities(user);
   /**
@@ -362,7 +369,6 @@ export default function MaterialStockPage() {
   const [openProduct, setOpenProduct] = useState(null);
   // Which timber is open. One at a time: the register is read by looking one
   // material up, not by opening six and scrolling.
-  const [openDecor, setOpenDecor] = useState(null);
   const [bay, setBay] = useState(null); // the location being looked at on the plan
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState({});
@@ -869,52 +875,6 @@ export default function MaterialStockPage() {
    */
   const overdrawn = matchingBalances.filter((b) => b.total < 0);
 
-  /**
-   * Every stock item as one flat row, for the Inventory table.
-   *
-   * Built off the whole register rather than `onHand`, for two reasons. The
-   * box at the top of On hand belongs to On hand — a table quietly narrowed by
-   * something somebody typed on another sub-tab is a table that lies about
-   * what we hold — and the overdrawn rows belong in it. A material the
-   * register says we have less than none of is exactly the row somebody needs
-   * to see, and On hand can only show it in a warning box above the list.
-   *
-   * The raw claim and order ids are carried through so the figures above the
-   * table can add themselves up without counting a claim twice: one that
-   * doesn't name a size lands on every size of its material, deliberately,
-   * because nobody knows yet which rack it will come off.
-   */
-  const inventoryRows = useMemo(() => {
-    const here = balances.filter((b) => b.total !== 0);
-    const known = new Set(here.map((b) => signature(b)));
-    const coming = available
-      .filter((m) => (m.incoming || 0) > 0 && !known.has(signature(m)))
-      .map((m) => ({
-        name: m.name,
-        length: m.length,
-        width: m.width,
-        thickness: m.thickness,
-        total: 0,
-        entries: [],
-      }));
-    const bySig = new Map(available.map((m) => [signature(m), m]));
-    return groupByProduct([...here, ...coming], available).flatMap((group) =>
-      group.rows.map((row) => {
-        const claim = bySig.get(signature(row));
-        return {
-          ...row,
-          finish: group.finish,
-          substrate: group.substrate,
-          thickness: group.thickness,
-          // Mitch's timber, so a search for "Tas Oak" finds every range of it.
-          decor: decors[String(group.finish).trim().toLowerCase()] || group.finish,
-          rawClaims: claim?.claims ?? [],
-          rawIncoming: claim?.incomingLines ?? [],
-        };
-      })
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [balances, available, decors]);
   const productGroups = useMemo(
     () => groupByProduct(onHand, available),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -960,42 +920,110 @@ export default function MaterialStockPage() {
   }, [productGroups]);
 
   /**
-   * One heading per timber, which is how anybody asks for material.
+   * One cell per material, which is the finish.
    *
-   * Smartlook Tasmanian Oak, Smartlook Tasmanian Oak - G2S and NTV Tasmanian
-   * Oak / BAMO are three products and one timber — five cards on a grid, at
-   * opposite ends of it, for a question that was always "have we got any Tas
-   * Oak". The range and the board are how you narrow it down afterwards.
+   * Finish and not timber, because that is what tells two boards apart on a
+   * rack: Raw is Raw whatever it's pressed on, and every substrate we press
+   * it on belongs in the one cell. The timber groups ranges together, which
+   * is the right answer to "have we got any Tas Oak" and the wrong one here.
    *
-   * The timber comes off Mitch's list rather than out of the name: working it
-   * out here would mean a list of range words in code, wrong the day a new
-   * range lands and wrong silently. A finish with nothing set stands for
-   * itself, so nothing ever disappears for want of an answer.
+   * Figures summed across the thicknesses under it. Safe to add, because
+   * `groupByProduct` has already counted each claim once within its own
+   * product — and a claim belongs to one thickness, so there is nothing left
+   * to double.
    */
-  const decorGroups = useMemo(() => {
+  const materialCells = useMemo(() => {
+    const tidy = (n) => Math.round(n * 100) / 100;
     const map = new Map();
     for (const stack of stacks) {
-      const name = decors[String(stack.finish).trim().toLowerCase()] || stack.finish;
-      const key = name.toLowerCase();
+      const key = String(stack.finish).toLowerCase();
       if (!map.has(key)) {
-        map.set(key, { key, name, stacks: [], free: 0, reserved: 0, incoming: 0, incomingDue: "" });
+        map.set(key, {
+          key,
+          finish: stack.finish,
+          /**
+           * The timber off Mitch's list, when it isn't just the finish again.
+           *
+           * Smartlook Tasmanian Oak, Tasmanian Oak G2S and NTV Tasmanian Oak
+           * are three finishes and one timber. They stay three cells, because
+           * finish is what tells two boards apart on a rack — but the timber
+           * is worth saying on each of them, so the three read as a family
+           * rather than as three unrelated materials that happen to sort
+           * together.
+           */
+          decor: decors[String(stack.finish).trim().toLowerCase()] || "",
+          stacks: [],
+          substrates: new Set(),
+          onHand: 0,
+          free: 0,
+          reserved: 0,
+          incoming: 0,
+          incomingDue: "",
+        });
       }
-      const group = map.get(key);
-      group.stacks.push(stack);
+      const cell = map.get(key);
+      cell.stacks.push(stack);
+      if (stack.substrate) cell.substrates.add(stack.substrate);
       for (const product of stack.products) {
-        group.free += product.free;
-        group.reserved += product.reserved;
-        group.incoming += product.incoming;
+        cell.onHand += product.onHand;
+        cell.free += product.free;
+        cell.reserved += product.reserved;
+        cell.incoming += product.incoming;
         if (
           product.incomingDue &&
-          (!group.incomingDue || product.incomingDue < group.incomingDue)
+          (!cell.incomingDue || product.incomingDue < cell.incomingDue)
         ) {
-          group.incomingDue = product.incomingDue;
+          cell.incomingDue = product.incomingDue;
         }
       }
     }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+    for (const cell of map.values()) {
+      cell.onHand = tidy(cell.onHand);
+      cell.free = tidy(cell.free);
+      cell.reserved = tidy(cell.reserved);
+      cell.incoming = tidy(cell.incoming);
+    }
+    return [...map.values()].sort((a, b) => a.finish.localeCompare(b.finish));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stacks, decors]);
+
+  /** Every substrate on the register, for the filter beside the search box. */
+  const substrateOptions = useMemo(() => {
+    const all = new Set();
+    for (const cell of materialCells) for (const s of cell.substrates) all.add(s);
+    return [...all].sort();
+  }, [materialCells]);
+
+  const visibleCells = useMemo(
+    () =>
+      materialCells.filter((cell) => {
+        if (substrateFilter !== "all" && !cell.substrates.has(substrateFilter)) return false;
+        if (statusFilter !== "all" && statusOf(cell) !== statusFilter) return false;
+        return true;
+      }),
+    [materialCells, statusFilter, substrateFilter]
+  );
+
+  /**
+   * Which cell is open, worked out rather than stored.
+   *
+   * A stored selection goes stale the moment a filter hides what it points
+   * at, and the breakdown then shows a material that isn't on screen. Derived
+   * from what's visible, it simply falls to the first one instead.
+   */
+  const pickedCell =
+    visibleCells.find((c) => c.key === picked) ?? visibleCells[0] ?? null;
+  const pickedStacks = pickedCell ? pickedCell.stacks : [];
+
+  /** What's on screen, totalled for the figures above it. */
+  const cellTotals = useMemo(() => {
+    const tidy = (n) => Math.round(n * 100) / 100;
+    return {
+      free: tidy(visibleCells.reduce((t, c) => t + c.free, 0)),
+      reserved: tidy(visibleCells.reduce((t, c) => t + c.reserved, 0)),
+      incoming: tidy(visibleCells.reduce((t, c) => t + c.incoming, 0)),
+    };
+  }, [visibleCells]);
 
   /**
    * Names the register is holding that aren't on Mitch's list.
@@ -1250,15 +1278,44 @@ export default function MaterialStockPage() {
           </div>
         )}
 
-        {section === "hand" && (
+        {section === "materials" && (
           <>
-            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            {/* What's on screen, before anything is picked. The three answers
+                to "how are we off", in the order they get asked. */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              {[
+                { n: cellTotals.free, label: "Available", colour: BRAND.green, hint: "On the racks and not claimed by any job" },
+                { n: cellTotals.reserved, label: "Reserved", colour: BRAND.amber, hint: "On the racks, claimed by a job's picking list" },
+                { n: cellTotals.incoming, label: "On order", colour: BRAND.blue, hint: "Bought and not landed yet" },
+              ].map((t) => (
+                <div
+                  key={t.label}
+                  title={t.hint}
+                  style={{
+                    background: BRAND.card,
+                    border: `1px solid ${BRAND.line}`,
+                    borderRadius: 10,
+                    padding: "10px 16px",
+                    minWidth: 110,
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: BRAND.sub }}>{t.label}</div>
+                  <div style={{ fontSize: 24, fontWeight: 600, color: t.n > 0 ? t.colour : "#b3afa6" }}>
+                    {t.n}
+                  </div>
+                  <div style={{ fontSize: 11, color: BRAND.sub }}>Sheets</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Filter by material"
+                placeholder="Search material, substrate, size…"
                 style={{
                   flex: 1,
+                  minWidth: 200,
                   border: `1px solid ${BRAND.line}`,
                   background: BRAND.card,
                   borderRadius: 8,
@@ -1268,6 +1325,51 @@ export default function MaterialStockPage() {
                   boxSizing: "border-box",
                 }}
               />
+              {/* Pick a substrate and the cells become every finish we press
+                  on it — the question asked when a job could go on one of
+                  several boards. */}
+              <select
+                value={substrateFilter}
+                onChange={(e) => setSubstrateFilter(e.target.value)}
+                aria-label="Filter by substrate"
+                style={{
+                  border: `1px solid ${BRAND.line}`,
+                  background: BRAND.card,
+                  borderRadius: 8,
+                  padding: "8px 12px",
+                  fontSize: 13,
+                  fontFamily: "inherit",
+                  color: BRAND.ink,
+                }}
+              >
+                <option value="all">All substrates</option>
+                {substrateOptions.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                aria-label="Filter by status"
+                style={{
+                  border: `1px solid ${BRAND.line}`,
+                  background: BRAND.card,
+                  borderRadius: 8,
+                  padding: "8px 12px",
+                  fontSize: 13,
+                  fontFamily: "inherit",
+                  color: BRAND.ink,
+                }}
+              >
+                <option value="all">All stock</option>
+                {Object.entries(STATUSES).map(([key, s]) => (
+                  <option key={key} value={key}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
               {/* Putting a new material on the register is deciding what we
                   hold. Counting one that's already there isn't. */}
               <button
@@ -1435,54 +1537,150 @@ export default function MaterialStockPage() {
               </p>
             )}
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {decorGroups.map((decorGroup) => {
-                const decorOpen = openDecor === decorGroup.key;
-                return (
-                <section
-                  key={decorGroup.key}
-                  style={{
-                    background: BRAND.card,
-                    border: `1px solid ${BRAND.line}`,
-                    borderRadius: 10,
-                  }}
-                >
-                  <button
-                    onClick={() => setOpenDecor(decorOpen ? null : decorGroup.key)}
+            {/* Cells one side, the picked one open on the other.
+
+                Four across because sixty materials in a single column is a
+                page you scroll rather than read, and because a cell only has
+                to carry a name and a number — it is for choosing from, not
+                for comparing. The comparing happens in the figures above and
+                in the breakdown beside it. */}
+            <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <div
+                style={{
+                  flex: "1 1 560px",
+                  minWidth: 300,
+                  display: "grid",
+                  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                  gap: 6,
+                  alignContent: "start",
+                }}
+              >
+                {visibleCells.map((cell) => {
+                  const on = pickedCell?.key === cell.key;
+                  const s = STATUSES[statusOf(cell)];
+                  return (
+                    <button
+                      key={cell.key}
+                      onClick={() => setPicked(cell.key)}
+                      title={`${cell.finish} — ${[...cell.substrates].join(", ") || "no substrate recorded"}`}
+                      style={{
+                        background: on ? BRAND.card : "#faf9f6",
+                        // The picked one is said twice: a solid edge and a
+                        // lift. One of the two survives a bad monitor.
+                        border: `1px solid ${on ? BRAND.green : BRAND.line}`,
+                        boxShadow: on ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+                        borderRadius: 8,
+                        padding: "7px 9px",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        textAlign: "left",
+                        minWidth: 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontWeight: on ? 600 : 500,
+                          color: BRAND.ink,
+                          lineHeight: 1.25,
+                          // Two lines and then an ellipsis: the names run long
+                          // and a cell that grows to fit one breaks the grid
+                          // for all of them.
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {cell.finish}
+                      </div>
+                      {/* Only when it adds something: most finishes are their
+                          own timber and saying it twice is noise. */}
+                      {cell.decor && cell.decor.toLowerCase() !== cell.finish.toLowerCase() && (
+                        <div
+                          style={{
+                            fontSize: 10,
+                            color: BRAND.sub,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {cell.decor}
+                        </div>
+                      )}
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginTop: 3 }}>
+                        <span
+                          style={{
+                            fontSize: 15,
+                            fontWeight: 600,
+                            color: cell.free > 0 ? BRAND.green : "#b3afa6",
+                          }}
+                        >
+                          {cell.free}
+                        </span>
+                        <span style={{ fontSize: 10, color: BRAND.sub }}>free</span>
+                        {cell.incoming > 0 && (
+                          <span style={{ fontSize: 10, color: BRAND.blue, marginLeft: "auto" }}>
+                            +{cell.incoming}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 10, color: s.colour }}>{s.label}</div>
+                    </button>
+                  );
+                })}
+                {visibleCells.length === 0 && !loading && (
+                  <p style={{ fontSize: 13, color: BRAND.sub, gridColumn: "1 / -1" }}>
+                    Nothing matches that — try clearing the filters.
+                  </p>
+                )}
+              </div>
+
+              <div
+                style={{
+                  flex: "1 1 520px",
+                  minWidth: 300,
+                  background: BRAND.card,
+                  border: `1px solid ${BRAND.line}`,
+                  borderRadius: 10,
+                  // Sticks while the cells scroll past it, so the thing you
+                  // picked doesn't leave the screen when you go looking for
+                  // the next one.
+                  position: "sticky",
+                  top: 12,
+                }}
+              >
+                {pickedCell && (
+                  <div
                     style={{
+                      padding: "10px 14px",
+                      borderBottom: `1px solid ${BRAND.line}`,
                       display: "flex",
-                      width: "100%",
                       alignItems: "baseline",
                       gap: 10,
-                      padding: "10px 14px",
-                      background: "none",
-                      border: "none",
-                      borderBottom: decorOpen ? `1px solid ${BRAND.line}` : "none",
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      textAlign: "left",
+                      flexWrap: "wrap",
                     }}
                   >
-                    <span aria-hidden="true" style={{ fontSize: 10, color: BRAND.sub, width: 10 }}>
-                      {decorOpen ? "▾" : "▸"}
+                    <span style={{ fontWeight: 600, fontSize: 15 }}>{pickedCell.finish}</span>
+                    <span style={{ fontSize: 11, color: BRAND.sub }}>
+                      {[...pickedCell.substrates].join(" · ") || "no substrate recorded"}
                     </span>
-                    <span style={{ fontWeight: 600, fontSize: 14 }}>{decorGroup.name}</span>
-                    {/* Only worth saying when there is more than one. */}
-                    {decorGroup.stacks.length > 1 && (
-                      <span style={{ fontSize: 11, color: BRAND.sub }}>
-                        {decorGroup.stacks.length} products
-                      </span>
-                    )}
                     <StockFigures
-                      free={decorGroup.free}
-                      assigned={decorGroup.reserved}
-                      onFloor={decorGroup.onFloor}
-                      incoming={decorGroup.incoming}
-                      due={decorGroup.incomingDue}
+                      free={pickedCell.free}
+                      assigned={pickedCell.reserved}
+                      incoming={pickedCell.incoming}
+                      due={pickedCell.incomingDue}
                     />
-                  </button>
+                  </div>
+                )}
+                {!pickedCell && (
+                  <p style={{ fontSize: 13, color: BRAND.sub, padding: "14px" }}>
+                    Pick a material to see its sizes, where they are and what&apos;s spoken for.
+                  </p>
+                )}
 
-                  {decorOpen && decorGroup.stacks.map((stack) => (
+                {pickedStacks.map((stack) => (
                 <div
                   key={stack.key}
                   style={{
@@ -1490,27 +1688,27 @@ export default function MaterialStockPage() {
                     borderTop: `1px solid ${BRAND.bg}`,
                   }}
                 >
-                  {/* The material, said once. Versilux SE in 6mm and in 9mm
-                      used to be two cards at opposite ends of the page. */}
+                  {/* The substrate is the heading here, not the finish.
+
+                      The panel above already says which material this is —
+                      it's the one that was picked — so repeating it on every
+                      block would say "Raw" eight times down a column headed
+                      Raw. What varies between these blocks is the board it's
+                      pressed on, which is the thing to lead with.
+
+                      No total across thicknesses: 6mm and 9mm are not
+                      interchangeable, so a figure spanning them is one nobody
+                      can cut a job from. The numbers that decide anything are
+                      on the thicknesses below. */}
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span style={{ fontWeight: 600, fontSize: 14 }}>{stack.finish}</span>
-                    {/* No total across thicknesses. 6mm and 9mm are not
-                        interchangeable, so a figure spanning them is one
-                        nobody can cut a job from — and when it was labelled
-                        "free" it was worse than useless, because most of it
-                        was already assigned to different jobs. The numbers
-                        that decide anything are on the thicknesses below. */}
-                  </div>
-                  {/* Plenty of these are a board with no face on it —
-                      Versilux, Villabord — where the finish is the whole name
-                      and "no substrate recorded" is just noise. */}
-                  <div style={{ fontSize: 12, color: BRAND.sub, marginTop: 1 }}>
-                    {[
-                      stack.substrate,
-                      stack.products.length > 1 ? `${stack.products.length} thicknesses` : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>
+                      {stack.substrate || "no substrate recorded"}
+                    </span>
+                    {stack.products.length > 1 && (
+                      <span style={{ fontSize: 11, color: BRAND.sub }}>
+                        {stack.products.length} thicknesses
+                      </span>
+                    )}
                   </div>
 
                   {stack.products.map((group) => {
@@ -1967,36 +2165,9 @@ export default function MaterialStockPage() {
                   })}
                 </div>
               ))}
-                </section>
-                );
-              })}
+              </div>
             </div>
           </>
-        )}
-
-        {section === "inventory" && (
-          <InventoryTable
-            rows={inventoryRows}
-            loading={loading}
-            placedFor={placedFor}
-            onAdd={
-              canKeep
-                ? (row) => {
-                    setAddInitial({
-                      finish: row.finish === "—" ? "" : row.finish,
-                      substrate: row.substrate ?? "",
-                      length: String(dimension(row.length) ?? ""),
-                      width: String(dimension(row.width) ?? ""),
-                      thickness: String(dimension(row.thickness) ?? ""),
-                      quantity: "",
-                    });
-                    setShowAdd(true);
-                    setSection("hand");
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }
-                : null
-            }
-          />
         )}
 
         {section === "layout" && (
@@ -2031,9 +2202,16 @@ export default function MaterialStockPage() {
  * question somebody is actually asking.
  */
 function statusOf(row) {
-  if (row.total < 0) return "check";
+  /**
+   * A ledger row calls it `total`; a material cell adds its rows up into
+   * `onHand`. Reading only one of them made every cell with nothing on the
+   * rack and something on order read "All spoken for" — spoken for by whom,
+   * when there is not a sheet of it in the building.
+   */
+  const here = row.onHand ?? row.total ?? 0;
+  if (here < 0) return "check";
   if (row.free > 0) return "instock";
-  if (row.total === 0 && row.incoming > 0) return "ordered";
+  if (here === 0 && row.incoming > 0) return "ordered";
   return "spoken";
 }
 
@@ -2055,564 +2233,6 @@ const STATUSES = {
     hint: "The register says we hold less than none of it — drawn for a job without ever being entered",
   },
 };
-
-/**
- * The register as one flat table.
- *
- * On hand groups by timber, then product, then thickness, and that is the
- * right shape for "have we got any Blackbutt". It is the wrong shape for the
- * other question — what have we got and how much can I actually use — because
- * the answer is three levels down an accordion and no two numbers line up
- * with each other.
- *
- * So: one row per stock item, which is a finish on a substrate at a thickness
- * in a sheet size, with every figure in the same column on every line. The
- * history, the jobs holding it and the bays it sits on open under the row
- * rather than living on the page, because they are what you want about ONE of
- * them and never about all of them at once.
- */
-function InventoryTable({ rows, loading, placedFor, onAdd }) {
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
-  const [substrate, setSubstrate] = useState("all");
-  const [open, setOpen] = useState(null);
-  // Which materials are folded shut. Open by default: this view exists
-  // because the old one hid everything behind a triangle.
-  const [collapsed, setCollapsed] = useState({});
-
-  const substrates = useMemo(
-    () => [...new Set(rows.map((r) => r.substrate).filter(Boolean))].sort(),
-    [rows]
-  );
-
-  const q = query.trim().toLowerCase();
-  const visible = useMemo(
-    () =>
-      rows.filter((r) => {
-        if (substrate !== "all" && r.substrate !== substrate) return false;
-        if (status !== "all" && statusOf(r) !== status) return false;
-        if (!q) return true;
-        // The size too, so "3050" finds the one rack that holds it.
-        return [r.finish, r.substrate, r.decor, r.name, size(r), r.thickness, r.location]
-          .join(" ")
-          .toLowerCase()
-          .includes(q);
-      }),
-    [rows, q, status, substrate]
-  );
-
-  /**
-   * The three figures above the table, counted once each.
-   *
-   * A claim that doesn't name a size lands on every size of its material, so
-   * adding the rows up would count it as many times as we hold sizes — which
-   * is exactly what made Versilux read 264 free when 476 were. The ids come
-   * down the wire for this.
-   */
-  const totals = useMemo(() => {
-    const claims = new Map();
-    const orders = new Map();
-    let free = 0;
-    for (const r of visible) {
-      free += r.free || 0;
-      for (const c of r.rawClaims) claims.set(c.id, Number(c.quantity) || 0);
-      for (const c of r.rawIncoming) orders.set(c.id, Number(c.quantity) || 0);
-    }
-    const sum = (m) => [...m.values()].reduce((t, n) => t + n, 0);
-    /**
-     * Two decimals, because some of this is not sheets.
-     *
-     * DecorMetl and the edging are held in metres and square metres, and a
-     * register that adds 52.68 to anything prints 3207.6800000000003 across
-     * the top of the page. Rounded here rather than in the ledger — the stored
-     * figures are right, it is only the sum of them that needs saying.
-     */
-    const tidy = (n) => Math.round(n * 100) / 100;
-    return {
-      free: tidy(free),
-      reserved: tidy(sum(claims)),
-      incoming: tidy(sum(orders)),
-      check: visible.filter((r) => statusOf(r) === "check").length,
-    };
-  }, [visible]);
-
-  /**
-   * The rows gathered under the material they are.
-   *
-   * Raw is seventeen rows — every substrate we press it on, in every
-   * thickness, in every sheet size — and the table printed the word "Raw"
-   * seventeen times down the left while the thing that actually told them
-   * apart sat in grey underneath it. The finish is said once now, with its
-   * own figures beside it, and what varies is what's left on each line.
-   *
-   * A material we hold in one size only stays a single line: a heading over
-   * one row is two lines saying what one said.
-   */
-  const groups = useMemo(() => {
-    const map = new Map();
-    for (const row of visible) {
-      const key = String(row.finish).toLowerCase();
-      if (!map.has(key)) map.set(key, { key, finish: row.finish, rows: [] });
-      map.get(key).rows.push(row);
-    }
-    for (const group of map.values()) {
-      // Deduped the same way the tiles are: one claim can land on every size
-      // of its material, so adding the lines up would count it each time.
-      const claims = new Map();
-      const orders = new Map();
-      let free = 0;
-      let onHand = 0;
-      let due = "";
-      for (const r of group.rows) {
-        free += r.free || 0;
-        onHand += r.total || 0;
-        for (const c of r.rawClaims) claims.set(c.id, Number(c.quantity) || 0);
-        for (const c of r.rawIncoming) orders.set(c.id, Number(c.quantity) || 0);
-        if (r.incomingDue && (!due || r.incomingDue < due)) due = r.incomingDue;
-      }
-      const sum = (m) => [...m.values()].reduce((t, n) => t + n, 0);
-      const tidy = (n) => Math.round(n * 100) / 100;
-      group.free = tidy(free);
-      group.onHand = tidy(onHand);
-      group.reserved = tidy(sum(claims));
-      group.incoming = tidy(sum(orders));
-      group.incomingDue = due;
-    }
-    return [...map.values()];
-  }, [visible]);
-
-  const tile = (value, label, colour, title) => (
-    <div
-      title={title}
-      style={{
-        background: BRAND.card,
-        border: `1px solid ${BRAND.line}`,
-        borderRadius: 10,
-        padding: "10px 16px",
-        minWidth: 110,
-      }}
-    >
-      <div style={{ fontSize: 11, color: BRAND.sub }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 600, color: value > 0 ? colour : "#b3afa6" }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 11, color: BRAND.sub }}>Sheets</div>
-    </div>
-  );
-
-  const field = {
-    border: `1px solid ${BRAND.line}`,
-    background: BRAND.card,
-    borderRadius: 8,
-    padding: "8px 12px",
-    fontSize: 13,
-    fontFamily: "inherit",
-    color: BRAND.ink,
-    boxSizing: "border-box",
-  };
-
-  return (
-    <>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        {tile(totals.free, "Available", BRAND.green, "On the racks and not claimed by any job")}
-        {tile(totals.reserved, "Reserved", BRAND.amber, "On the racks, claimed by a job's picking list")}
-        {tile(totals.incoming, "On order", BRAND.blue, "Bought and not landed yet")}
-        {totals.check > 0 && (
-          <div
-            title={STATUSES.check.hint}
-            style={{
-              background: "#fbeceb",
-              border: `1px solid ${BRAND.red}`,
-              borderRadius: 10,
-              padding: "10px 16px",
-              minWidth: 110,
-            }}
-          >
-            <div style={{ fontSize: 11, color: BRAND.sub }}>Needs a look</div>
-            <div style={{ fontSize: 24, fontWeight: 600, color: BRAND.red }}>{totals.check}</div>
-            <div style={{ fontSize: 11, color: BRAND.sub }}>
-              {totals.check === 1 ? "Material" : "Materials"}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search material, substrate, size…"
-          style={{ ...field, flex: 1, minWidth: 220 }}
-        />
-        {/* Pick a substrate and the table becomes every thickness and sheet
-            size we hold it in, whatever the finish — which is the question
-            asked when a job could go on one of several boards. */}
-        <select
-          value={substrate}
-          onChange={(e) => setSubstrate(e.target.value)}
-          style={{ ...field, minWidth: 150 }}
-          aria-label="Filter by substrate"
-        >
-          <option value="all">All substrates</option>
-          {substrates.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          style={{ ...field, minWidth: 140 }}
-          aria-label="Filter by status"
-        >
-          <option value="all">All stock</option>
-          {Object.entries(STATUSES).map(([key, s]) => (
-            <option key={key} value={key}>
-              {s.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {!loading && visible.length === 0 && (
-        <p style={{ fontSize: 13, color: BRAND.sub }}>
-          {rows.length === 0
-            ? "Nothing on the register yet."
-            : "Nothing matches that — try clearing the filters."}
-        </p>
-      )}
-
-      {visible.length > 0 && (
-        <div
-          style={{
-            overflowX: "auto",
-            background: BRAND.card,
-            border: `1px solid ${BRAND.line}`,
-            borderRadius: 10,
-          }}
-        >
-          <table style={{ borderCollapse: "collapse", width: "100%" }}>
-            <thead>
-              <tr>
-                <th style={th}>Material / substrate</th>
-                <th style={th}>Size (mm)</th>
-                <th style={{ ...th, textAlign: "right" }}>On hand</th>
-                <th style={{ ...th, textAlign: "right" }}>Reserved</th>
-                <th style={{ ...th, textAlign: "right" }}>Avail.</th>
-                <th style={{ ...th, textAlign: "right" }}>Incoming</th>
-                <th style={th}>Where</th>
-                <th style={th}>Status</th>
-                <th style={th}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map((group) => {
-                // One size of it and nothing to gather — the heading would be
-                // a line repeating the line under it.
-                const alone = group.rows.length === 1;
-                const shut = collapsed[group.key];
-                return (
-                  <Fragment key={group.key}>
-                    {!alone && (
-                      <tr>
-                        <td
-                          style={{
-                            ...td,
-                            background: BRAND.bg,
-                            whiteSpace: "normal",
-                            minWidth: 190,
-                          }}
-                        >
-                          <button
-                            onClick={() =>
-                              setCollapsed((c) => ({ ...c, [group.key]: !c[group.key] }))
-                            }
-                            aria-expanded={!shut}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              padding: 0,
-                              font: "inherit",
-                              fontWeight: 600,
-                              color: BRAND.ink,
-                              cursor: "pointer",
-                              textAlign: "left",
-                            }}
-                          >
-                            <span
-                              aria-hidden="true"
-                              style={{ color: BRAND.sub, fontSize: 10, marginRight: 5 }}
-                            >
-                              {shut ? "▸" : "▾"}
-                            </span>
-                            {group.finish}
-                          </button>
-                          <div style={{ fontSize: 11, color: BRAND.sub, marginLeft: 15 }}>
-                            {group.rows.length} sizes
-                          </div>
-                        </td>
-                        <td style={{ ...td, background: BRAND.bg }} />
-                        <td
-                          style={{
-                            ...td,
-                            background: BRAND.bg,
-                            textAlign: "right",
-                            fontWeight: 600,
-                            color: group.onHand < 0 ? BRAND.red : "inherit",
-                          }}
-                        >
-                          {group.onHand}
-                        </td>
-                        <td
-                          style={{
-                            ...td,
-                            background: BRAND.bg,
-                            textAlign: "right",
-                            fontWeight: 600,
-                            color: group.reserved > 0 ? BRAND.amber : "#b3afa6",
-                          }}
-                        >
-                          {group.reserved || "—"}
-                        </td>
-                        <td
-                          style={{
-                            ...td,
-                            background: BRAND.bg,
-                            textAlign: "right",
-                            fontWeight: 600,
-                            color: group.free > 0 ? BRAND.green : "#b3afa6",
-                          }}
-                        >
-                          {group.free}
-                        </td>
-                        <td
-                          style={{
-                            ...td,
-                            background: BRAND.bg,
-                            textAlign: "right",
-                            fontWeight: 600,
-                            color: group.incoming > 0 ? BRAND.blue : "#b3afa6",
-                          }}
-                        >
-                          {group.incoming || "—"}
-                          {group.incomingDue && (
-                            <div style={{ fontSize: 10, fontWeight: 400, color: BRAND.sub }}>
-                              from {group.incomingDue}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ ...td, background: BRAND.bg }} colSpan={3} />
-                      </tr>
-                    )}
-                    {!shut &&
-                      group.rows.map((r) => {
-                        const key = `${signature(r)}`;
-                        const s = STATUSES[statusOf(r)];
-                        const isOpen = open === key;
-                        const bays = placedFor ? placedFor(r) : [];
-                        return (
-                  <Fragment key={key}>
-                    <tr>
-                      <td style={{ ...td, whiteSpace: "normal", minWidth: 190 }}>
-                        {/* Under a heading the finish is already said; on its
-                            own the row has to say it itself. */}
-                        {alone && <div style={{ fontWeight: 500 }}>{r.finish}</div>}
-                        <div
-                          style={{
-                            fontSize: alone ? 11 : 12,
-                            color: alone ? BRAND.sub : BRAND.ink,
-                            paddingLeft: alone ? 0 : 15,
-                          }}
-                        >
-                          {[r.substrate, r.thickness ? `${r.thickness}mm` : ""]
-                            .filter(Boolean)
-                            .join(" · ") || "no substrate recorded"}
-                        </div>
-                      </td>
-                      <td style={{ ...td, color: BRAND.sub }}>
-                        {r.length && r.width ? `${r.length} × ${r.width}` : "—"}
-                      </td>
-                      <td style={{ ...td, textAlign: "right", color: r.total < 0 ? BRAND.red : "inherit" }}>
-                        {r.total}
-                      </td>
-                      <td style={{ ...td, textAlign: "right", color: r.reserved > 0 ? BRAND.amber : "#b3afa6" }}>
-                        {r.reserved || "—"}
-                      </td>
-                      <td
-                        style={{
-                          ...td,
-                          textAlign: "right",
-                          fontWeight: 600,
-                          color: r.free > 0 ? BRAND.green : "#b3afa6",
-                        }}
-                      >
-                        {r.free}
-                      </td>
-                      <td style={{ ...td, textAlign: "right", color: r.incoming > 0 ? BRAND.blue : "#b3afa6" }}>
-                        {r.incoming || "—"}
-                        {r.incomingDue && (
-                          <div style={{ fontSize: 10, color: BRAND.sub }}>due {r.incomingDue}</div>
-                        )}
-                      </td>
-                      <td style={{ ...td, color: BRAND.sub, whiteSpace: "normal", maxWidth: 160 }}>
-                        {bays.length > 0
-                          ? bays.map((p) => describeLocation(p.code)).join(", ")
-                          : r.location || "—"}
-                      </td>
-                      <td style={td}>
-                        <span style={{ color: s.colour, fontWeight: 500 }} title={s.hint}>
-                          {statusOf(r) === "check" ? "⚠ " : ""}
-                          {s.label}
-                        </span>
-                      </td>
-                      <td style={{ ...td, textAlign: "right" }}>
-                        <button
-                          onClick={() => setOpen(isOpen ? null : key)}
-                          style={miniBtn}
-                          aria-expanded={isOpen}
-                        >
-                          {isOpen ? "Hide" : "Details"}
-                        </button>
-                      </td>
-                    </tr>
-                    {isOpen && (
-                      <tr>
-                        <td colSpan={9} style={{ ...td, background: BRAND.bg, whiteSpace: "normal" }}>
-                          <StockItemDetail row={r} bays={bays} onAdd={onAdd} />
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                        );
-                      })}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
-  );
-}
-
-/**
- * One stock item, opened out.
- *
- * Everything the long register used to show inline, for the one row somebody
- * asked about: which jobs are holding it, what's coming and when, which bays
- * it sits on, and the movements behind the balance. Kept to the last handful
- * of movements — the question under a row is "what happened lately", and the
- * whole history is a different question asked on the On hand list.
- */
-function StockItemDetail({ row, bays, onAdd }) {
-  const movements = (row.entries ?? []).slice(0, 8);
-  const label = { fontSize: 11, color: BRAND.sub, marginBottom: 2 };
-  return (
-    <div style={{ display: "flex", gap: 28, flexWrap: "wrap", padding: "4px 0" }}>
-      <div style={{ minWidth: 190 }}>
-        <div style={label}>Claimed by</div>
-        {row.claims.length === 0 ? (
-          <div style={{ fontSize: 12, color: "#b3afa6" }}>Nothing has claimed it</div>
-        ) : (
-          row.claims.map((c) => (
-            <div key={c.jobId} style={{ fontSize: 12 }}>
-              <a href={`/board?job=${encodeURIComponent(c.jobId)}`} style={{ color: BRAND.blue }}>
-                {c.jobId}
-              </a>{" "}
-              <span style={{ color: BRAND.sub }}>{c.quantity}</span>
-            </div>
-          ))
-        )}
-        {/* Claimed and already being cut. The ledger comes off when a job
-            completes, so between the floor starting and finishing the register
-            counts sheets that have physically gone. */}
-        {row.onFloor > 0 && (
-          <div style={{ fontSize: 11, color: BRAND.amber, marginTop: 3 }}>
-            {row.onFloor} of those are on a job already being cut
-          </div>
-        )}
-      </div>
-
-      <div style={{ minWidth: 170 }}>
-        <div style={label}>On order</div>
-        {row.incomingBy.length === 0 ? (
-          <div style={{ fontSize: 12, color: "#b3afa6" }}>Nothing on order</div>
-        ) : (
-          row.incomingBy.map((c) => (
-            <div key={c.jobId} style={{ fontSize: 12 }}>
-              <span style={{ color: BRAND.sub }}>{c.jobId || "for stock"}</span>{" "}
-              <strong style={{ fontWeight: 500 }}>{c.quantity}</strong>
-            </div>
-          ))
-        )}
-        {row.incomingDue && (
-          <div style={{ fontSize: 11, color: BRAND.sub, marginTop: 3 }}>
-            First due {row.incomingDue}
-          </div>
-        )}
-      </div>
-
-      <div style={{ minWidth: 170 }}>
-        <div style={label}>Where it sits</div>
-        {bays.length === 0 ? (
-          <div style={{ fontSize: 12, color: "#b3afa6" }}>
-            {row.location || "Not put on the plan yet"}
-          </div>
-        ) : (
-          bays.map((p) => (
-            <div key={p.code} style={{ fontSize: 12 }}>
-              {describeLocation(p.code)}{" "}
-              <span style={{ color: BRAND.sub }}>{p.quantity}</span>
-            </div>
-          ))
-        )}
-      </div>
-
-      <div style={{ minWidth: 230, flex: 1 }}>
-        <div style={label}>Recent movements</div>
-        {movements.length === 0 ? (
-          <div style={{ fontSize: 12, color: "#b3afa6" }}>
-            Nothing logged — it's on order, not here yet
-          </div>
-        ) : (
-          movements.map((e) => (
-            <div key={e.id} style={{ fontSize: 12, color: BRAND.sub }}>
-              <span
-                style={{
-                  color: Number(e.quantity) > 0 ? BRAND.green : BRAND.ink,
-                  fontWeight: 500,
-                }}
-              >
-                {Number(e.quantity) > 0 ? "+" : ""}
-                {e.quantity}
-              </span>{" "}
-              {e.source || "manual"}
-              {e.jobId ? ` · ${e.jobId}` : ""}
-              {e.loggedBy ? ` · ${String(e.loggedBy).split("@")[0]}` : ""}
-              {e.loggedAt ? ` · ${fmtStamp(e.loggedAt)}` : ""}
-              {e.note ? ` — ${e.note}` : ""}
-            </div>
-          ))
-        )}
-        {(row.entries ?? []).length > movements.length && (
-          <div style={{ fontSize: 11, color: "#b3afa6", marginTop: 2 }}>
-            {(row.entries ?? []).length - movements.length} older on the On hand list
-          </div>
-        )}
-      </div>
-
-      {onAdd && (
-        <div style={{ alignSelf: "flex-end" }}>
-          <button onClick={() => onAdd(row)} style={miniBtn}>
-            + Add stock
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /**
  * The factory as a plan, with what's on each bay.
