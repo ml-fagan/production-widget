@@ -7,7 +7,7 @@ import SignIn from "../SignIn.js";
 import Overview from "./Overview.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
-import { PAGE_WIDTH } from "../../lib/layout.js";
+import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
 import {
   BANDS,
   bandOf,
@@ -288,7 +288,8 @@ export default function DraftingPage() {
             display: "flex",
             alignItems: "baseline",
             justifyContent: "space-between",
-            marginBottom: 20,
+            marginBottom: HEADER_GAP,
+            minHeight: HEADER_HEIGHT,
             flexWrap: "wrap",
             gap: 8,
           }}

@@ -8,7 +8,7 @@ import { useCapabilities } from "../lib/useCapabilities.js";
 import { leadFor } from "../lib/board.js";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, firebaseConfigured } from "../lib/firebaseClient.js";
-import { PAGE_WIDTH } from "../lib/layout.js";
+import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../lib/layout.js";
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -310,12 +310,24 @@ export default function Page() {
             display: "flex",
             alignItems: "baseline",
             justifyContent: "space-between",
-            marginBottom: 20,
+            marginBottom: HEADER_GAP,
+            minHeight: HEADER_HEIGHT,
             flexWrap: "wrap",
             gap: 8,
           }}
         >
-          <div>
+          {/* Logo beside the title rather than above it.
+
+              Stacked, it made this header forty-six pixels taller than every
+              other board's, so the tab strip and everything under it sat
+              lower here than anywhere else — and this is the page people
+              land on, so every other board looked like it had jumped. Beside
+              it, the brand is still the first thing on the page and the
+              header is the same height as the rest. */}
+          {/* Out of the header's baseline alignment: with the logo first in
+              the row it becomes what the baseline is measured from, which
+              put this header a pixel taller than every other one. */}
+          <div style={{ display: "flex", alignItems: "center", alignSelf: "center", gap: 14 }}>
             <img
               src="/decor-logo-white.png"
               alt="Decor Systems"
@@ -323,17 +335,18 @@ export default function Page() {
                 height: 34,
                 width: "auto",
                 display: "block",
-                marginBottom: 12,
                 // Logo asset is white; this page's background is always pale, so render it black.
                 filter: "brightness(0)",
               }}
             />
-            <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.01em" }}>
-              Production Schedule
-            </h1>
-            <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-              Decor Systems factory · live from SharePoint
-            </p>
+            <div>
+              <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, letterSpacing: "-0.01em" }}>
+                Production Schedule
+              </h1>
+              <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
+                Decor Systems factory · live from SharePoint
+              </p>
+            </div>
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
             <SignIn user={user} brand={BRAND} />

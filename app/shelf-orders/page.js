@@ -7,7 +7,7 @@ import SubTabs from "../SubTabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
-import { PAGE_WIDTH } from "../../lib/layout.js";
+import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
 import {
   CHASE_LEADS,
   BUCKETS,
@@ -262,7 +262,8 @@ export default function ShelfOrdersPage() {
             display: "flex",
             alignItems: "baseline",
             justifyContent: "space-between",
-            marginBottom: 20,
+            marginBottom: HEADER_GAP,
+            minHeight: HEADER_HEIGHT,
             flexWrap: "wrap",
             gap: 8,
           }}

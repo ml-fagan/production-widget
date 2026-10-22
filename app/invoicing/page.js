@@ -12,7 +12,7 @@ import { JobStateBadge } from "../../lib/jobState.js";
 // The same two helpers Veronica's own board uses, so a figure reads the same
 // on both screens rather than being worked out twice.
 import { orderTotal as shelfTotal, money } from "../../lib/shelfOrders.js";
-import { PAGE_WIDTH } from "../../lib/layout.js";
+import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
 
 // Invoicing board.
 //
@@ -315,7 +315,8 @@ export default function InvoicingPage() {
             display: "flex",
             alignItems: "baseline",
             justifyContent: "space-between",
-            marginBottom: 20,
+            marginBottom: HEADER_GAP,
+            minHeight: HEADER_HEIGHT,
             flexWrap: "wrap",
             gap: 8,
           }}

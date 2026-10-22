@@ -15,7 +15,7 @@ import {
   placementKeyOf,
 } from "../../lib/materialGroups.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
-import { PAGE_WIDTH } from "../../lib/layout.js";
+import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
 import {
   RACKS,
   AREAS,
@@ -1189,7 +1189,8 @@ export default function MaterialStockPage() {
             display: "flex",
             alignItems: "baseline",
             justifyContent: "space-between",
-            marginBottom: 20,
+            marginBottom: HEADER_GAP,
+            minHeight: HEADER_HEIGHT,
             flexWrap: "wrap",
             gap: 8,
           }}

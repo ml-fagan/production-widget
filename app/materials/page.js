@@ -11,7 +11,7 @@ import PreOrderForm from "../PreOrderForm.js";
 import LineEditor from "../LineEditor.js";
 import { splitMaterialName } from "../../lib/materialGroups.js";
 import { workingDaysBetweenStamps } from "../../lib/workingDays.js";
-import { PAGE_WIDTH } from "../../lib/layout.js";
+import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
 
 // Material orders board.
 //
@@ -1192,7 +1192,8 @@ export default function MaterialsPage() {
             display: "flex",
             alignItems: "baseline",
             justifyContent: "space-between",
-            marginBottom: 20,
+            marginBottom: HEADER_GAP,
+            minHeight: HEADER_HEIGHT,
             flexWrap: "wrap",
             gap: 8,
           }}

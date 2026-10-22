@@ -8,7 +8,7 @@ import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
-import { PAGE_WIDTH } from "../../lib/layout.js";
+import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
 import {
   PROCESS_COLUMNS,
   CELL_COLOURS,
@@ -586,7 +586,8 @@ export default function BoardPage() {
             display: "flex",
             alignItems: "baseline",
             justifyContent: "space-between",
-            marginBottom: 16,
+            marginBottom: HEADER_GAP,
+            minHeight: HEADER_HEIGHT,
             flexWrap: "wrap",
             gap: 8,
           }}
