@@ -475,7 +475,15 @@ export default function DraftingPage() {
               <table style={{ borderCollapse: "collapse", width: "100%" }}>
                 <thead>
                   <tr>
-                    <th style={{ ...th, textAlign: "right" }}>Quiet</th>
+                    {/* Said out loud, because the number no longer matches
+                        what you get counting off a calendar: a row last
+                        touched on 18 June reads 90, not 126. */}
+                    <th
+                      style={{ ...th, textAlign: "right" }}
+                      title="Working days since the last thing that happened — weekends don't count"
+                    >
+                      Quiet
+                    </th>
                     <th style={th}>Job</th>
                     <th style={th}>Project</th>
                     <th style={th}>Owner</th>
@@ -861,7 +869,9 @@ export default function DraftingPage() {
         <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 18, maxWidth: 820 }}>
           Every row counts from the last real thing that happened to it — the drawings going out,
           somebody chasing, or anybody leaving a comment on the Asana task. A set lands here when
-          its task is ticked complete, which means issued and with the client.
+          its task is ticked complete, which means issued and with the client. The day count is{" "}
+          <strong>working days</strong>: nobody chased a client on Sunday, so a set issued on Friday
+          and still out on Monday has been quiet one day, not three. Four weeks is twenty.
           <br />
           <span style={{ color: BRAND.pink }}>Accounts</span> are never ticked complete, so they
           have no issue date and run on contact alone. Their Follow Up dates are reminders for a
