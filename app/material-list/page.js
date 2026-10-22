@@ -7,6 +7,7 @@ import SubTabs from "../SubTabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
+import { PAGE_WIDTH } from "../../lib/layout.js";
 
 // The material list — one register of what this company buys.
 //
@@ -192,7 +193,7 @@ export default function MaterialListPage() {
       {/* 1500 for the header and the tab strip, the same as the boards: the
           strip needs about 1223px for one row, and 1100 wrapped it. The list
           itself keeps its own narrower column below. */}
-      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
+      <div style={{ maxWidth: PAGE_WIDTH, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",

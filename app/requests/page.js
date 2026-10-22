@@ -7,6 +7,7 @@ import SubTabs from "../SubTabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
+import { PAGE_WIDTH } from "../../lib/layout.js";
 
 // Requests — what people want these boards to do that they don't.
 //
@@ -150,7 +151,7 @@ export default function RequestsPage() {
           the quiet links, pushed along with margin-left:auto, land beside
           MONEY instead of out at the right. The reading column below keeps its
           own width — this page is prose and a form, not a table. */}
-      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
+      <div style={{ maxWidth: PAGE_WIDTH, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",

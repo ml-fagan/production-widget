@@ -8,6 +8,7 @@ import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
+import { PAGE_WIDTH } from "../../lib/layout.js";
 import {
   PROCESS_COLUMNS,
   CELL_COLOURS,
@@ -579,7 +580,7 @@ export default function BoardPage() {
         the page appear to jump. Wider than the rest, because it has the most
         columns and prints landscape; bounded, because nothing else isn't.
       */}
-      <div style={{ maxWidth: 1800, margin: "0 auto" }}>
+      <div style={{ maxWidth: PAGE_WIDTH, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",

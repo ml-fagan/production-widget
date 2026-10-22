@@ -8,6 +8,7 @@ import CostingWorkbench from "./CostingWorkbench.jsx";
 import { createPriceBook } from "../../lib/costing";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
+import { PAGE_WIDTH } from "../../lib/layout.js";
 
 // Costing.
 //
@@ -226,7 +227,7 @@ export default function CostingPage() {
       }}
     >
       {/* Three columns — templates, inputs, the sheet — so it wants the width. */}
-      <div style={{ maxWidth: 1600, margin: "0 auto" }}>
+      <div style={{ maxWidth: PAGE_WIDTH, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",

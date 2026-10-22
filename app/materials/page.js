@@ -11,6 +11,7 @@ import PreOrderForm from "../PreOrderForm.js";
 import LineEditor from "../LineEditor.js";
 import { splitMaterialName } from "../../lib/materialGroups.js";
 import { workingDaysBetweenStamps } from "../../lib/workingDays.js";
+import { PAGE_WIDTH } from "../../lib/layout.js";
 
 // Material orders board.
 //
@@ -1185,7 +1186,7 @@ export default function MaterialsPage() {
           narrow pages: eleven columns and three editable fields need the room.
           At 1500 the table still overran by about seventy pixels, and what
           fell off the end was Expected — the column Alice has to type in. */}
-      <div style={{ maxWidth: 1800, margin: "0 auto" }}>
+      <div style={{ maxWidth: PAGE_WIDTH, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",

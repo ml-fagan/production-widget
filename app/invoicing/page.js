@@ -12,6 +12,7 @@ import { JobStateBadge } from "../../lib/jobState.js";
 // The same two helpers Veronica's own board uses, so a figure reads the same
 // on both screens rather than being worked out twice.
 import { orderTotal as shelfTotal, money } from "../../lib/shelfOrders.js";
+import { PAGE_WIDTH } from "../../lib/layout.js";
 
 // Invoicing board.
 //
@@ -308,7 +309,7 @@ export default function InvoicingPage() {
       {/* Wide enough for the table this page exists for. It was capped at
           1000px like a page of prose, which meant a horizontal scrollbar
           on a screen with 900px of empty margin either side. */}
-      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
+      <div style={{ maxWidth: PAGE_WIDTH, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",

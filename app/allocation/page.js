@@ -6,6 +6,7 @@ import Tabs from "../Tabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
+import { PAGE_WIDTH } from "../../lib/layout.js";
 import {
   workingDay,
   daysBefore,
@@ -204,7 +205,7 @@ export default function AllocationPage() {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 1800, margin: "0 auto" }}>
+      <div style={{ maxWidth: PAGE_WIDTH, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",

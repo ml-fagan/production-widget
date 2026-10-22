@@ -7,6 +7,7 @@ import SubTabs from "../SubTabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
+import { PAGE_WIDTH } from "../../lib/layout.js";
 
 // Warehouse — what's on its way in.
 //
@@ -522,7 +523,7 @@ export default function WarehousePage() {
       {/* Wide enough for the table this page exists for. It was capped at
           1000px like a page of prose, which meant a horizontal scrollbar
           on a screen with 900px of empty margin either side. */}
-      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
+      <div style={{ maxWidth: PAGE_WIDTH, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",

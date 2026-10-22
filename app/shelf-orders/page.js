@@ -7,6 +7,7 @@ import SubTabs from "../SubTabs.js";
 import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
+import { PAGE_WIDTH } from "../../lib/layout.js";
 import {
   CHASE_LEADS,
   BUCKETS,
@@ -255,7 +256,7 @@ export default function ShelfOrdersPage() {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
+      <div style={{ maxWidth: PAGE_WIDTH, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",

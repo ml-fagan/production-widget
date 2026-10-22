@@ -8,6 +8,7 @@ import { useCapabilities } from "../lib/useCapabilities.js";
 import { leadFor } from "../lib/board.js";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, firebaseConfigured } from "../lib/firebaseClient.js";
+import { PAGE_WIDTH } from "../lib/layout.js";
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -303,7 +304,7 @@ export default function Page() {
           with margin-left:auto, they ended up beside MONEY on the second row
           instead of out at the right. The same strip then read differently
           here than on every board it links to. */}
-      <div style={{ maxWidth: 1500, margin: "0 auto" }}>
+      <div style={{ maxWidth: PAGE_WIDTH, margin: "0 auto" }}>
         <header
           style={{
             display: "flex",
