@@ -10,6 +10,7 @@ import { useCapabilities } from "../../lib/useCapabilities.js";
 import PreOrderForm from "../PreOrderForm.js";
 import LineEditor from "../LineEditor.js";
 import { splitMaterialName } from "../../lib/materialGroups.js";
+import { workingDaysBetweenStamps } from "../../lib/workingDays.js";
 
 // Material orders board.
 //
@@ -149,13 +150,19 @@ function receivedLabel(m) {
  * It measures our experience of the supplier, not their promise: the clock
  * starts when Alice places it and stops when the dock books it in, which is
  * the number that matters when Duncan asks whether he can commit to a date.
+ *
+ * Counted in working days, because that is what Duncan is committing to. An
+ * order placed Friday and delivered Tuesday waited two working days, not
+ * four — the supplier wasn't idle over the weekend and neither were we, and
+ * a figure that counts Saturday and Sunday quietly adds two days a week to
+ * every lead time and four to the long ones.
  */
 function leadDays(m) {
   if (!m.orderedAt || !m.completedAt) return null;
   const from = new Date(m.orderedAt).getTime();
   const to = new Date(m.completedAt).getTime();
   if (Number.isNaN(from) || Number.isNaN(to) || to < from) return null;
-  return Math.round((to - from) / 86400000);
+  return workingDaysBetweenStamps(m.orderedAt, m.completedAt);
 }
 
 /**
@@ -1806,8 +1813,9 @@ export default function MaterialsPage() {
               </table>
             )}
             <div style={{ color: BRAND.sub, fontSize: 11, marginTop: 6 }}>
-              Ordered to booked in — what we wait, not what was quoted. Stock, same-day catch-ups
-              and anything ordered before the stamps existed aren&apos;t counted.
+              Ordered to booked in, in <strong>working days</strong> — what we wait, not what was
+              quoted, and not counting the weekend. Stock, same-day catch-ups and anything ordered
+              before the stamps existed aren&apos;t counted.
             </div>
           </div>
         )}
