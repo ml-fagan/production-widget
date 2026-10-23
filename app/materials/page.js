@@ -671,9 +671,15 @@ export default function MaterialsPage() {
    * Null when the balances haven't loaded, when the line isn't claiming the
    * rack, or when it's already confirmed: all three mean there is nothing to
    * say, which is different from having nothing to give.
+   *
+   * Null for a custom one-off too, and that one matters. The register has
+   * never heard of a length of aluminium channel and never will — it has no
+   * size to be booked under — so comparing one against the register would
+   * print "register has 0/230" in red on every custom line Alice ever claims.
+   * An alarm that fires on the healthy case is an alarm nobody reads.
    */
   const rackFor = (m) => {
-    if (!available || !m.fromStock || m.stockDrawnAt) return null;
+    if (!available || !m.fromStock || m.custom || m.stockDrawnAt) return null;
     const wanted = orderQty(m) || countOf(m.quantity) || 0;
     if (wanted <= 0) return null;
     const claimId = `${m.jobId}#${m.id}`;
@@ -3173,7 +3179,14 @@ export default function MaterialsPage() {
                                   // The sheets stay on the register until the
                                   // job is committed to a date — they are
                                   // spoken for from here, not spent.
-                                  "It's on the rack and it's this job's. Records the check against your name, marks the line in, and the register keeps these sheets reserved for this job until it's scheduled."
+                                  //
+                                  // A custom one-off is never on the register,
+                                  // so it must not claim to reserve anything:
+                                  // confirming it marks the line in and that
+                                  // is the whole of it.
+                                  m.custom
+                                    ? "We have it and it's this job's. Records the check against your name and marks the line in. A custom one-off never goes on the register, so there's nothing to reserve."
+                                    : "It's on the rack and it's this job's. Records the check against your name, marks the line in, and the register keeps these sheets reserved for this job until it's scheduled."
                                 }
                                 style={{
                                   ...btn,
@@ -3209,16 +3222,28 @@ export default function MaterialsPage() {
                                 to "off the rack, to confirm", somebody counts,
                                 and a bare rack puts it straight back here.
 
-                                Not offered for a custom one-off (no rack it
-                                could come off) or a line already claiming a
-                                pre-order (that's a share of something bought
-                                for it, a different promise). The route refuses
-                                both as well. */}
-                            {state === "to_order" && !m.custom && !m.preOrderId && (
+                                Not offered for a line already claiming a
+                                pre-order — that's a share of something bought
+                                for it, a different promise. The route refuses
+                                that as well.
+
+                                Offered for a custom one-off, which it wasn't
+                                until now. The old rule confused the register
+                                with the building: the register has never heard
+                                of a length of aluminium channel, but the
+                                workshop often has one on the floor, and Alice
+                                was left either buying a second or ringing
+                                Mitch. Claiming it keeps it off the register
+                                entirely — it just marks the line in. */}
+                            {state === "to_order" && !m.preOrderId && (
                               <button
                                 onClick={() => setLine(m.jobId, m.id, { fromStock: true })}
                                 disabled={busy}
-                                title="It's already on the racks — claim it off stock instead of buying it. Someone still confirms it's there."
+                                title={
+                                  m.custom
+                                    ? "We already have this one — claim it instead of buying it. Someone still confirms it's there, and nothing goes on the register."
+                                    : "It's already on the racks — claim it off stock instead of buying it. Someone still confirms it's there."
+                                }
                                 style={{ ...btn, opacity: busy ? 0.6 : 1 }}
                               >
                                 From stock
