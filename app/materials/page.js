@@ -167,6 +167,87 @@ function leadDays(m) {
 }
 
 /**
+ * One line's history, opened under it.
+ *
+ * Shows what happened to THIS line, plus anything logged against the job as a
+ * whole — sending it to production is not a change to any one line but it is
+ * the event most likely to explain one.
+ *
+ * Says plainly when there is nothing. A log that started last Tuesday has
+ * nothing to say about a line ordered in September, and "no history" reading
+ * as "nothing ever happened" would be the one way this feature could mislead.
+ */
+// The board's button style, in the one place that needs it outside the
+// component. `btn` down there is local to MaterialsPage and this panel is not.
+const MINI_BTN = {
+  border: `1px solid ${BRAND.line}`,
+  background: BRAND.card,
+  color: BRAND.ink,
+  borderRadius: 8,
+  padding: "2px 9px",
+  fontSize: 11,
+  cursor: "pointer",
+  fontFamily: "inherit",
+  whiteSpace: "nowrap",
+};
+
+function LineHistory({ brand, state, onClose }) {
+  const mine = (state.entries ?? []).filter((e) => !e.lineId || e.lineId === state.lineId);
+  return (
+    <div style={{ padding: "4px 0" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+        <strong style={{ fontSize: 12 }}>History</strong>
+        <span style={{ fontSize: 11, color: brand.sub, marginRight: "auto" }}>
+          {state.name} · {state.jobId}
+        </span>
+        <button onClick={onClose} style={MINI_BTN}>
+          Hide
+        </button>
+      </div>
+      {state.loading && <div style={{ fontSize: 12, color: brand.sub }}>Reading…</div>}
+      {!state.loading && mine.length === 0 && (
+        <div style={{ fontSize: 12, color: brand.sub }}>
+          Nothing logged against this line. The log only knows what has happened
+          since it was switched on — it can&apos;t say what came before.
+        </div>
+      )}
+      {mine.map((e) => (
+        <div
+          key={e.id}
+          style={{
+            fontSize: 12,
+            borderTop: `1px solid ${brand.line}`,
+            padding: "4px 0",
+            display: "flex",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ color: brand.sub, whiteSpace: "nowrap", minWidth: 118 }}>
+            {fmtStamp(e.at)}
+          </span>
+          <span style={{ whiteSpace: "nowrap", minWidth: 110 }}>
+            {String(e.by).split("@")[0]}
+          </span>
+          <span style={{ minWidth: 130 }}>{e.action}</span>
+          <span style={{ flex: 1, minWidth: 180 }}>
+            {(e.changes ?? []).map((c, i) => (
+              <span key={i} style={{ marginRight: 10, whiteSpace: "nowrap" }}>
+                <span style={{ color: brand.sub }}>{c.field}</span>{" "}
+                <span style={{ color: "#b3afa6" }}>{c.from}</span>
+                <span style={{ color: brand.sub }}> → </span>
+                <strong style={{ fontWeight: 600 }}>{c.to}</strong>
+              </span>
+            ))}
+            {e.note && <span style={{ color: brand.amber }}>{e.note}</span>}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
  * The three ways a pre-order leaves the board, and what each one meant.
  *
  * Said in the words somebody would use rather than the stored value, because
@@ -269,6 +350,15 @@ export default function MaterialsPage() {
   // Whether the closed pre-orders are showing. Shut by default: they aren't
   // work, they're a record to check when somebody asks.
   const [showClosed, setShowClosed] = useState(false);
+  /**
+   * The line whose history is open, and what the log said about it.
+   *
+   * Fetched per job rather than per line — a job's whole history is a handful
+   * of rows, and asking once means opening the second line on the same job
+   * costs nothing.
+   */
+  const [history, setHistory] = useState(null);
+  const [historyCache, setHistoryCache] = useState({});
   // What the server stored, adopted after each write so what's on screen is
   // its answer rather than our guess.
   const [stored, setStored] = useState({});
@@ -327,6 +417,42 @@ export default function MaterialsPage() {
   }, [load]);
 
   const linesFor = (h) => stored[h.jobId] ?? h.materials ?? [];
+
+  /**
+   * Open one line's history.
+   *
+   * Clicking the same line again shuts it, the way every other toggle on this
+   * board behaves. A job already read is served from memory — the log doesn't
+   * change while you are looking at it.
+   */
+  const openHistory = useCallback(
+    async (line) => {
+      const key = `${line.jobId}:${line.id}`;
+      if (history?.key === key) {
+        setHistory(null);
+        return;
+      }
+      setHistory({ key, jobId: line.jobId, lineId: line.id, name: line.name, loading: true, entries: [] });
+      const cached = historyCache[line.jobId];
+      if (cached) {
+        setHistory({ key, jobId: line.jobId, lineId: line.id, name: line.name, loading: false, entries: cached });
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/activity?scope=handover&key=${encodeURIComponent(line.jobId)}`,
+          { cache: "no-store" }
+        );
+        const json = await res.json();
+        const entries = json.ok ? json.entries || [] : [];
+        setHistoryCache((c) => ({ ...c, [line.jobId]: entries }));
+        setHistory({ key, jobId: line.jobId, lineId: line.id, name: line.name, loading: false, entries });
+      } catch {
+        setHistory({ key, jobId: line.jobId, lineId: line.id, name: line.name, loading: false, entries: [] });
+      }
+    },
+    [history, historyCache]
+  );
 
   /**
    * Can the racks actually cover this line?
@@ -2519,6 +2645,22 @@ export default function MaterialsPage() {
                             It stays reachable afterwards for one thing: a
                             second PO, which is written the day the second
                             order is placed and so always after this closes. */}
+                        {/* What happened to this line, and who did it.
+
+                            Here rather than only on the Activity page because
+                            this is where the question gets asked: somebody is
+                            checking off a delivery, the count doesn't match
+                            what the job says, and the answer should be one
+                            click from the row rather than a tab away. */}
+                        {!pre && (
+                          <button
+                            onClick={() => openHistory(m)}
+                            title="Who changed this line, and when"
+                            style={{ ...btn, marginRight: 6, color: BRAND.sub }}
+                          >
+                            History
+                          </button>
+                        )}
                         {!m.fromStock && canEdit && (
                           <button
                             onClick={() => setEditLine(editLine === key ? null : key)}
@@ -3034,6 +3176,17 @@ export default function MaterialsPage() {
                         )}
                       </td>
                     </tr>
+                    {history?.key === `${m.jobId}:${m.id}` && (
+                      <tr>
+                        <td colSpan={11} style={{ ...td, background: "#faf9f6", whiteSpace: "normal" }}>
+                          <LineHistory
+                            brand={BRAND}
+                            state={history}
+                            onClose={() => setHistory(null)}
+                          />
+                        </td>
+                      </tr>
+                    )}
                     {editLine === key && (
                       <tr>
                         <td colSpan={11} style={{ ...td, background: "#faf9f6", whiteSpace: "normal" }}>

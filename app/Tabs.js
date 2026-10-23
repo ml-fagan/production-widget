@@ -130,6 +130,15 @@ const TABS = [
     title: "Who can see and change what",
   },
   {
+    // Quiet, because it is a thing you go and check rather than a board you
+    // work from — the same reason Access and the overview sit here.
+    key: "activity",
+    label: "Activity",
+    href: "/activity",
+    quiet: true,
+    title: "Who changed what, and when",
+  },
+  {
     key: "requests",
     label: "Request a change",
     href: "/requests",
