@@ -2301,7 +2301,10 @@ export default function MaterialsPage() {
                   const sameJobBelow = i + 1 < lines.length && lines[i + 1].jobId === m.jobId;
                   const cell = { ...td, borderBottom: sameJobBelow ? "none" : td.borderBottom };
                   return (
-                    <tr key={key} style={pre ? { background: "#fdf8ee" } : undefined}>
+                    // Two rows while the panel is open under it, so the row
+                    // itself never changes shape.
+                    <Fragment key={key}>
+                    <tr style={pre ? { background: "#fdf8ee" } : undefined}>
                       <td style={cell}>
                         {sameJobAbove ? (
                           <span style={{ color: "#cfcac0" }}>↳</span>
@@ -2396,6 +2399,21 @@ export default function MaterialsPage() {
                           textAlign: "right",
                         }}
                       >
+                        {/* The same panel the other tabs open. It belongs here
+                            most of all: this is the finished list, which is
+                            where somebody goes to ask what actually happened
+                            to a line — what it cost in lead time, who booked
+                            it in, and whether anybody changed it on the way
+                            through. */}
+                        {!pre && (
+                          <button
+                            onClick={() => openHistory(m)}
+                            title="The job, the dates, and who changed this line"
+                            style={{ ...btn, marginRight: 6, color: BRAND.sub }}
+                          >
+                            Details
+                          </button>
+                        )}
                         {!pre && (
                           <button
                             onClick={() => setLine(m.jobId, m.id, { state: "ordered" })}
@@ -2408,6 +2426,18 @@ export default function MaterialsPage() {
                         )}
                       </td>
                     </tr>
+                    {history?.key === `${m.jobId}:${m.id}` && (
+                      <tr>
+                        <td colSpan={11} style={{ ...td, background: "#faf9f6", whiteSpace: "normal" }}>
+                          <LineHistory
+                            brand={BRAND}
+                            state={history}
+                            onClose={() => setHistory(null)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
