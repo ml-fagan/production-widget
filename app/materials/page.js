@@ -12,6 +12,7 @@ import LineEditor from "../LineEditor.js";
 import { splitMaterialName } from "../../lib/materialGroups.js";
 import { workingDaysBetweenStamps } from "../../lib/workingDays.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
+import { JobStateBadge } from "../../lib/jobState.js";
 
 // Material orders board.
 //
@@ -167,15 +168,28 @@ function leadDays(m) {
 }
 
 /**
- * One line's history, opened under it.
+ * Everything about one line, opened underneath it.
  *
- * Shows what happened to THIS line, plus anything logged against the job as a
- * whole — sending it to production is not a change to any one line but it is
- * the event most likely to explain one.
+ * The board is a queue and stays one: eleven columns of what Alice is working
+ * through, which is the right shape for the job and the wrong shape for "hang
+ * on, what IS this one?". That question wants the handover behind the line,
+ * the dates the job is promised for, every stamp on the line itself and what
+ * anybody has changed — none of which belongs in a column, and all of which
+ * previously meant opening the handover app in another tab and reading it
+ * back against the row.
  *
- * Says plainly when there is nothing. A log that started last Tuesday has
+ * So the row opens instead. One click from where you already are, and the
+ * queue is still a queue when you shut it.
+ *
+ * The history is the last section and shows what happened to THIS line, plus
+ * anything logged against the job as a whole — sending it to production is
+ * not a change to any one line, but it is the event most likely to explain
+ * one.
+ *
+ * It says plainly when there is nothing. A log that started last Tuesday has
  * nothing to say about a line ordered in September, and "no history" reading
- * as "nothing ever happened" would be the one way this feature could mislead.
+ * as "nothing ever happened" would be the one way this could mislead — which
+ * it would do exactly when somebody is trying to settle a dispute.
  */
 // The board's button style, in the one place that needs it outside the
 // component. `btn` down there is local to MaterialsPage and this panel is not.
@@ -191,18 +205,201 @@ const MINI_BTN = {
   whiteSpace: "nowrap",
 };
 
+/**
+ * One pair in the detail panel. Dashes rather than blanks: an empty space
+ * reads as a rendering fault, where a dash says plainly that nobody filled it
+ * in.
+ */
+function Fact({ brand, label, value, title }) {
+  return (
+    <div style={{ display: "flex", gap: 8, fontSize: 12, padding: "1px 0" }} title={title}>
+      <span style={{ color: brand.sub, minWidth: 96, flexShrink: 0 }}>{label}</span>
+      <span style={{ minWidth: 0, wordBreak: "break-word" }}>
+        {value === "" || value == null ? <span style={{ color: "#b3afa6" }}>—</span> : value}
+      </span>
+    </div>
+  );
+}
+
+function Column({ brand, heading, children }) {
+  return (
+    <div style={{ flex: "1 1 260px", minWidth: 240 }}>
+      <div
+        style={{
+          fontSize: 10,
+          letterSpacing: "0.07em",
+          textTransform: "uppercase",
+          color: brand.sub,
+          marginBottom: 4,
+        }}
+      >
+        {heading}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 function LineHistory({ brand, state, onClose }) {
   const mine = (state.entries ?? []).filter((e) => !e.lineId || e.lineId === state.lineId);
+  const m = state.line ?? {};
+  const s = m.schedule ?? {};
+  const days = leadDays(m);
+  const who = (addr) => (addr ? String(addr).split("@")[0] : "");
+  const stampedBy = (at, by, fmt = fmtStamp) =>
+    at ? `${fmt(at)}${by ? ` · ${who(by)}` : ""}` : "";
+
   return (
     <div style={{ padding: "4px 0" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
-        <strong style={{ fontSize: 12 }}>History</strong>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+        <strong style={{ fontSize: 12 }}>{state.name}</strong>
         <span style={{ fontSize: 11, color: brand.sub, marginRight: "auto" }}>
-          {state.name} · {state.jobId}
+          {state.jobId}
+          {m.project ? ` · ${m.project}` : ""}
         </span>
         <button onClick={onClose} style={MINI_BTN}>
           Hide
         </button>
+      </div>
+
+      {/* The two halves of the question. "What is this job?" is the handover's
+          to answer and "what has happened to this line?" is the board's, and
+          they were previously two different screens. */}
+      <div style={{ display: "flex", gap: 28, flexWrap: "wrap", marginBottom: 10 }}>
+        <Column brand={brand} heading="The job">
+          <Fact brand={brand} label="Client" value={m.client} />
+          <Fact brand={brand} label="Project" value={m.project} />
+          <Fact brand={brand} label="Product" value={m.product} />
+          <Fact
+            brand={brand}
+            label="Where it's up to"
+            value={m.jobState ? <JobStateBadge state={m.jobState} /> : ""}
+          />
+          <Fact
+            brand={brand}
+            label="Sent"
+            value={stampedBy(m.sentAt, m.sentBy)}
+            title="When the handover was sent to production, and by whom"
+          />
+          {/* Mitch's note is free text and sometimes an entire cutting list —
+              16025-1 carries forty panel IDs in it. Boxed and scrollable, so
+              a long one is still readable without pushing the dates and the
+              history off the bottom of the panel. */}
+          {m.materialNote && (
+            <Fact
+              brand={brand}
+              label="Note"
+              value={
+                <em
+                  style={{
+                    display: "block",
+                    maxHeight: 54,
+                    overflowY: "auto",
+                    paddingRight: 4,
+                  }}
+                >
+                  {m.materialNote}
+                </em>
+              }
+            />
+          )}
+        </Column>
+
+        <Column brand={brand} heading="Dates">
+          {/* Shown the way the board shows a date — "13 Oct" — with the
+              written date on hover, because that is the one place the year
+              matters and a committed date can be next year's. */}
+          <Fact
+            brand={brand}
+            label="Approval"
+            value={fmtDay(s.approvalDate || m.approvalDate)}
+            title={s.approvalDate || m.approvalDate || ""}
+          />
+          <Fact
+            brand={brand}
+            label="Committed"
+            value={fmtDay(s.committedDate)}
+            title={`The date the job is promised for${s.committedDate ? ` — ${s.committedDate}` : ""}`}
+          />
+          <Fact
+            brand={brand}
+            label="Actual"
+            value={fmtDay(s.actualDate)}
+            title={`The date Duncan has it down to finish${s.actualDate ? ` — ${s.actualDate}` : ""}`}
+          />
+          {/* The board calls this "despatched": off the floor and gone. It is
+              a stamp rather than a typed date, so it carries a name with it. */}
+          <Fact
+            brand={brand}
+            label="Despatched"
+            value={stampedBy(s.completedAt, s.completedBy, fmtDay)}
+            title="Stamped when the job went out the door"
+          />
+        </Column>
+
+        <Column brand={brand} heading="This line">
+          <Fact brand={brand} label="Size" value={size(m)} />
+          <Fact
+            brand={brand}
+            label="Quantity"
+            value={
+              orderQty(m)
+                ? `${orderQty(m)}${
+                    countOf(m.spare) ? ` — ${countOf(m.quantity)} + ${countOf(m.spare)} spare` : ""
+                  }`
+                : ""
+            }
+            title="What's bought: what the nest needs plus whatever spare was asked for"
+          />
+          <Fact
+            brand={brand}
+            label="Supplier"
+            value={m.fromStock ? "Off the rack" : m.supplier}
+          />
+          <Fact brand={brand} label="PO" value={m.poNumber} />
+          <Fact brand={brand} label="OC" value={m.ocNumber} />
+          {(m.extraOrders ?? []).length > 0 && (
+            <Fact
+              brand={brand}
+              label="Also on"
+              value={(m.extraOrders ?? [])
+                .map((o) => [o.poNumber, o.ocNumber].filter(Boolean).join(" / "))
+                .filter(Boolean)
+                .join(", ")}
+              title="The other orders placed against this line"
+            />
+          )}
+          {m.note && <Fact brand={brand} label="Note" value={<em>{m.note}</em>} />}
+        </Column>
+
+        <Column brand={brand} heading="What's happened">
+          <Fact
+            brand={brand}
+            label="Expected"
+            value={fmtDay(m.expectedDate)}
+            title={m.expectedDate || ""}
+          />
+          <Fact brand={brand} label="Ordered" value={stampedBy(m.orderedAt, m.orderedBy)} />
+          <Fact brand={brand} label="Arrived" value={stampedBy(m.completedAt, m.completedBy)} />
+          <Fact brand={brand} label="Received" value={receivedLabel(m)} />
+          <Fact
+            brand={brand}
+            label="Lead"
+            value={m.fromStock ? "off the rack" : days === null ? "" : `${days} working ${days === 1 ? "day" : "days"}`}
+          />
+          {m.stockDrawnAt && (
+            <Fact
+              brand={brand}
+              label="Drawn"
+              value={`${countOf(m.stockDrawnQty) || ""} ${fmtStamp(m.stockDrawnAt)}`.trim()}
+              title="When the sheets came off the register against this job"
+            />
+          )}
+        </Column>
+      </div>
+
+      <div style={{ fontSize: 10, letterSpacing: "0.07em", textTransform: "uppercase", color: brand.sub, marginBottom: 4 }}>
+        History
       </div>
       {state.loading && <div style={{ fontSize: 12, color: brand.sub }}>Reading…</div>}
       {!state.loading && mine.length === 0 && (
@@ -432,10 +629,13 @@ export default function MaterialsPage() {
         setHistory(null);
         return;
       }
-      setHistory({ key, jobId: line.jobId, lineId: line.id, name: line.name, loading: true, entries: [] });
+      // The line itself goes into the state, so the panel can show the job and
+      // the line without the board having to thread a dozen props through.
+      const base = { key, jobId: line.jobId, lineId: line.id, name: line.name, line };
+      setHistory({ ...base, loading: true, entries: [] });
       const cached = historyCache[line.jobId];
       if (cached) {
-        setHistory({ key, jobId: line.jobId, lineId: line.id, name: line.name, loading: false, entries: cached });
+        setHistory({ ...base, loading: false, entries: cached });
         return;
       }
       try {
@@ -446,9 +646,9 @@ export default function MaterialsPage() {
         const json = await res.json();
         const entries = json.ok ? json.entries || [] : [];
         setHistoryCache((c) => ({ ...c, [line.jobId]: entries }));
-        setHistory({ key, jobId: line.jobId, lineId: line.id, name: line.name, loading: false, entries });
+        setHistory({ ...base, loading: false, entries });
       } catch {
-        setHistory({ key, jobId: line.jobId, lineId: line.id, name: line.name, loading: false, entries: [] });
+        setHistory({ ...base, loading: false, entries: [] });
       }
     },
     [history, historyCache]
@@ -997,6 +1197,20 @@ export default function MaterialsPage() {
       project: h.project || h.client || "",
       fibreCement: h.fibreCement,
       materialNote: h.materialNote || "",
+      /**
+       * The job behind the line, for the detail panel.
+       *
+       * Carried on the row rather than looked up again when the panel opens:
+       * the handover is already in hand here, and a second lookup keyed on the
+       * job number is a way of ending up with two answers to the same
+       * question. The columns show none of this — it's the context Alice
+       * wants once she stops to ask about one line.
+       */
+      client: h.client || "",
+      product: h.product || "",
+      jobState: h.state || "",
+      schedule: h.schedule || null,
+      approvalDate: h.approvalDate || "",
       /**
        * When Mitch sent the handover to production, and who sent it.
        *
@@ -2645,20 +2859,24 @@ export default function MaterialsPage() {
                             It stays reachable afterwards for one thing: a
                             second PO, which is written the day the second
                             order is placed and so always after this closes. */}
-                        {/* What happened to this line, and who did it.
+                        {/* The whole line, opened under it: the job behind it,
+                            its dates, every stamp on the line, and what has
+                            been changed since.
 
                             Here rather than only on the Activity page because
                             this is where the question gets asked: somebody is
                             checking off a delivery, the count doesn't match
                             what the job says, and the answer should be one
-                            click from the row rather than a tab away. */}
+                            click from the row rather than a tab away. The
+                            queue stays a queue — the row opens, the board
+                            doesn't become a different screen. */}
                         {!pre && (
                           <button
                             onClick={() => openHistory(m)}
-                            title="Who changed this line, and when"
+                            title="The job, the dates, and who changed this line"
                             style={{ ...btn, marginRight: 6, color: BRAND.sub }}
                           >
-                            History
+                            Details
                           </button>
                         )}
                         {!m.fromStock && canEdit && (
