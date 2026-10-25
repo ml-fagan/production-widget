@@ -13,6 +13,7 @@ import { JobStateBadge } from "../../lib/jobState.js";
 // on both screens rather than being worked out twice.
 import { orderTotal as shelfTotal, money } from "../../lib/shelfOrders.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
+import { refreshLoop } from "../../lib/refresh.js";
 
 // Invoicing board.
 //
@@ -39,16 +40,6 @@ const BRAND = {
   blue: "#004CFB",
   red: "#a3312c",
 };
-
-// A tab nobody is looking at doesn't need reading for. Every board refreshes
-// when it's focused, so a hidden one loses nothing by sitting still — and a
-// browser left open over a weekend stops costing anything.
-function pollWhenVisible(run, everyMs) {
-  return setInterval(() => {
-    if (typeof document !== "undefined" && document.hidden) return;
-    run();
-  }, everyMs);
-}
 
 const REFRESH_MS = 15 * 60 * 1000;
 const HANDOVER_APP = "https://decorhandover.lyphex.com";
@@ -179,13 +170,7 @@ export default function InvoicingPage() {
 
   useEffect(() => {
     load();
-    const id = pollWhenVisible(load, REFRESH_MS);
-    const onFocus = () => load();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      clearInterval(id);
-      window.removeEventListener("focus", onFocus);
-    };
+    return refreshLoop(load, REFRESH_MS);
   }, [load]);
 
   const invoiceOf = (h) => stored[h.jobId] ?? h.invoice ?? { state: "to_charge" };

@@ -9,6 +9,7 @@ import { createPriceBook } from "../../lib/costing";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
+import { refreshLoop } from "../../lib/refresh.js";
 
 // Costing.
 //
@@ -89,17 +90,7 @@ export default function CostingPage() {
 
   useEffect(() => {
     load();
-    const refresh = () => {
-      if (!document.hidden) load();
-    };
-    const timer = setInterval(refresh, REFRESH_MS);
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
-    };
+    return refreshLoop(load, REFRESH_MS);
   }, [load]);
 
   // The real jobs, so a costing can be tied to one. A quote often comes before

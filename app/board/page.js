@@ -9,6 +9,7 @@ import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
+import { refreshLoop } from "../../lib/refresh.js";
 import {
   PROCESS_COLUMNS,
   CELL_COLOURS,
@@ -59,16 +60,6 @@ function wasteColour(percent) {
   if (percent <= 15) return BRAND.green;
   if (percent <= 25) return "#a86b12";
   return BRAND.red;
-}
-
-// A tab nobody is looking at doesn't need reading for. Every board refreshes
-// when it's focused, so a hidden one loses nothing by sitting still — and a
-// browser left open over a weekend stops costing anything.
-function pollWhenVisible(run, everyMs) {
-  return setInterval(() => {
-    if (typeof document !== "undefined" && document.hidden) return;
-    run();
-  }, everyMs);
 }
 
 const REFRESH_MS = 15 * 60 * 1000;
@@ -151,19 +142,10 @@ export default function BoardPage() {
   useEffect(() => {
     load();
     loadStock();
-    const id = pollWhenVisible(() => {
+    return refreshLoop(() => {
       load();
       loadStock();
     }, REFRESH_MS);
-    const onFocus = () => {
-      load();
-      loadStock();
-    };
-    window.addEventListener("focus", onFocus);
-    return () => {
-      clearInterval(id);
-      window.removeEventListener("focus", onFocus);
-    };
   }, [load, loadStock]);
 
   /**

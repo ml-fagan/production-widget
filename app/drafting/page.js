@@ -9,6 +9,7 @@ import ProjectTotals from "./ProjectTotals.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
+import { refreshLoop } from "../../lib/refresh.js";
 import {
   BANDS,
   bandOf,
@@ -59,13 +60,6 @@ const BRAND = {
 
 const REFRESH_MS = 15 * 60 * 1000;
 
-function pollWhenVisible(run, everyMs) {
-  const id = setInterval(() => {
-    if (!document.hidden) run();
-  }, everyMs);
-  return id;
-}
-
 export default function DraftingPage() {
   const [rows, setRows] = useState([]);
   // A count per project, out of the same document the rows come from.
@@ -113,13 +107,7 @@ export default function DraftingPage() {
 
   useEffect(() => {
     load();
-    const id = pollWhenVisible(load, REFRESH_MS);
-    const onFocus = () => load();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      clearInterval(id);
-      window.removeEventListener("focus", onFocus);
-    };
+    return refreshLoop(load, REFRESH_MS);
   }, [load]);
 
   /**

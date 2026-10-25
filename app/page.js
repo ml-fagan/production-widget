@@ -9,6 +9,7 @@ import { leadFor } from "../lib/board.js";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, firebaseConfigured } from "../lib/firebaseClient.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../lib/layout.js";
+import { refreshLoop } from "../lib/refresh.js";
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -23,16 +24,6 @@ const BRAND = {
 };
 
 // Auto-refresh cadence while the window is open (ms). 15 min.
-// A tab nobody is looking at doesn't need reading for. Every board refreshes
-// when it's focused, so a hidden one loses nothing by sitting still — and a
-// browser left open over a weekend stops costing anything.
-function pollWhenVisible(run, everyMs) {
-  return setInterval(() => {
-    if (typeof document !== "undefined" && document.hidden) return;
-    run();
-  }, everyMs);
-}
-
 const REFRESH_MS = 15 * 60 * 1000;
 
 // Pending generated links, remembered per-browser only (personal convenience
@@ -149,20 +140,12 @@ export default function Page() {
   useEffect(() => {
     load();
     loadHandovers();
-    const id = pollWhenVisible(() => {
+    // Also refreshes when the window regains focus — opened each morning —
+    // but not more than once every couple of minutes. See refreshLoop.
+    return refreshLoop(() => {
       load();
       loadHandovers();
     }, REFRESH_MS);
-    // Refresh when the window regains focus (e.g. opened each morning).
-    const onFocus = () => {
-      load();
-      loadHandovers();
-    };
-    window.addEventListener("focus", onFocus);
-    return () => {
-      clearInterval(id);
-      window.removeEventListener("focus", onFocus);
-    };
   }, [load, loadHandovers]);
 
   const today = new Date();

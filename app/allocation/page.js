@@ -7,6 +7,7 @@ import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
+import { refreshLoop, pollWhenVisible } from "../../lib/refresh.js";
 import {
   workingDay,
   daysBefore,
@@ -52,13 +53,6 @@ const BRAND = {
 const REFRESH_MS = 60 * 1000;
 // Seven across, so the whole process is read without the eye travelling.
 const COLUMNS = 7;
-
-function pollWhenVisible(run, everyMs) {
-  return setInterval(() => {
-    if (typeof document !== "undefined" && document.hidden) return;
-    run();
-  }, everyMs);
-}
 
 const btn = {
   border: `1px solid ${BRAND.line}`,
@@ -125,13 +119,7 @@ export default function AllocationPage() {
 
   useEffect(() => {
     load();
-    const id = pollWhenVisible(load, REFRESH_MS);
-    const onFocus = () => load();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      clearInterval(id);
-      window.removeEventListener("focus", onFocus);
-    };
+    return refreshLoop(load, REFRESH_MS);
   }, [load]);
 
   const post = useCallback(

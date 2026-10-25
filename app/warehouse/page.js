@@ -8,6 +8,7 @@ import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
+import { refreshLoop } from "../../lib/refresh.js";
 
 // Warehouse — what's on its way in.
 //
@@ -39,16 +40,6 @@ const BRAND = {
 // page reads every handover, every leftover and every pre-order each time it
 // does. What actually keeps it current is the dock opening the tab when a
 // truck arrives, which refreshes it on focus, and the Refresh button.
-// A tab nobody is looking at doesn't need reading for. Every board refreshes
-// when it's focused, so a hidden one loses nothing by sitting still — and a
-// browser left open over a weekend stops costing anything.
-function pollWhenVisible(run, everyMs) {
-  return setInterval(() => {
-    if (typeof document !== "undefined" && document.hidden) return;
-    run();
-  }, everyMs);
-}
-
 const REFRESH_MS = 60 * 60 * 1000;
 const HANDOVER_APP = "https://decorhandover.lyphex.com";
 // How far back "just arrived" reaches. Long enough that a morning delivery is
@@ -169,19 +160,10 @@ export default function WarehousePage() {
   useEffect(() => {
     load();
     loadShelf();
-    const id = pollWhenVisible(() => {
+    return refreshLoop(() => {
       load();
       loadShelf();
     }, REFRESH_MS);
-    const onFocus = () => {
-      load();
-      loadShelf();
-    };
-    window.addEventListener("focus", onFocus);
-    return () => {
-      clearInterval(id);
-      window.removeEventListener("focus", onFocus);
-    };
   }, [load, loadShelf]);
 
   /**
