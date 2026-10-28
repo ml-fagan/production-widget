@@ -407,6 +407,18 @@ export default function AccessPage() {
                     />
                     Admin
                   </label>
+                  <label
+                    style={{ fontSize: 11, color: BRAND.sub, display: "flex", gap: 5, alignItems: "center" }}
+                    title="The factory floor's own job page: pick a job, open its nest sheets, stamp them done or needing redoing. Gives the job page and Adam's board, and nothing else."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(next.stamping)}
+                      onChange={(e) => set({ stamping: e.target.checked })}
+                      disabled={busy}
+                    />
+                    Stamping
+                  </label>
 
                   <button
                     onClick={() => approve(person)}
@@ -488,6 +500,12 @@ export default function AccessPage() {
                     <th style={th} title="Committed dates and priority on the schedule board">
                       Scheduling
                     </th>
+                    <th
+                      style={th}
+                      title="The factory floor's own job page: pick a job, open its nest sheets, stamp them done or needing redoing. Gives the job page and Adam's board, and nothing else."
+                    >
+                      Stamping
+                    </th>
                     <th style={th} title="Removing records and answering requests">
                       Admin
                     </th>
@@ -550,6 +568,15 @@ export default function AccessPage() {
                             onChange={(e) => set({ scheduling: e.target.checked })}
                             disabled={busy}
                             aria-label={`Scheduling for ${person.name}`}
+                          />
+                        </td>
+                        <td style={{ ...td, textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(person.access.stamping)}
+                            onChange={(e) => set({ stamping: e.target.checked })}
+                            disabled={busy}
+                            aria-label={`Stamping for ${person.name}`}
                           />
                         </td>
                         <td style={{ ...td, textAlign: "center" }}>
