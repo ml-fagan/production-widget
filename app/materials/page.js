@@ -684,6 +684,55 @@ export default function MaterialsPage() {
     return { wanted, canGive, rows, short: canGive < wanted };
   };
 
+  /**
+   * "Seen it" on a job Mitch sent back.
+   *
+   * Clears the message and nothing else. It is not Alice agreeing the material
+   * is right — if the change needs another order she raises one the ordinary
+   * way — it is her saying the message landed, so it stops shouting at her
+   * every time she opens the board.
+   */
+  const clearRecheck = useCallback(async (jobId) => {
+    if (!canEdit) {
+      setActionError("This board is Alice's — you can see it, but not change it.");
+      return;
+    }
+    const key = `recheck:${jobId}`;
+    setPending((p) => ({ ...p, [key]: true }));
+    setActionError(null);
+    try {
+      const current = firebaseConfigured() ? auth().currentUser : null;
+      const idToken = current ? await current.getIdToken() : null;
+      const res = await fetch("/api/material-recheck", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, idToken }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok) throw new Error(json?.error || `Failed (${res.status})`);
+      // Cleared where it is shown, rather than waiting for the next poll —
+      // the board reads a shared cache and this is the one row she just acted
+      // on.
+      setData((d) =>
+        d
+          ? {
+              ...d,
+              awaiting: (d.awaiting ?? []).map((h) => (h.jobId === jobId ? { ...h, materialRecheck: null } : h)),
+              scheduled: (d.scheduled ?? []).map((h) => (h.jobId === jobId ? { ...h, materialRecheck: null } : h)),
+            }
+          : d
+      );
+    } catch (e) {
+      setActionError(`Couldn't clear that for ${jobId}. ${String(e.message || e)}`);
+    } finally {
+      setPending((p) => {
+        const next = { ...p };
+        delete next[key];
+        return next;
+      });
+    }
+  }, [canEdit]);
+
   const setLine = useCallback(async (jobId, lineId, patch) => {
     if (!canEdit) {
       setActionError("This board is Alice's — you can see it, but not change it.");
@@ -1212,6 +1261,9 @@ export default function MaterialsPage() {
        */
       sentAt: h.loggedAt || null,
       sentBy: h.loggedBy || "",
+      // Mitch saying the job moved after she ordered. Job-level, so it rides
+      // down on every line and only the first row of the job shows it.
+      materialRecheck: h.materialRecheck || null,
     }))
   );
 
@@ -2602,6 +2654,50 @@ export default function MaterialsPage() {
                               sent {fmtStamp(m.sentAt)}
                             </span>
                             {m.sentBy ? ` · ${m.sentBy.split("@")[0]}` : ""}
+                          </div>
+                        )}
+                        {/* Mitch changed the job after Alice ordered.
+                            Nothing on her lines moved — his edit doesn't touch
+                            her purchase orders — so without this the board has
+                            no way to show it and she finds out when the job
+                            comes up short. */}
+                        {!pre && !sameJobAbove && m.materialRecheck && (
+                          <div
+                            style={{
+                              marginTop: 3,
+                              fontSize: 11,
+                              background: "#fdf3e3",
+                              border: `1px solid ${BRAND.amber}`,
+                              borderRadius: 6,
+                              padding: "4px 7px",
+                              whiteSpace: "normal",
+                              maxWidth: 280,
+                            }}
+                          >
+                            <strong style={{ color: BRAND.amber }}>
+                              Changed since you ordered
+                            </strong>
+                            <div style={{ color: BRAND.sub }}>
+                              {m.materialRecheck.by
+                                ? m.materialRecheck.by.split("@")[0]
+                                : "somebody"}
+                              {m.materialRecheck.at ? ` · ${fmtStamp(m.materialRecheck.at)}` : ""}
+                            </div>
+                            {m.materialRecheck.note && (
+                              <div style={{ marginTop: 2 }}>
+                                <em>{m.materialRecheck.note}</em>
+                              </div>
+                            )}
+                            {canEdit && (
+                              <button
+                                onClick={() => clearRecheck(m.jobId)}
+                                disabled={pending[`recheck:${m.jobId}`]}
+                                title="You've read it. This only clears the message — it doesn't say the material is right."
+                                style={{ ...MINI_BTN, marginTop: 4 }}
+                              >
+                                {pending[`recheck:${m.jobId}`] ? "…" : "Seen it"}
+                              </button>
+                            )}
                           </div>
                         )}
                         {pre && !sameJobAbove && (m.loggedBy || m.note || m.loggedAt) && (
