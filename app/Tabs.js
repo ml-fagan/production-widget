@@ -13,10 +13,11 @@
 // row above those would be three rows of navigation before the first number on
 // the page, and the middle one would be doing the least work of the three.
 //
-// The production schedule isn't on the strip at all. It's read from Jordan's
-// spreadsheet, nobody acts on it, and it sat first in a row of things people
-// act on. It's the company overview, so it reads as one — a quiet link, beside
-// the other things that aren't the work.
+// The production schedule isn't on the strip at all. Nobody acts on it — it is
+// every dated job in one list, assembled from the records the boards already
+// keep — and it sat first in a row of things people do act on. It's the company
+// overview, so it reads as one: a quiet link, beside the other things that
+// aren't the work.
 
 const GROUPS = [
   { key: "production", label: "Production" },
@@ -111,7 +112,7 @@ const TABS = [
     label: "Overview",
     href: "/",
     quiet: true,
-    title: "The whole factory's schedule, live from SharePoint — read-only",
+    title: "The whole factory's schedule, from the dates on the board — read-only",
   },
   {
     key: "handover",

@@ -1,5 +1,3 @@
-import { downloadScheduleBuffer } from "../../../lib/graph.js";
-import { parseSchedule } from "../../../lib/parseSchedule.js";
 import { fetchLoggedHandovers, splitByScheduled } from "../../../lib/handovers.js";
 import { tokenForCrm } from "../../../lib/token.js";
 import {
@@ -41,22 +39,10 @@ export async function GET(req) {
           .catch((err) => ({ lookup: null, error: String(err.message || err) }))
       : null;
 
-    // The schedule is only needed to work out what's already scheduled. If it
-    // can't be read, still return the handovers rather than nothing — an
-    // unsplit queue beats an empty screen.
-    let jobs = [];
-    let scheduleError = null;
-    try {
-      const { buffer } = await downloadScheduleBuffer();
-      jobs = parseSchedule(buffer).jobs;
-    } catch (err) {
-      scheduleError = String(err.message || err);
-    }
-
     // The client link is built here, not in the browser: the token is an HMAC
-    // and LINK_SECRET must stay server-side. Same token as a spreadsheet job
-    // would get, so a job scheduled on the board shares one link with any of
-    // its parts that came off the sheet.
+    // and LINK_SECRET must stay server-side. The token is derived from the CRM
+    // alone, so a link already given to a client keeps working — including the
+    // ones issued while the schedule came off the spreadsheet.
     const withLinks = handovers.map((h) => ({
       ...h,
       clientLink: TRACKER_BASE
@@ -77,13 +63,12 @@ export async function GET(req) {
           : { status: "warn", reason: "asana_unavailable", error: asana.error },
     }));
 
-    const { awaiting, scheduled } = splitByScheduled(withLinks, jobs);
+    const { awaiting, scheduled } = splitByScheduled(withLinks);
     return Response.json(
       {
         ok: true,
         awaiting,
         scheduled,
-        scheduleError,
         fetchedAt: new Date().toISOString(),
       },
       { headers: { "Cache-Control": "no-store" } }

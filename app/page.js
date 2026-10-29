@@ -5,7 +5,7 @@ import { baseCrm, crmLooksValid } from "../lib/crmUtils.js";
 import Tabs from "./Tabs.js";
 import SignIn from "./SignIn.js";
 import { useCapabilities } from "../lib/useCapabilities.js";
-import { leadFor } from "../lib/board.js";
+import { boardLeadFor } from "../lib/board.js";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, firebaseConfigured } from "../lib/firebaseClient.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../lib/layout.js";
@@ -63,7 +63,8 @@ export default function Page() {
     if (!firebaseConfigured()) return;
     return onAuthStateChanged(auth(), setUser);
   }, []);
-  const [data, setData] = useState(null);
+  /** When the handovers were last read, for the "Updated" line. */
+  const [fetchedAt, setFetchedAt] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -101,28 +102,29 @@ export default function Page() {
     }
   }, [pendingLinks, pendingLoaded]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/schedule", { cache: "no-store" });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Failed to load schedule");
-      setData(json);
-      setError(null);
-    } catch (e) {
-      setError(String(e.message || e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Logged handovers waiting for a date. Loaded separately from the schedule so
-  // the feed still works exactly as before if the handover app is unreachable.
+  /**
+   * Everything on this page now comes from the handover records.
+   *
+   * It used to come from Jordan's spreadsheet in SharePoint, with the board
+   * filling in only the jobs the sheet hadn't caught up with. The floor has
+   * stopped using the sheet, so the one source left is the one people are
+   * actually keeping — Duncan's board, which is where the dates are set.
+   *
+   * That also settles a bug the two sources made possible. A finished job was
+   * dropped from the board's half and kept in the sheet's, and the sheet won
+   * wherever both had the same CRM — so marking a job complete had no effect
+   * here. 20506-1 went out on 20 October and sat on this page as overdue,
+   * because its sheet row's dispatch date was in the past and nothing ever
+   * removed a finished row.
+   */
   const loadHandovers = useCallback(async () => {
+    setLoading(true);
     try {
       const res = await fetch("/api/handovers?asana=1", { cache: "no-store" });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error);
+      setError(null);
+      setFetchedAt(json.fetchedAt || new Date().toISOString());
       setHandovers([...(json.awaiting || []), ...(json.scheduled || [])]);
       setAwaiting(json.awaiting || []);
       setUnordered(
@@ -130,41 +132,35 @@ export default function Page() {
           (h) => (h.materialOrder?.state || "not_ordered") === "not_ordered"
         )
       );
-    } catch {
+    } catch (e) {
+      setError(String(e.message || e));
       setHandovers([]);
       setAwaiting([]);
       setUnordered([]);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    load();
     loadHandovers();
     // Also refreshes when the window regains focus — opened each morning —
     // but not more than once every couple of minutes. See refreshLoop.
-    return refreshLoop(() => {
-      load();
-      loadHandovers();
-    }, REFRESH_MS);
-  }, [load, loadHandovers]);
+    return refreshLoop(loadHandovers, REFRESH_MS);
+  }, [loadHandovers]);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const sheetJobs = data?.jobs ?? [];
-
-  // Jobs Duncan has dated on the schedule board but which haven't reached
-  // Jordan's spreadsheet yet. Shown here so a scheduled job is visible to the
-  // company without being typed twice.
+  // Every job Duncan has given a date and hasn't marked finished.
   //
-  // The spreadsheet still wins where both have the same CRM: it remains the
-  // source of truth, and this page shouldn't start disagreeing with it. As the
-  // board takes over, the sheet simply supplies fewer and fewer rows.
-  const sheetCrms = new Set(sheetJobs.map((j) => String(j.crm).trim().toLowerCase()));
-  const boardJobs = handovers
+  // This used to be two lists merged — the spreadsheet's rows plus whatever
+  // the board had that the sheet hadn't caught up with, the sheet winning on
+  // any CRM they shared. There is one list now, because there is one place
+  // the dates are kept.
+  const jobs = handovers
     .filter((h) => h.schedule?.committedDate)
     .filter((h) => !h.schedule?.completedAt)
-    .filter((h) => !sheetCrms.has(String(h.jobId).trim().toLowerCase()))
     .map((h) => {
       const committed = h.schedule.committedDate || null;
       const actual = h.schedule.actualDate || null;
@@ -175,13 +171,33 @@ export default function Page() {
         committed,
         actual,
         dispatch,
-        lead: leadFor(h.schedule),
+        /**
+         * The same lead Duncan sees on his row.
+         *
+         * `leadFor` was used here instead, which ignores an approval date
+         * inherited from the handover — kept strict so this page couldn't
+         * disagree with the spreadsheet's own Lead Time column. There is no
+         * column to disagree with any more, and most jobs carry their
+         * approval date on the handover rather than typed onto the schedule,
+         * so being strict now just means the figure is blank.
+         */
+        lead: boardLeadFor(h),
         priority: h.schedule.priority || "",
         fc: false,
-        // Same rule the spreadsheet parser uses: past its date with nothing
-        // recorded as finished.
+        /**
+         * Past its date and not finished.
+         *
+         * Read off `completedAt` — the stamp Duncan sets when the job goes out
+         * — rather than off a date in a column. The spreadsheet's rule was
+         * `(actual || committed) < today`, which treated the "actual
+         * completion" column as a revised promise and so called every
+         * delivered job permanently late: 20506-1 shipped on 20 October and
+         * was still flagged overdue ten days later, because 20 October never
+         * stops being in the past. A finished job isn't in this list at all
+         * now, so the question doesn't arise.
+         */
         overdue: Boolean(
-          committed && !actual && new Date(committed + "T00:00:00") < today
+          committed && new Date((actual || committed) + "T00:00:00") < today
         ),
         fromBoard: true,
         // Both built server-side in /api/handovers, where LINK_SECRET and the
@@ -191,7 +207,21 @@ export default function Page() {
       };
     });
 
-  const jobs = [...sheetJobs, ...boardJobs];
+  /**
+   * Average lead, in weeks, across the jobs that have one.
+   *
+   * Came off the spreadsheet's own Lead Time column until the sheet went. Now
+   * it is the mean of what the board holds — `leadFor` reads Duncan's typed
+   * override where he has set one and works it out from approval to committed
+   * where he hasn't, so this is the same figure he sees on the row.
+   *
+   * One decimal, because the old column had one and the number is a rough
+   * indication rather than a measurement.
+   */
+  const leadValues = jobs.map((j) => j.lead).filter((n) => typeof n === "number" && n > 0);
+  const avgLead = leadValues.length
+    ? Math.round((leadValues.reduce((a, b) => a + b, 0) / leadValues.length) * 10) / 10
+    : null;
 
   // Checked against the schedule already loaded above — no extra fetch.
   const knownBaseCrms = new Set(jobs.map((j) => baseCrm(j.crm)));
@@ -327,14 +357,14 @@ export default function Page() {
                 Production Schedule
               </h1>
               <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
-                Decor Systems factory · live from SharePoint
+                Decor Systems factory · live from the schedule board
               </p>
             </div>
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
             <SignIn user={user} brand={BRAND} />
             <button
-              onClick={load}
+              onClick={loadHandovers}
               style={{
                 border: `1px solid ${BRAND.line}`,
                 background: BRAND.card,
@@ -349,7 +379,7 @@ export default function Page() {
               {loading ? "Refreshing…" : "Refresh"}
             </button>
             <div style={{ marginTop: 6 }}>
-              {data?.fetchedAt ? `Updated ${fmtTime(data.fetchedAt)}` : ""}
+              {fetchedAt ? `Updated ${fmtTime(fetchedAt)}` : ""}
             </div>
           </div>
         </header>
@@ -390,7 +420,7 @@ export default function Page() {
           }}
         >
           <Stat label="Active jobs" value={jobs.length} />
-          <Stat label="Avg lead time" value={data?.avgLead ?? "—"} suffix=" wks" />
+          <Stat label="Avg lead time" value={avgLead ?? "—"} suffix=" wks" />
           <Stat label="Remaining this week" value={dueWeek} />
           <Stat label="Overdue" value={behindPromise} tone={behindPromise ? BRAND.red : BRAND.ink} />
         </div>
@@ -469,7 +499,7 @@ export default function Page() {
                     {j.project}
                     {j.fromBoard && (
                       <span
-                        title="Dated on the schedule board — not in the spreadsheet yet"
+                        title="Dated on the schedule board"
                         style={{
                           marginLeft: 8,
                           fontSize: 11,
@@ -540,7 +570,6 @@ export default function Page() {
 
         <p style={{ fontSize: 11, color: BRAND.sub, marginTop: 14, textAlign: "center" }}>
           Lead time colour: green under 4.5 wks · amber 4.5–6 · red 6+.
-          {data?.fileModified ? ` Source file modified ${fmtDate(data.fileModified.slice(0, 10))}.` : ""}
         </p>
 
         <div

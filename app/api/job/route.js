@@ -1,5 +1,5 @@
-import { downloadScheduleBuffer } from "../../../lib/graph.js";
-import { parseSchedule } from "../../../lib/parseSchedule.js";
+import { fetchLoggedHandovers } from "../../../lib/handovers.js";
+import { boardLeadFor } from "../../../lib/board.js";
 import { baseCrm, crmLooksValid } from "../../../lib/crmUtils.js";
 import {
   fetchProductionTasks,
@@ -11,8 +11,13 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 // Single-job lookup for the handover app (decorhandover.lyphex.com), which
-// asks "what does the schedule and Asana already say about this CRM?" so the
-// handover form can show it instead of the operator opening three systems.
+// asks "what do the schedule and Asana already say about this CRM?" so the
+// handover form can show it instead of somebody opening three systems.
+//
+// The schedule half used to be read out of Jordan's spreadsheet. The floor
+// has stopped using it, so the dates now come from the handover records
+// themselves — the same place the handover app would look, but it asks here
+// because the Asana token lives in this app and should stay in one of them.
 //
 // Machine-to-machine: authorised with a shared bearer secret rather than the
 // staff password cookie, so it stays out of the browser. The middleware lets
@@ -51,8 +56,8 @@ export async function GET(req) {
   }
 
   try {
-    const [{ buffer, lastModified }, asanaResult] = await Promise.all([
-      downloadScheduleBuffer(),
+    const [handovers, asanaResult] = await Promise.all([
+      fetchLoggedHandovers().catch(() => []),
       fetchProductionTasks()
         .then((tasks) => ({ lookup: buildAsanaLookup(tasks) }))
         // Asana is a cross-check, not the source of truth — a job lookup still
@@ -60,17 +65,49 @@ export async function GET(req) {
         .catch((err) => ({ lookup: null, error: String(err.message || err) })),
     ]);
 
-    const { jobs } = parseSchedule(buffer);
+    // The same row shape the spreadsheet used to produce, so the handover
+    // app's JobContext needed no change: what it was promised for, what it
+    // actually went out on, and whether it is finished.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const asRow = (h) => {
+      const committed = h.schedule?.committedDate || null;
+      const actual = h.schedule?.actualDate || null;
+      const completed = h.schedule?.completedAt || null;
+      return {
+        crm: h.jobId,
+        project: h.project || h.client || "",
+        committed,
+        actual,
+        dispatch: actual || committed,
+        completed,
+        priority: h.schedule?.priority || "",
+        // Weeks, which is what the spreadsheet's Lead Time column held and
+        // what the schedule board shows.
+        lead: boardLeadFor(h),
+        // Past its date and not finished. A job Duncan has stamped complete is
+        // never overdue however old its dates are — the sheet had no way to
+        // know that, which is what left delivered jobs flagged late forever.
+        overdue: Boolean(
+          committed && !completed && new Date((actual || committed) + "T00:00:00") < today
+        ),
+      };
+    };
+
+    const dated = handovers.filter((h) => h.schedule?.committedDate);
     const wanted = crm.toLowerCase();
-    const job = jobs.find((j) => String(j.crm).trim().toLowerCase() === wanted) || null;
+    const found = dated.find((h) => String(h.jobId).trim().toLowerCase() === wanted);
+    const job = found ? asRow(found) : null;
 
     // Other parts of the same top-level job — useful context when a handover
     // is one of several splits (19289-1, 19289-2, ...).
     const base = baseCrm(crm);
-    const siblings = jobs.filter((j) => {
-      const c = String(j.crm).trim().toLowerCase();
-      return baseCrm(c) === base && c !== wanted;
-    });
+    const siblings = dated
+      .filter((h) => {
+        const c = String(h.jobId).trim().toLowerCase();
+        return baseCrm(c) === base && c !== wanted;
+      })
+      .map(asRow);
 
     return Response.json(
       {
@@ -87,7 +124,6 @@ export async function GET(req) {
         asana: asanaResult.lookup
           ? checkAgainstAsana(job || { crm, dispatch: null }, asanaResult.lookup)
           : { status: "warn", reason: "asana_unavailable", error: asanaResult.error },
-        fileModified: lastModified,
         fetchedAt: new Date().toISOString(),
       },
       { headers: noStore }
