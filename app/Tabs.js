@@ -20,6 +20,10 @@
 // aren't the work.
 
 const GROUPS = [
+  // First, because it is where a job starts: a client signs, and everything
+  // downstream is worked out from that date. The groups read in the order the
+  // work happens — project, production, material, warehouse, money.
+  { key: "projects", label: "Projects" },
   { key: "production", label: "Production" },
   { key: "material", label: "Material" },
   { key: "warehouse", label: "Warehouse" },
@@ -27,6 +31,16 @@ const GROUPS = [
 ];
 
 const TABS = [
+  {
+    // One board per project manager, and everybody with the area reads them
+    // all. Only rendered for whoever holds Projects — see `tabs` on the
+    // capabilities.
+    key: "projects",
+    label: "Projects",
+    href: "/projects",
+    group: "projects",
+    title: "Each project manager's jobs — who has signed, what's promised, and what's at risk",
+  },
   {
     key: "board",
     label: "Schedule board",
