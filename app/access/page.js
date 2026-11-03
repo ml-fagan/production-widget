@@ -57,6 +57,14 @@ const AREAS = [
     levels: ["none", "view", "edit"],
     what: "Invoicing, off-the-shelf orders",
   },
+  // The client's side of a job rather than the factory's. Nobody holds it by
+  // role — it is granted by name, like Stamping.
+  {
+    key: "projects",
+    label: "Projects",
+    levels: ["none", "view", "edit"],
+    what: "Client approvals, needed-on-site dates, project boards",
+  },
 ];
 
 const LEVEL_LABELS = {
