@@ -69,17 +69,6 @@ const TABS = [
     title: "What to order, from whom, and what's still coming",
   },
   {
-    // Handovers waiting to be released to Alice's board and Veronica's. Sits
-    // in MATERIAL because that is where the handover already rides, and
-    // because the picking list is the half most often worth a second look.
-    // Only rendered for whoever holds Review — see `tabs` on the capabilities.
-    key: "review",
-    label: "Review",
-    href: "/review",
-    group: "material",
-    title: "Handovers somebody has sent that are waiting to be released for ordering and charging",
-  },
-  {
     key: "materiallist",
     label: "List",
     href: "/material-list",
