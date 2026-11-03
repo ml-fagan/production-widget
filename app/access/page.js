@@ -427,6 +427,18 @@ export default function AccessPage() {
                     />
                     Stamping
                   </label>
+                  <label
+                    style={{ fontSize: 11, color: BRAND.sub, display: "flex", gap: 5, alignItems: "center" }}
+                    title="Releasing a handover's material and invoicing to Alice's board and Veronica's. Anyone without it sends a handover to the review queue instead. Admin carries it anyway."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(next.handoverReview)}
+                      onChange={(e) => set({ handoverReview: e.target.checked })}
+                      disabled={busy}
+                    />
+                    Review
+                  </label>
 
                   <button
                     onClick={() => approve(person)}
@@ -514,6 +526,12 @@ export default function AccessPage() {
                     >
                       Stamping
                     </th>
+                    <th
+                      style={th}
+                      title="Releasing a handover's material and invoicing to Alice's board and Veronica's. Anyone without it sends a handover to the review queue instead. Admin carries it anyway."
+                    >
+                      Review
+                    </th>
                     <th style={th} title="Removing records and answering requests">
                       Admin
                     </th>
@@ -585,6 +603,15 @@ export default function AccessPage() {
                             onChange={(e) => set({ stamping: e.target.checked })}
                             disabled={busy}
                             aria-label={`Stamping for ${person.name}`}
+                          />
+                        </td>
+                        <td style={{ ...td, textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(person.access.handoverReview)}
+                            onChange={(e) => set({ handoverReview: e.target.checked })}
+                            disabled={busy}
+                            aria-label={`Handover review for ${person.name}`}
                           />
                         </td>
                         <td style={{ ...td, textAlign: "center" }}>

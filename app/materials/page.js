@@ -1210,7 +1210,21 @@ export default function MaterialsPage() {
     [setPreOrder, setLine]
   );
 
-  const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
+  /**
+   * Handovers somebody sent that haven't been released yet.
+   *
+   * Kept off this board entirely rather than shown greyed out. Alice orders
+   * from what is in front of her, and a row she can read is a row she can
+   * act on — the PO goes to the supplier whether or not the screen meant her
+   * to raise it. So the hold has to be the row not being there.
+   *
+   * It is counted rather than hidden, though: the line under the heading says
+   * how many are waiting, so a job held up by a review somebody has forgotten
+   * is visible from the board that is waiting for it. See /review.
+   */
+  const everything = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
+  const heldForReview = everything.filter((h) => h.review && !h.review.material);
+  const all = everything.filter((h) => !(h.review && !h.review.material));
   const q = query.trim().toLowerCase();
   // Searched on the halves as well as the joined name: "Show the 3" on a
   // shared board filters by the finish, and a line whose name was typed some
@@ -1609,6 +1623,16 @@ export default function MaterialsPage() {
                         : "the record: everything ordered in, and everything confirmed off the racks"
                   }`}
             </p>
+            {/* A job held for review is a job that isn't on this board yet.
+                Said out loud, so one sitting in somebody's queue is visible
+                from here rather than simply missing. */}
+            {heldForReview.length > 0 && (
+              <p style={{ fontSize: 12.5, color: BRAND.amber, margin: "4px 0 0" }}>
+                {heldForReview.length}{" "}
+                {heldForReview.length === 1 ? "handover is" : "handovers are"} waiting to be
+                released for ordering — {heldForReview.map((h) => h.jobId).join(", ")}
+              </p>
+            )}
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
             <SignIn user={user} brand={BRAND} />

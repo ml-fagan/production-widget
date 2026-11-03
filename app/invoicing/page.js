@@ -230,7 +230,18 @@ export default function InvoicingPage() {
     );
   };
 
-  const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
+  /**
+   * Handovers somebody sent that haven't been released for charging.
+   *
+   * Off the board rather than greyed out, for the same reason Alice's works
+   * that way: a row Veronica can read is a row she can charge, and an invoice
+   * reaches a client whether or not the screen meant her to raise it. The
+   * count is shown under the heading so a job stuck in a review queue is
+   * visible from the board waiting for it — see /review.
+   */
+  const everything = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
+  const heldForReview = everything.filter((h) => h.review && !h.review.invoice);
+  const all = everything.filter((h) => !(h.review && !h.review.invoice));
   const q = query.trim().toLowerCase();
   const matching = q
     ? all.filter((h) =>
@@ -330,6 +341,16 @@ export default function InvoicingPage() {
                 view === "to_charge" &&
                 ` · ${missingFigure} with no figure entered yet`}
             </p>
+            {/* A job held for review is a job that isn't on this board yet.
+                Said out loud, so one sitting in somebody's queue is visible
+                from here rather than simply missing. */}
+            {heldForReview.length > 0 && (
+              <p style={{ fontSize: 12.5, color: BRAND.amber, margin: "4px 0 0" }}>
+                {heldForReview.length}{" "}
+                {heldForReview.length === 1 ? "handover is" : "handovers are"} waiting to be
+                released for charging — {heldForReview.map((h) => h.jobId).join(", ")}
+              </p>
+            )}
           </div>
           <div style={{ textAlign: "right", fontSize: 12, color: BRAND.sub }}>
             <SignIn user={user} brand={BRAND} />
