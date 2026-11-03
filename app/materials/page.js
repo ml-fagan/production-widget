@@ -347,6 +347,14 @@ function LineHistory({ brand, state, onClose }) {
             label="Supplier"
             value={m.fromStock ? "Off the rack" : m.supplier}
           />
+          {m.decorPress && (
+            <Fact
+              brand={brand}
+              label="DecorPress"
+              value="Pressed here — order board and face"
+              title="Not bought already pressed. The order is the raw board and the decorative face, usually from different suppliers."
+            />
+          )}
           <Fact brand={brand} label="PO" value={m.poNumber} />
           <Fact brand={brand} label="OC" value={m.ocNumber} />
           {(m.extraOrders ?? []).length > 0 && (
@@ -2760,6 +2768,30 @@ export default function MaterialsPage() {
                             }}
                           >
                             CUSTOM
+                          </span>
+                        )}
+                        {/* We press this one ourselves, so what goes on the
+                            order is the board and the face rather than the
+                            finished panel. Work that used to be bought in
+                            pressed is now done here, and the row looks
+                            identical either way — which is exactly how
+                            somebody orders the pressed product out of habit. */}
+                        {m.decorPress && (
+                          <span
+                            title="Pressed here, not bought pressed. Order the raw board and the decorative face separately — usually different suppliers and different lead times."
+                            style={{
+                              marginLeft: 5,
+                              fontSize: 10,
+                              fontWeight: 600,
+                              letterSpacing: "0.03em",
+                              color: "#6b3fa0",
+                              border: "1px solid #6b3fa0",
+                              borderRadius: 4,
+                              padding: "0 4px",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            DECORPRESS
                           </span>
                         )}
                         {/* Another job wants this same board. Said on the line,
