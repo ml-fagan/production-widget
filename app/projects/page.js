@@ -9,15 +9,13 @@ import { useCapabilities } from "../../lib/useCapabilities.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
 import { baseCrm } from "../../lib/crmUtils.js";
 import { refreshLoop } from "../../lib/refresh.js";
-import {
-  leadSamples,
-  promisedDelivery,
-  lastApprovalDate,
-  missesRequirement,
-  describeLead,
-} from "../../lib/leadTime.js";
+import { leadSamples, promisedDelivery, describeLead } from "../../lib/leadTime.js";
+import { criticalPath } from "../../lib/criticalPath.js";
+// Brisbane's today, not UTC's. See the note in criticalPath.
+import { today } from "../../lib/drafting.js";
 
-// Projects — one board per project manager.
+// Projects — one board per project manager, and every project's critical path
+// on it.
 //
 // Everything else in this app is the factory's view of a job: what to buy,
 // what to make, when it ships. This is the client's view of the same job, and
@@ -26,17 +24,20 @@ import {
 // clients has not signed yet, and which of the ones who have are going to be
 // late.
 //
-// A row is a PROJECT, not a handover. 21516-1 and 21516-4 are parts of one job
-// to everybody here and one job to the client too; the client signed once and
-// gets one delivery. The parts are aggregated: the project is as far along as
-// its least advanced part, and it is delivered when the last one goes.
+// A card is a PROJECT, not a handover. 21516-1 and 21516-4 are one job to the
+// client, who signed once and takes one delivery, so the parts are
+// aggregated: the chain is as far along as its furthest-behind part.
 //
-// Who gets a board is decided by the access grant and nothing else — give
-// somebody Projects and their board exists. Everybody with the area reads
-// everybody's; a project is editable only by whoever owns it, and an unclaimed
-// one is anybody's to take. That is the whole permission model, and it is
-// deliberately about the project rather than about the tab: two project
-// managers with identical access own different work.
+// Cards rather than a table, and all of them on the one page rather than one
+// job at a time. A critical path is a shape — five things in order, and where
+// this job has stopped — and a row of columns cannot show a shape. The point
+// of the board is reading twelve of them in one pass and seeing which two
+// have stalled, which means twelve chains on one screen, not a list you click
+// into twelve times.
+//
+// Who gets a board is decided by the access grant and nothing else. Everybody
+// with the area reads everybody's; a project is editable only by whoever owns
+// it, and an unclaimed one is anybody's to take.
 
 const BRAND = {
   bg: "#f5f3ef",
@@ -53,156 +54,34 @@ const BRAND = {
 // Same banding as the drafting register and the schedule board, so a colour
 // means the same thing wherever somebody sees it.
 const BAND = {
-  overdue: { colour: BRAND.red, weight: 600 },
-  soon: { colour: BRAND.amber, weight: 600 },
-  fine: { colour: BRAND.sub, weight: 400 },
-  none: { colour: "#b3afa6", weight: 400 },
+  overdue: { colour: BRAND.red, bg: "#fbeceb" },
+  soon: { colour: BRAND.amber, bg: "#fdf4e6" },
+  fine: { colour: BRAND.sub, bg: "#f3f1ea" },
 };
 
-const SOON_DAYS = 14;
+const STEP = {
+  done: { fill: BRAND.green, ring: BRAND.green, label: BRAND.ink },
+  current: { fill: BRAND.blue, ring: BRAND.blue, label: BRAND.ink },
+  overdue: { fill: BRAND.red, ring: BRAND.red, label: BRAND.red },
+  upcoming: { fill: "#ffffff", ring: "#d3d1c7", label: "#9a968e" },
+  // Not "not yet" — "we cannot say". A dashed ring rather than a solid one,
+  // so a step nobody records reads differently from one still to come.
+  unknown: { fill: "#ffffff", ring: "#d3d1c7", label: "#b3afa6", dashed: true },
+};
 
 const REFRESH_MS = 10 * 60 * 1000;
 
-/** Where a project is, in the words a project manager would use. */
-const STAGE_LABEL = {
-  with_client: "With client",
-  approved: "Approved",
-  awaiting_schedule: "Awaiting scheduling",
-  scheduled: "Scheduled",
-  in_production: "In production",
-  despatched: "Despatched",
-  invoiced: "Invoiced",
-  closed: "Closed",
-};
-
-// Least advanced first: a project is where its furthest-behind part is.
-const STAGE_ORDER = [
-  "with_client",
-  "approved",
-  "awaiting_schedule",
-  "scheduled",
-  "in_production",
-  "despatched",
-  "invoiced",
-  "closed",
-];
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function daysBetween(fromISO, toISO) {
-  const a = Date.parse(`${fromISO}T00:00:00Z`);
-  const b = Date.parse(`${toISO}T00:00:00Z`);
-  if (Number.isNaN(a) || Number.isNaN(b)) return null;
-  return Math.round((b - a) / 86400000);
-}
-
 function fmtDay(iso) {
-  if (!iso) return "—";
+  if (!iso) return "";
   const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
   return Number.isNaN(d.getTime())
-    ? "—"
-    : d.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
-}
-
-/**
- * One project, from its parts and its plan.
- *
- * The approval can come from three places and `approvalOf` on the shared board
- * module already ranks them; here it only matters that ANY part carries one,
- * because the approve route writes it to all of them and a part written
- * afterwards inherits it.
- */
-function buildProject(crm, parts, plan, samples) {
-  const live = parts.filter((p) => p.state !== "closed");
-  const approval =
-    parts.map((p) => p.approval).find((a) => a && a.date) ||
-    (parts.map((p) => p.approvalDate).find(Boolean)
-      ? { date: parts.map((p) => p.approvalDate).find(Boolean), by: "", at: null, source: "handover" }
-      : null);
-
-  let stage = approval ? "approved" : "with_client";
-  if (parts.length) {
-    const states = parts.map((p) => p.state || "awaiting_schedule");
-    stage = STAGE_ORDER.find((s) => states.includes(s)) || states[0];
-    // A part that exists but has no approval recorded is still with the
-    // client as far as this board is concerned — the factory may be ahead of
-    // the paperwork, and that is worth seeing rather than smoothing over.
-    if (!approval && STAGE_ORDER.indexOf(stage) < STAGE_ORDER.indexOf("awaiting_schedule")) {
-      stage = "with_client";
-    }
-  }
-
-  // When the whole project is out: the last part to go.
-  const dispatches = parts
-    .map((p) => p.schedule?.actualDate || p.schedule?.committedDate || "")
-    .filter(Boolean)
-    .sort();
-  const scheduled = dispatches.length ? dispatches[dispatches.length - 1] : "";
-
-  /**
-   * What we have told the client, or would tell them.
-   *
-   * Once Duncan has committed every part, his dates are the answer and the
-   * forecast steps aside — the brief is explicit that the arithmetic runs from
-   * his date outwards once it exists. Until then the promise is worked out
-   * forward from the signature.
-   */
-  const everyPartCommitted =
-    parts.length > 0 && parts.every((p) => p.schedule?.committedDate);
-  const forecast = approval?.date ? promisedDelivery(approval.date, samples) : null;
-  const promised = everyPartCommitted ? scheduled : forecast?.client || "";
-
-  const deadline = !approval?.date && plan.neededOnSite
-    ? lastApprovalDate(plan.neededOnSite, samples, { adjustDays: plan.approvalAdjustDays || 0 })
-    : null;
-
-  // The one comparison the needed-on-site date exists to make.
-  const against =
-    promised && plan.neededOnSite ? missesRequirement(promised, plan.neededOnSite) : null;
-
-  let band = "none";
-  let note = "";
-  if (!approval?.date && deadline?.client) {
-    const left = daysBetween(today(), deadline.client);
-    band = left < 0 ? "overdue" : left <= SOON_DAYS ? "soon" : "fine";
-    note =
-      left < 0
-        ? `Sign-off was due ${-left} ${-left === 1 ? "day" : "days"} ago`
-        : `${left} ${left === 1 ? "day" : "days"} to sign off`;
-  } else if (against) {
-    band = against.late ? "overdue" : against.days > -SOON_DAYS ? "soon" : "fine";
-    note = against.late
-      ? `${against.days} ${against.days === 1 ? "day" : "days"} late for site`
-      : `${-against.days} ${-against.days === 1 ? "day" : "days"} spare`;
-  } else if (!plan.neededOnSite) {
-    note = "No site date set";
-  }
-
-  return {
-    crm,
-    client: parts.find((p) => p.client)?.client || "",
-    project: parts.find((p) => p.project)?.project || "",
-    parts: parts.map((p) => p.jobId).sort(),
-    liveParts: live.length,
-    stage,
-    approval,
-    scheduled,
-    promised,
-    forecast,
-    deadline,
-    plan,
-    band,
-    note,
-    sortKey: `${band === "overdue" ? 0 : band === "soon" ? 1 : 2}${
-      deadline?.client || promised || "9999-99-99"
-    }`,
-  };
+    ? ""
+    : d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "2-digit" });
 }
 
 export default function ProjectsPage() {
   const [handovers, setHandovers] = useState([]);
+  const [drafting, setDrafting] = useState([]);
   const [plans, setPlans] = useState([]);
   const [managers, setManagers] = useState([]);
   const [user, setUser] = useState(null);
@@ -215,8 +94,6 @@ export default function ProjectsPage() {
   const caps = useCapabilities(user);
 
   const me = String(user?.email || "").trim().toLowerCase();
-  // Holding the area at edit is what makes somebody a project manager. The
-  // server decides per project; this only decides what the screen offers.
   const isManager = managers.some((m) => m.email === me && m.level === "edit");
   const canManageAny = Boolean(caps.manage);
 
@@ -228,20 +105,28 @@ export default function ProjectsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [hRes, pRes] = await Promise.all([
+      const [hRes, pRes, dRes] = await Promise.all([
         fetch("/api/handovers", { cache: "no-store" }),
         fetch("/api/projects", { cache: "no-store" }),
+        // The drawing sets, for the first link in the chain. Best-effort: the
+        // register is Asana's and a job with no task is a job with no issue
+        // date, not a broken board.
+        fetch("/api/drafting", { cache: "no-store" }).catch(() => null),
       ]);
       const hJson = await hRes.json();
       const pJson = await pRes.json();
       if (!hJson.ok) throw new Error(hJson.error || "Could not load the jobs");
       if (!pJson.ok) throw new Error(pJson.error || "Could not load the plans");
       // The route hands back Duncan's two queues rather than one list — jobs
-      // waiting for a date, and jobs that have one. This board wants both: a
-      // project is a project before anybody schedules it.
+      // waiting for a date, and jobs that have one. A project is a project
+      // before anybody schedules it, so this board wants both.
       setHandovers([...(hJson.awaiting || []), ...(hJson.scheduled || [])]);
       setPlans(pJson.plans || []);
       setManagers(pJson.managers || []);
+      if (dRes) {
+        const dJson = await dRes.json().catch(() => null);
+        if (dJson?.ok) setDrafting(dJson.rows || []);
+      }
       setError(null);
     } catch (e) {
       setError(String(e.message || e));
@@ -274,21 +159,60 @@ export default function ProjectsPage() {
       byProject.get(base).push(h);
     }
     // A project somebody has planned but nobody has written a handover for
-    // yet. It is the whole reason the plan is its own record, so it had
-    // better appear.
+    // yet. It is the whole reason the plan is its own record.
     for (const crm of planFor.keys()) if (!byProject.has(crm)) byProject.set(crm, []);
 
+    // Drawing sets only. The register carries Veronica's overdue accounts in
+    // the same list — 81 of its 114 rows — and an unpaid invoice is not a
+    // drawing issue, so counting one as the first link in this chain would
+    // date the drawings from a conversation about money.
+    const draftingFor = new Map();
+    for (const row of drafting) {
+      if (row.kind === "accounts") continue;
+      const base = baseCrm(row.crm || "");
+      if (!base) continue;
+      if (!draftingFor.has(base)) draftingFor.set(base, []);
+      draftingFor.get(base).push(row);
+    }
+
     const blank = { neededOnSite: "", approvalAdjustDays: 0, projectManager: "" };
+    const todayISO = today();
+
     return [...byProject.entries()]
-      .map(([crm, parts]) => buildProject(crm, parts, planFor.get(crm) || blank, samples))
-      .filter((p) => p.stage !== "closed")
+      .map(([crm, parts]) => {
+        const plan = planFor.get(crm) || blank;
+        const path = criticalPath({
+          parts,
+          draftingRows: draftingFor.get(crm) || [],
+          plan,
+          samples,
+          todayISO,
+        });
+        return {
+          crm,
+          parts,
+          plan,
+          path,
+          client: parts.find((p) => p.client)?.client || "",
+          project: parts.find((p) => p.project)?.project || "",
+          partIds: parts.map((p) => p.jobId).sort(),
+          sortKey: `${path.band === "overdue" ? 0 : path.band === "soon" ? 1 : 2}${
+            path.deadline?.client || path.promised || "9999-99-99"
+          }`,
+        };
+      })
+      .filter((p) => !p.parts.length || !p.parts.every((h) => h.state === "closed"))
       .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-  }, [handovers, plans, samples]);
+  }, [handovers, drafting, plans, samples]);
 
   const countFor = useCallback(
     (email) =>
       projects.filter((p) =>
-        email === "all" ? true : email === "" ? !p.plan.projectManager : p.plan.projectManager === email
+        email === "all"
+          ? true
+          : email === ""
+            ? !p.plan.projectManager
+            : p.plan.projectManager === email
       ).length,
     [projects]
   );
@@ -308,36 +232,30 @@ export default function ProjectsPage() {
       );
   }, [projects, who, filter]);
 
-  const save = useCallback(
-    async (crm, patch) => {
-      const current = firebaseConfigured() ? auth().currentUser : null;
-      if (!current) {
-        setActionError("Sign in first.");
-        return;
-      }
-      setSaving(crm);
-      setActionError(null);
-      try {
-        const idToken = await current.getIdToken();
-        const res = await fetch("/api/projects", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ crm, ...patch, idToken }),
-        });
-        const json = await res.json();
-        if (!json.ok) throw new Error(json.error || "Save failed");
-        setPlans((prev) => {
-          const rest = prev.filter((p) => p.crm !== crm);
-          return [...rest, json.plan];
-        });
-      } catch (e) {
-        setActionError(String(e.message || e));
-      } finally {
-        setSaving("");
-      }
-    },
-    []
-  );
+  const save = useCallback(async (crm, patch) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first.");
+      return;
+    }
+    setSaving(crm);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ crm, ...patch, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Save failed");
+      setPlans((prev) => [...prev.filter((p) => p.crm !== crm), json.plan]);
+    } catch (e) {
+      setActionError(String(e.message || e));
+    } finally {
+      setSaving("");
+    }
+  }, []);
 
   const approve = useCallback(
     async (crm, date) => {
@@ -367,10 +285,10 @@ export default function ProjectsPage() {
     [load]
   );
 
-  const atRisk = projects.filter((p) => p.band === "overdue").length;
-  const leadNow = describeLead(
-    samples.length ? { ...promisedDelivery(today(), samples) } : null
-  );
+  const atRisk = projects.filter((p) => p.path.band === "overdue").length;
+  const leadNow = samples.length
+    ? describeLead(promisedDelivery(today(), samples))
+    : "no scheduled work to read a lead time from yet";
 
   const btn = {
     border: `1px solid ${BRAND.line}`,
@@ -382,22 +300,6 @@ export default function ProjectsPage() {
     cursor: "pointer",
     fontFamily: "inherit",
     whiteSpace: "nowrap",
-  };
-
-  const th = {
-    textAlign: "left",
-    fontSize: 11,
-    fontWeight: 500,
-    color: BRAND.sub,
-    padding: "6px 10px",
-    borderBottom: `1px solid ${BRAND.line}`,
-    whiteSpace: "nowrap",
-  };
-  const td = {
-    fontSize: 13,
-    padding: "8px 10px",
-    borderBottom: `1px solid ${BRAND.line}`,
-    verticalAlign: "top",
   };
   const input = {
     border: `1px solid ${BRAND.line}`,
@@ -453,38 +355,36 @@ export default function ProjectsPage() {
 
         <Tabs tabs={caps.tabs} current="projects" />
 
-        {/* One pill per project manager. The count is their live projects, so
-            somebody can see at a glance who is carrying what. */}
+        {/* One pill per project manager, with their live count, so somebody
+            can see at a glance who is carrying what. */}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "16px 0 12px" }}>
-          {[
-            { email: "all", name: "Everyone" },
-            ...managers,
-            { email: "", name: "Unassigned" },
-          ].map((m) => {
-            const active = who === m.email;
-            const n = countFor(m.email);
-            if (m.email === "" && n === 0) return null;
-            // Not just `m.email === me`: signed out, `me` is empty and so is
-            // the Unassigned pill's email, which had it reading "(you)".
-            const isMine = Boolean(me) && m.email === me;
-            return (
-              <button
-                key={m.email || "unassigned"}
-                onClick={() => setWho(m.email)}
-                style={{
-                  ...btn,
-                  background: active ? BRAND.ink : BRAND.card,
-                  color: active ? "#fff" : BRAND.ink,
-                  fontWeight: isMine ? 600 : 400,
-                }}
-                title={isMine ? "Your board" : m.email || "Nobody has taken these"}
-              >
-                {m.name}
-                {isMine ? " (you)" : ""}
-                <span style={{ marginLeft: 6, opacity: 0.7 }}>{n}</span>
-              </button>
-            );
-          })}
+          {[{ email: "all", name: "Everyone" }, ...managers, { email: "", name: "Unassigned" }].map(
+            (m) => {
+              const active = who === m.email;
+              const n = countFor(m.email);
+              if (m.email === "" && n === 0) return null;
+              // Not just `m.email === me`: signed out, `me` is empty and so is
+              // the Unassigned pill's email, which had it reading "(you)".
+              const isMine = Boolean(me) && m.email === me;
+              return (
+                <button
+                  key={m.email || "unassigned"}
+                  onClick={() => setWho(m.email)}
+                  style={{
+                    ...btn,
+                    background: active ? BRAND.ink : BRAND.card,
+                    color: active ? "#fff" : BRAND.ink,
+                    fontWeight: isMine ? 600 : 400,
+                  }}
+                  title={isMine ? "Your board" : m.email || "Nobody has taken these"}
+                >
+                  {m.name}
+                  {isMine ? " (you)" : ""}
+                  <span style={{ marginLeft: 6, opacity: 0.7 }}>{n}</span>
+                </button>
+              );
+            }
+          )}
         </div>
 
         <input
@@ -494,190 +394,294 @@ export default function ProjectsPage() {
           style={{ ...input, width: "100%", padding: "9px 12px", fontSize: 13, marginBottom: 14 }}
         />
 
-        {actionError && (
-          <div
-            style={{
-              background: "#fdf4e6",
-              border: `1px solid ${BRAND.amber}`,
-              color: BRAND.amber,
-              borderRadius: 8,
-              padding: "10px 14px",
-              fontSize: 13,
-              marginBottom: 14,
-            }}
-          >
-            {actionError}
-          </div>
-        )}
-        {error && (
-          <div
-            style={{
-              background: "#fbeceb",
-              border: `1px solid ${BRAND.red}`,
-              color: BRAND.red,
-              borderRadius: 8,
-              padding: "10px 14px",
-              fontSize: 13,
-              marginBottom: 14,
-            }}
-          >
-            {error}
-          </div>
-        )}
+        {actionError && <Banner colour={BRAND.amber} bg="#fdf4e6" text={actionError} />}
+        {error && <Banner colour={BRAND.red} bg="#fbeceb" text={error} />}
 
         {!managers.length && !loading && (
-          <p style={{ fontSize: 13, color: BRAND.sub }}>
-            Nobody has been given the Projects area yet, so there are no boards. An admin grants
-            it on the Access tab — give somebody Edit and their board appears here.
+          <p style={{ fontSize: 13, color: BRAND.sub, maxWidth: 820 }}>
+            Nobody has been given the Projects area yet, so there are no boards. An admin grants it
+            on the Access tab — give somebody Edit and their board appears here.
           </p>
         )}
 
-        <div style={{ background: BRAND.card, border: `1px solid ${BRAND.line}`, borderRadius: 10, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={th}>Job</th>
-                <th style={th}>Client / project</th>
-                <th style={th}>Stage</th>
-                <th style={th}>Approved</th>
-                <th style={th}>Needed on site</th>
-                <th style={th}>± days</th>
-                <th style={th}>Sign off by</th>
-                <th style={th}>Promised</th>
-                <th style={th}>Where it stands</th>
-                <th style={th}>Owner</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((p) => {
-                const owned = !p.plan.projectManager || p.plan.projectManager === me;
-                const editable = (isManager && owned) || canManageAny;
-                const busy = saving === p.crm;
-                const band = BAND[p.band];
-                return (
-                  <tr key={p.crm} style={{ opacity: busy ? 0.5 : 1 }}>
-                    <td style={{ ...td, fontWeight: 600 }}>
-                      {p.crm}
-                      {p.parts.length > 1 && (
-                        <div style={{ fontSize: 11, color: BRAND.sub, fontWeight: 400 }}>
-                          {p.parts.length} parts
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ ...td, maxWidth: 260 }}>
-                      {p.client || "—"}
-                      {p.project && (
-                        <div style={{ fontSize: 11, color: BRAND.sub }}>{p.project}</div>
-                      )}
-                    </td>
-                    <td style={{ ...td, color: BRAND.sub }}>{STAGE_LABEL[p.stage] || p.stage}</td>
-                    <td style={td}>
-                      {p.approval?.date ? (
-                        <>
-                          {fmtDay(p.approval.date)}
-                          <div style={{ fontSize: 11, color: BRAND.sub }}>
-                            {p.approval.source === "pm"
-                              ? p.approval.by || "recorded"
-                              : "typed on the handover"}
-                          </div>
-                        </>
-                      ) : editable ? (
-                        <input
-                          type="date"
-                          max={today()}
-                          style={input}
-                          title="The day the client signed"
-                          onChange={(e) => e.target.value && approve(p.crm, e.target.value)}
-                        />
-                      ) : (
-                        <span style={{ color: BAND.none.colour }}>not yet</span>
-                      )}
-                    </td>
-                    <td style={td}>
-                      {editable ? (
-                        <input
-                          type="date"
-                          value={p.plan.neededOnSite || ""}
-                          style={input}
-                          onChange={(e) => save(p.crm, { neededOnSite: e.target.value })}
-                        />
-                      ) : (
-                        fmtDay(p.plan.neededOnSite)
-                      )}
-                    </td>
-                    <td style={td}>
-                      {editable ? (
-                        <input
-                          type="number"
-                          value={p.plan.approvalAdjustDays || 0}
-                          style={{ ...input, width: 58 }}
-                          title="Shift this client's sign-off deadline. Positive gives them longer."
-                          onChange={(e) =>
-                            save(p.crm, { approvalAdjustDays: Number(e.target.value) || 0 })
-                          }
-                        />
-                      ) : (
-                        p.plan.approvalAdjustDays || 0
-                      )}
-                    </td>
-                    <td style={{ ...td, color: band.colour, fontWeight: band.weight }}>
-                      {p.approval?.date ? "—" : fmtDay(p.deadline?.client)}
-                    </td>
-                    <td style={td}>
-                      {fmtDay(p.promised)}
-                      {p.promised && !p.scheduled && (
-                        <div style={{ fontSize: 11, color: BRAND.sub }}>forecast</div>
-                      )}
-                    </td>
-                    <td style={{ ...td, color: band.colour, fontWeight: band.weight }}>
-                      {p.note || "—"}
-                    </td>
-                    <td style={td}>
-                      {editable ? (
-                        <select
-                          value={p.plan.projectManager || ""}
-                          style={input}
-                          onChange={(e) => save(p.crm, { projectManager: e.target.value })}
-                        >
-                          <option value="">Unassigned</option>
-                          {managers
-                            .filter((m) => m.level === "edit")
-                            .map((m) => (
-                              <option key={m.email} value={m.email}>
-                                {m.name}
-                              </option>
-                            ))}
-                        </select>
-                      ) : (
-                        <span style={{ color: BRAND.sub }}>
-                          {managers.find((m) => m.email === p.plan.projectManager)?.name ||
-                            p.plan.projectManager ||
-                            "—"}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {!shown.length && !loading && (
-                <tr>
-                  <td colSpan={10} style={{ ...td, color: BRAND.sub, textAlign: "center", padding: 24 }}>
-                    Nothing on this board.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div style={{ display: "grid", gap: 12 }}>
+          {shown.map((p) => (
+            <ProjectCard
+              key={p.crm}
+              p={p}
+              me={me}
+              managers={managers}
+              editable={(isManager && (!p.plan.projectManager || p.plan.projectManager === me)) || canManageAny}
+              busy={saving === p.crm}
+              onSave={save}
+              onApprove={approve}
+              input={input}
+            />
+          ))}
+          {!shown.length && !loading && (
+            <p style={{ fontSize: 13, color: BRAND.sub, textAlign: "center", padding: 24 }}>
+              Nothing on this board.
+            </p>
+          )}
         </div>
 
-        <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 14, maxWidth: 820 }}>
-          Sign-off dates and promised dates carry a week for getting a signed job onto the floor,
-          and come off the median lead of the jobs already scheduled around that date — so they
-          move as the book fills. Once every part of a job has a committed date, Duncan&apos;s
-          dates are shown instead of the forecast.
+        <p style={{ fontSize: 12, color: BRAND.sub, marginTop: 18, maxWidth: 900, lineHeight: 1.6 }}>
+          The chain is read from the records each step already keeps: the drafting register, the
+          approval somebody recorded, Alice&apos;s board, the schedule board. Nothing on it is
+          typed twice. Sign-off and delivery dates both carry a week for getting a signed job onto
+          the floor, and come off the median lead of the jobs already scheduled around that date,
+          so they move as the book fills. Once every part of a job has a committed date,
+          Duncan&apos;s dates are shown instead of the forecast.
         </p>
       </div>
-      {!user && firebaseConfigured() && <div />}
     </main>
+  );
+}
+
+function Banner({ colour, bg, text }) {
+  return (
+    <div
+      style={{
+        background: bg,
+        border: `1px solid ${colour}`,
+        color: colour,
+        borderRadius: 8,
+        padding: "10px 14px",
+        fontSize: 13,
+        marginBottom: 14,
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+function ProjectCard({ p, me, managers, editable, busy, onSave, onApprove, input }) {
+  const { path } = p;
+  const band = BAND[path.band] || BAND.fine;
+  const owner =
+    managers.find((m) => m.email === p.plan.projectManager)?.name || p.plan.projectManager || "";
+
+  return (
+    <section
+      style={{
+        background: BRAND.card,
+        border: `1px solid ${BRAND.line}`,
+        borderLeft: `3px solid ${path.band === "overdue" ? BRAND.red : path.band === "soon" ? BRAND.amber : BRAND.line}`,
+        borderRadius: 10,
+        padding: "14px 18px 16px",
+        opacity: busy ? 0.5 : 1,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 240 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 600, fontSize: 15 }}>{p.crm}</span>
+            <span style={{ fontSize: 14 }}>{p.client || "—"}</span>
+            {p.partIds.length > 1 && (
+              <span style={{ fontSize: 11, color: BRAND.sub }} title={p.partIds.join(", ")}>
+                {p.partIds.length} parts
+              </span>
+            )}
+            {!p.parts.length && (
+              <span style={{ fontSize: 11, color: BRAND.amber }}>no handover yet</span>
+            )}
+          </div>
+          {p.project && (
+            <div style={{ fontSize: 12, color: BRAND.sub, marginTop: 2 }}>{p.project}</div>
+          )}
+        </div>
+
+        {/* The project manager's own fields. Everything else on the card is
+            read from somebody else's record. */}
+        <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <Field label="Needed on site">
+            {editable ? (
+              <input
+                type="date"
+                value={p.plan.neededOnSite || ""}
+                style={input}
+                onChange={(e) => onSave(p.crm, { neededOnSite: e.target.value })}
+              />
+            ) : (
+              <span style={{ fontSize: 12 }}>{fmtDay(p.plan.neededOnSite) || "—"}</span>
+            )}
+          </Field>
+          <Field label="± days">
+            {editable ? (
+              <input
+                type="number"
+                value={p.plan.approvalAdjustDays || 0}
+                style={{ ...input, width: 56 }}
+                title="Shift this client's sign-off deadline. Positive gives them longer."
+                onChange={(e) => onSave(p.crm, { approvalAdjustDays: Number(e.target.value) || 0 })}
+              />
+            ) : (
+              <span style={{ fontSize: 12 }}>{p.plan.approvalAdjustDays || 0}</span>
+            )}
+          </Field>
+          <Field label="Owner">
+            {editable ? (
+              <select
+                value={p.plan.projectManager || ""}
+                style={input}
+                onChange={(e) => onSave(p.crm, { projectManager: e.target.value })}
+              >
+                <option value="">Unassigned</option>
+                {managers
+                  .filter((m) => m.level === "edit")
+                  .map((m) => (
+                    <option key={m.email} value={m.email}>
+                      {m.name}
+                    </option>
+                  ))}
+              </select>
+            ) : (
+              <span style={{ fontSize: 12 }}>{owner || "—"}</span>
+            )}
+          </Field>
+        </div>
+      </div>
+
+      <Chain steps={path.steps} />
+
+      <div
+        style={{
+          background: band.bg,
+          border: `1px solid ${band.colour}33`,
+          borderRadius: 8,
+          padding: "8px 12px",
+          marginTop: 14,
+          fontSize: 12.5,
+          color: band.colour === BRAND.sub ? BRAND.ink : band.colour,
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <span>{path.headline}</span>
+        {!path.approvalDate && editable && (
+          <label style={{ display: "flex", alignItems: "center", gap: 6, color: BRAND.ink }}>
+            <span style={{ fontSize: 11, color: BRAND.sub }}>Client signed</span>
+            <input
+              type="date"
+              max={today()}
+              style={input}
+              title="The day the client signed. Everything after it is worked out from this date."
+              onChange={(e) => e.target.value && onApprove(p.crm, e.target.value)}
+            />
+          </label>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10.5, color: BRAND.sub, marginBottom: 3, letterSpacing: "0.02em" }}>
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The five milestones as a chain.
+ *
+ * The line between two circles is green only where the step BEFORE it is
+ * done, so the colour runs out exactly where the job has got to — which is
+ * the one thing somebody scanning twelve of these is looking for.
+ */
+function Chain({ steps }) {
+  return (
+    <div style={{ display: "flex", marginTop: 14 }}>
+      {steps.map((s, i) => {
+        const look = STEP[s.state] || STEP.upcoming;
+        const prevDone = i > 0 && steps[i - 1].state === "done";
+        return (
+          <div
+            key={s.key}
+            style={{ flex: 1, position: "relative", textAlign: "center", minWidth: 0 }}
+          >
+            {i > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 11,
+                  right: "50%",
+                  width: "100%",
+                  height: 2,
+                  background: prevDone ? BRAND.green : BRAND.line,
+                }}
+              />
+            )}
+            <div
+              style={{
+                position: "relative",
+                width: 24,
+                height: 24,
+                margin: "0 auto",
+                borderRadius: "50%",
+                background: look.fill,
+                border: `2px ${look.dashed ? "dashed" : "solid"} ${look.ring}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 1,
+              }}
+              title={s.note || s.label}
+            >
+              {s.state === "done" ? (
+                <Check />
+              ) : s.state === "overdue" ? (
+                <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1 }}>!</span>
+              ) : s.state === "current" ? (
+                <span
+                  style={{ width: 7, height: 7, borderRadius: "50%", background: "#fff" }}
+                />
+              ) : null}
+            </div>
+            <div
+              style={{
+                fontSize: 11.5,
+                marginTop: 6,
+                color: look.label,
+                fontWeight: s.state === "current" || s.state === "overdue" ? 600 : 400,
+                padding: "0 4px",
+              }}
+            >
+              {s.label}
+            </div>
+            <div style={{ fontSize: 11, color: BRAND.sub, marginTop: 1 }}>
+              {fmtDay(s.date) || (s.state === "done" ? "done" : "—")}
+            </div>
+            {s.note && (
+              <div style={{ fontSize: 10.5, color: "#9a968e", marginTop: 1 }}>{s.note}</div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Check() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#fff"
+      strokeWidth="3.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
   );
 }

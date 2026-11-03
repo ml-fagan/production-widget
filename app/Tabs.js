@@ -20,27 +20,19 @@
 // aren't the work.
 
 const GROUPS = [
-  // First, because it is where a job starts: a client signs, and everything
-  // downstream is worked out from that date. The groups read in the order the
-  // work happens — project, production, material, warehouse, money.
-  { key: "projects", label: "Projects" },
   { key: "production", label: "Production" },
   { key: "material", label: "Material" },
   { key: "warehouse", label: "Warehouse" },
   { key: "money", label: "Money" },
+  // Last, at the far end of the strip. It sat first for a while on the
+  // argument that a job starts with a client signing — true, and the wrong
+  // reason to put it there. The first four groups are the factory's day and
+  // most people on this app live in one of them; a group almost nobody holds
+  // belongs at the edge rather than in front of everybody's working set.
+  { key: "projects", label: "Projects" },
 ];
 
 const TABS = [
-  {
-    // One board per project manager, and everybody with the area reads them
-    // all. Only rendered for whoever holds Projects — see `tabs` on the
-    // capabilities.
-    key: "projects",
-    label: "Projects",
-    href: "/projects",
-    group: "projects",
-    title: "Each project manager's jobs — who has signed, what's promised, and what's at risk",
-  },
   {
     key: "board",
     label: "Schedule board",
@@ -117,6 +109,16 @@ const TABS = [
     href: "/costing",
     group: "money",
     title: "Cost and sell price for DecorZen, flat panel, slat, baffle and metal ceiling jobs",
+  },
+  {
+    // One board per project manager, and everybody with the area reads them
+    // all. Only rendered for whoever holds Projects — see `tabs` on the
+    // capabilities.
+    key: "projects",
+    label: "Projects",
+    href: "/projects",
+    group: "projects",
+    title: "Each project manager's jobs — who has signed, what's promised, and what's at risk",
   },
 
   // Below the line, off to the side: the things that aren't the day's work. A
