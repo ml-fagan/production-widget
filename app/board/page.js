@@ -18,7 +18,9 @@ import {
   approvalFor,
   boardLeadFor,
   computedLead,
+  editKey,
   leadShade,
+  onStream,
 } from "../../lib/board.js";
 
 /**
@@ -192,21 +194,42 @@ export default function BoardPage() {
     [stockEntries]
   );
 
-  // Every handed-over job, with local edits applied — the shared base for
-  // both the active board and the completed list below it.
-  const mergedRows = useMemo(() => {
-    const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
-    return all.map((h) => ({
-      ...h,
-      schedule: { ...(h.schedule || {}), ...(edits[h.jobId] || {}) },
-    }));
-  }, [data, edits]);
+  /**
+   * One row per job PER BOARD.
+   *
+   * A job used to belong to one board or the other, because `fibreCement` was
+   * a two-way switch. It isn't any more: a handover with Versilux screens and
+   * MDF slat on it runs on both lines, and each line has its own dates —
+   * they finish on different days, which is the whole reason the schedule was
+   * ever split in two.
+   *
+   * So a row is a job AND a board, and it carries that board's schedule.
+   * Local edits are keyed the same way, or dating the MDF half would move the
+   * fibre cement half under Duncan's hands.
+   */
+  const rowsFor = useCallback(
+    (which) => {
+      const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
+      return all
+        .filter((h) => onStream(h, which))
+        .map((h) => ({
+          ...h,
+          stream: which,
+          schedule: {
+            ...((which === "fc" ? h.fcSchedule : h.schedule) || {}),
+            ...(edits[editKey(h.jobId, which)] || {}),
+          },
+          // So the row can say the other half exists, and is somewhere else.
+          onBothLines: onStream(h, "standard") && onStream(h, "fc"),
+        }));
+    },
+    [data, edits]
+  );
+
+  const mergedRows = useMemo(() => rowsFor(stream), [rowsFor, stream]);
 
   const rows = useMemo(() => {
-    const active = mergedRows.filter((h) => !h.schedule?.completedAt);
-    const inStream = active.filter((h) =>
-      stream === "fc" ? h.fibreCement : !h.fibreCement
-    );
+    const inStream = mergedRows.filter((h) => !h.schedule?.completedAt);
     const q = query.trim().toLowerCase();
     const matching = q
       ? inStream.filter((h) =>
@@ -224,10 +247,16 @@ export default function BoardPage() {
       if (!y) return -1;
       return x.localeCompare(y);
     });
-  }, [mergedRows, query, stream]);
+  }, [mergedRows, query]);
 
-  // Finished jobs, newest first — kept as a stamp (who, when) rather than
-  // deleted, once they've dropped off the active board above.
+  /**
+   * Finished jobs, newest first — kept as a stamp (who, when) rather than
+   * deleted, once they've dropped off the active board above.
+   *
+   * This board's own, now that a row is a job and a board. A job whose MDF
+   * half went out on Tuesday reads as finished here and is still live on the
+   * fibre cement board, which is the truth about it.
+   */
   const completedRows = useMemo(
     () =>
       mergedRows
@@ -237,14 +266,17 @@ export default function BoardPage() {
   );
 
   const undated = rows.filter((r) => !r.schedule?.committedDate).length;
-  const activeRows = mergedRows.filter((h) => !h.schedule?.completedAt);
+  // Each board counts what is live on IT. A job on both is counted on both,
+  // because it is two things to build.
   const streamCounts = {
-    standard: activeRows.filter((h) => !h.fibreCement).length,
-    fc: activeRows.filter((h) => h.fibreCement).length,
+    standard: rowsFor("standard").filter((h) => !h.schedule?.completedAt).length,
+    fc: rowsFor("fc").filter((h) => !h.schedule?.completedAt).length,
   };
 
   const save = useCallback(
-    async (jobId, patch) => {
+    async (row, patch) => {
+      const jobId = row.jobId;
+      const stream = row.stream || "standard";
       // Checked before the optimistic update, not after: showing a cell as
       // changed and then refusing to save it is worse than not moving at all.
       const current = firebaseConfigured() ? auth().currentUser : null;
@@ -263,14 +295,15 @@ export default function BoardPage() {
         );
         return;
       }
-      setEdits((e) => ({ ...e, [jobId]: { ...(e[jobId] || {}), ...patch } }));
+      const key = editKey(jobId, stream);
+      setEdits((e) => ({ ...e, [key]: { ...(e[key] || {}), ...patch } }));
       setActionError(null);
       try {
         const idToken = await current.getIdToken();
         const res = await fetch("/api/schedule-edit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId, patch, idToken }),
+          body: JSON.stringify({ jobId, stream, patch, idToken }),
         });
         const json = await res.json();
         if (!json.ok) throw new Error(json.error || "Update failed");
@@ -296,7 +329,7 @@ export default function BoardPage() {
             await fetch("/api/schedule-edit", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ jobId, patch, idToken, acknowledgeShortfall: true }),
+              body: JSON.stringify({ jobId, stream, patch, idToken, acknowledgeShortfall: true }),
             });
           }
           setActionError(
@@ -315,7 +348,7 @@ export default function BoardPage() {
     const state = cellState(row, column);
     if (state === "none" || column.toLowerCase() === "materials") return;
     const next = NEXT_STATE[state] || "todo";
-    save(row.jobId, {
+    save(row, {
       processState: { ...(row.schedule?.processState || {}), [column]: next },
     });
   };
@@ -365,7 +398,9 @@ export default function BoardPage() {
 
   // Drops a job off the board and the production schedule's active list,
   // stamping who and when rather than deleting anything.
-  const completeJob = useCallback(async (jobId) => {
+  const completeJob = useCallback(async (row) => {
+    const { jobId } = row;
+    const stream = row.stream || "standard";
     const current = firebaseConfigured() ? auth().currentUser : null;
     if (!current) {
       setActionError("Sign in to mark a job complete — it's recorded against your name.");
@@ -378,13 +413,14 @@ export default function BoardPage() {
       const res = await fetch("/api/handovers/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, completed: true, idToken }),
+        body: JSON.stringify({ jobId, stream, completed: true, idToken }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Update failed");
+      const key = editKey(jobId, stream);
       setEdits((e) => ({
         ...e,
-        [jobId]: { ...(e[jobId] || {}), completedAt: json.schedule.completedAt, completedBy: json.schedule.completedBy },
+        [key]: { ...(e[key] || {}), completedAt: json.schedule.completedAt, completedBy: json.schedule.completedBy },
       }));
       setCompleteOpen(null);
     } catch (e) {
@@ -395,7 +431,9 @@ export default function BoardPage() {
   }, []);
 
   // Undoes a mark-complete — a mis-click shouldn't need a trip to Firestore.
-  const reopenJob = useCallback(async (jobId) => {
+  const reopenJob = useCallback(async (row) => {
+    const { jobId } = row;
+    const stream = row.stream || "standard";
     const current = firebaseConfigured() ? auth().currentUser : null;
     if (!current) {
       setActionError("Sign in to reopen a job — it's recorded against your name.");
@@ -407,11 +445,12 @@ export default function BoardPage() {
       const res = await fetch("/api/handovers/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, completed: false, idToken }),
+        body: JSON.stringify({ jobId, stream, completed: false, idToken }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Update failed");
-      setEdits((e) => ({ ...e, [jobId]: { ...(e[jobId] || {}), completedAt: null, completedBy: "" } }));
+      const key = editKey(jobId, stream);
+      setEdits((e) => ({ ...e, [key]: { ...(e[key] || {}), completedAt: null, completedBy: "" } }));
     } catch (e) {
       setActionError(`Couldn't reopen ${jobId}. ${String(e.message || e)}`);
     }
@@ -756,6 +795,34 @@ export default function BoardPage() {
                         >
                           ticket
                         </a>
+                        {/*
+                          The other half of the job, and where it is.
+
+                          Without it this row is indistinguishable from a job
+                          that runs here alone — and the difference matters:
+                          this date is one of two, and the job does not leave
+                          the building until the other board has caught up.
+                        */}
+                        {row.onBothLines && (
+                          <span
+                            onClick={() => setStream(stream === "fc" ? "standard" : "fc")}
+                            title={`Also on ${
+                              stream === "fc" ? "standard production" : "fibre cement"
+                            } — click to see that half`}
+                            style={{
+                              marginLeft: 6,
+                              fontSize: 10,
+                              color: BRAND.sub,
+                              border: `1px solid ${BRAND.line}`,
+                              borderRadius: 4,
+                              padding: "0 4px",
+                              cursor: "pointer",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            + {stream === "fc" ? "std" : "FC"}
+                          </span>
+                        )}
                         {/* Approval sat in a date picker of its own, 150px wide,
                             for a date that is nearly always the handover's and
                             almost never retyped. It reads better as a line under
@@ -766,7 +833,7 @@ export default function BoardPage() {
                               autoFocus
                               type="date"
                               value={approval || ""}
-                              onChange={(e) => save(row.jobId, { approvalDate: e.target.value })}
+                              onChange={(e) => save(row, { approvalDate: e.target.value })}
                               onBlur={() => setApprovalOpen(null)}
                               style={{ ...input, width: 128, fontSize: 11, padding: "1px 4px" }}
                             />
@@ -815,7 +882,7 @@ export default function BoardPage() {
                           <input
                             type="checkbox"
                             checked={Boolean(s.lumin)}
-                            onChange={(e) => save(row.jobId, { lumin: e.target.checked })}
+                            onChange={(e) => save(row, { lumin: e.target.checked })}
                             style={{ verticalAlign: "middle", marginRight: 1 }}
                           />
                           L
@@ -824,7 +891,7 @@ export default function BoardPage() {
                           <input
                             type="checkbox"
                             checked={Boolean(s.box)}
-                            onChange={(e) => save(row.jobId, { box: e.target.checked })}
+                            onChange={(e) => save(row, { box: e.target.checked })}
                             style={{ verticalAlign: "middle", marginRight: 1 }}
                           />
                           B
@@ -841,7 +908,7 @@ export default function BoardPage() {
                           <input
                             type="date"
                             value={s[field] || ""}
-                            onChange={(e) => save(row.jobId, { [field]: e.target.value })}
+                            onChange={(e) => save(row, { [field]: e.target.value })}
                             style={{ ...input, width: 104 }}
                           />
                         </td>
@@ -852,7 +919,7 @@ export default function BoardPage() {
                           placeholder={auto == null ? "—" : String(auto)}
                           onChange={(e) => {
                             const v = e.target.value.trim();
-                            save(row.jobId, {
+                            save(row, {
                               leadWeeks: v === "" ? null : Number(v) || 0,
                             });
                           }}
@@ -894,7 +961,7 @@ export default function BoardPage() {
                       <td style={td}>
                         <input
                           value={s.priority || ""}
-                          onChange={(e) => save(row.jobId, { priority: e.target.value })}
+                          onChange={(e) => save(row, { priority: e.target.value })}
                           style={{ ...input, width: 52, textAlign: "center" }}
                         />
                       </td>
@@ -1035,7 +1102,7 @@ export default function BoardPage() {
                             <input
                               autoFocus
                               value={s.comment || ""}
-                              onChange={(e) => save(row.jobId, { comment: e.target.value })}
+                              onChange={(e) => save(row, { comment: e.target.value })}
                               placeholder="Anything the floor or the office needs to know about this job"
                               style={{ ...input, flex: 1, maxWidth: 640, padding: "5px 8px" }}
                             />
@@ -1159,7 +1226,7 @@ export default function BoardPage() {
                             </button>
                             <button
                               disabled={completing}
-                              onClick={() => completeJob(row.jobId)}
+                              onClick={() => completeJob(row)}
                               style={{
                                 border: `1px solid ${BRAND.green}`,
                                 background: BRAND.green,
@@ -1273,7 +1340,7 @@ export default function BoardPage() {
                     </td>
                     <td style={td}>
                       <button
-                        onClick={() => reopenJob(row.jobId)}
+                        onClick={() => reopenJob(row)}
                         style={{
                           background: "none",
                           border: "none",
