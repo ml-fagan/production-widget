@@ -198,7 +198,16 @@ export default function ShelfOrdersPage() {
     [load]
   );
 
-  const orders = data?.orders ?? [];
+  /**
+   * Hidden orders are off this board too.
+   *
+   * Hiding one happens on Invoicing, where a finished order is the only
+   * place a wrong one still turns up — but "off the boards" has to mean all
+   * of them, or a test row put away over there is still sitting in the Done
+   * bucket over here. Invoicing is the one place they can be seen again, and
+   * the one place they can be put back.
+   */
+  const orders = (data?.orders ?? []).filter((o) => !o.hiddenAt);
   const templates = data?.templates ?? null;
   const now = today();
 

@@ -96,6 +96,14 @@ export default function InvoicingPage() {
   const [stored, setStored] = useState({});
   const [shelf, setShelf] = useState([]);
   const [saving, setSaving] = useState(false);
+  /**
+   * Whether the hidden rows are being shown.
+   *
+   * A hide with nowhere to see what was hidden is a trapdoor: the row is
+   * gone, nothing says so, and the only way back is Firestore. One line at
+   * the end of the list, only there when something is behind it.
+   */
+  const [showHidden, setShowHidden] = useState(false);
 
   useEffect(() => {
     if (!firebaseConfigured()) return;
@@ -143,6 +151,45 @@ export default function InvoicingPage() {
     },
     []
   );
+
+  /**
+   * Take an off-the-shelf order off the boards, keeping the record.
+   *
+   * This is where a wrong one gets noticed: a charged order is finished with,
+   * so it never comes up anywhere else again, and a test row typed in to see
+   * what the screen looked like sits in the Charged list for ever reading as
+   * money somebody was invoiced for.
+   *
+   * Hidden rather than deleted, deliberately. Everything here has a figure on
+   * it, and deleting something with a price to tidy a screen is how a record
+   * nobody can reconstruct goes missing. Nothing about what was charged is
+   * destroyed — it just stops being in the way, and `Hidden` below brings it
+   * back.
+   */
+  const hideShelf = useCallback(async (order, hidden) => {
+    const current = firebaseConfigured() ? auth().currentUser : null;
+    if (!current) {
+      setActionError("Sign in first — this is recorded against your name.");
+      return;
+    }
+    setSaving(true);
+    setActionError(null);
+    try {
+      const idToken = await current.getIdToken();
+      const res = await fetch("/api/shelf-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: order.id, hidden, idToken }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Save failed");
+      setShelf((list) => list.map((o) => (o.id === order.id ? { ...o, ...json.order } : o)));
+    } catch (e) {
+      setActionError(`Couldn't ${hidden ? "hide" : "restore"} that order. ${String(e.message || e)}`);
+    } finally {
+      setSaving(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -249,16 +296,29 @@ export default function InvoicingPage() {
       )
     : all;
 
+  /**
+   * Put away, record intact — see `hideShelf`.
+   *
+   * Taken out before anything is counted, so the tab's number agrees with
+   * what is under it. A count that includes rows you cannot see is worse
+   * than no count.
+   */
+  const shelfLive = shelf.filter((o) => !o.hiddenAt);
+  const shelfHidden = shelf.filter((o) => o.hiddenAt);
+
   // Sent over by Veronica and not yet charged for. Charged ones stay on the
   // tab as the record — which is the reason she asked for it.
-  const shelfToCharge = shelf.filter((o) => o.releasedAt && !o.invoicedAt);
-  const shelfCharged = shelf.filter((o) => o.invoicedAt);
+  const shelfToCharge = shelfLive.filter((o) => o.releasedAt && !o.invoicedAt);
+  const shelfCharged = shelfLive.filter((o) => o.invoicedAt);
   const counts = {
     to_charge: matching.filter((h) => stateOf(h) === "to_charge").length + shelfToCharge.length,
     charged: matching.filter((h) => stateOf(h) === "charged").length + shelfCharged.length,
   };
-  // Whichever kind of charge this tab is about.
-  const shelfHere = view === "charged" ? shelfCharged : shelfToCharge;
+  // Whichever kind of charge this tab is about. Hidden rows join the charged
+  // list only while somebody has asked to see them.
+  const shelfOnTab = view === "charged" ? shelfCharged : shelfToCharge;
+  const shelfHere =
+    view === "charged" && showHidden ? [...shelfCharged, ...shelfHidden] : shelfOnTab;
   const jobs = matching
     .filter((h) => stateOf(h) === view)
     // Out the door and uncharged first: that's the work waiting on her.
@@ -323,11 +383,17 @@ export default function InvoicingPage() {
             </h1>
             <p style={{ fontSize: 13, color: BRAND.sub, margin: "2px 0 0" }}>
               {/* Everything on this tab, not just the jobs — it read "0 jobs"
-                  over an off-the-shelf order sitting right underneath it. */}
-              {jobs.length + shelfHere.length}{" "}
-              {jobs.length + shelfHere.length === 1 ? "charge" : "charges"}
-              {shelfHere.length > 0 && jobs.length > 0 && (
-                <span style={{ color: BRAND.sub }}> · {shelfHere.length} off the shelf</span>
+                  over an off-the-shelf order sitting right underneath it.
+
+                  Hidden rows are left out even while they are being shown, so
+                  this agrees with the tab above it. A row somebody has put
+                  away is not a charge waiting on anybody, and a header that
+                  said 97 over a tab that said 96 is how a count stops being
+                  believed. */}
+              {jobs.length + shelfOnTab.length}{" "}
+              {jobs.length + shelfOnTab.length === 1 ? "charge" : "charges"}
+              {shelfOnTab.length > 0 && jobs.length > 0 && (
+                <span style={{ color: BRAND.sub }}> · {shelfOnTab.length} off the shelf</span>
               )}
               {view === "to_charge" && readyToCharge > 0 && (
                 <>
@@ -441,19 +507,22 @@ export default function InvoicingPage() {
             <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
               {shelfHere.map((order) => {
                 const charged = Boolean(order.invoicedAt);
+                const hidden = Boolean(order.hiddenAt);
                 return (
                   <section
                     key={order.id}
                     style={{
                       background: BRAND.card,
-                      border: `1px solid ${charged ? BRAND.line : BRAND.amber}`,
+                      border: `1px ${hidden ? "dashed" : "solid"} ${
+                        charged ? BRAND.line : BRAND.amber
+                      }`,
                       borderRadius: 10,
                       padding: "12px 14px",
                       display: "flex",
                       gap: 14,
                       alignItems: "center",
                       flexWrap: "wrap",
-                      opacity: charged ? 0.75 : 1,
+                      opacity: hidden ? 0.5 : charged ? 0.75 : 1,
                     }}
                   >
                     <div style={{ flex: "1 1 240px", minWidth: 0 }}>
@@ -475,6 +544,11 @@ export default function InvoicingPage() {
                             month: "short",
                           })}
                           {order.invoicedBy && <div>{order.invoicedBy.split("@")[0]}</div>}
+                          {hidden && (
+                            <div style={{ fontStyle: "italic" }}>
+                              Hidden{order.hiddenBy ? ` by ${order.hiddenBy.split("@")[0]}` : ""}
+                            </div>
+                          )}
                         </>
                       ) : order.dispatchedAt ? (
                         "Sent — waiting to be charged"
@@ -500,11 +574,66 @@ export default function InvoicingPage() {
                         Charged
                       </button>
                     )}
+                    {/* Hiding follows being finished with, the same rule the
+                        job rows above follow for Delete: a charged order is
+                        over, so this is the only place a wrong one still
+                        turns up. No confirm — nothing is destroyed, and the
+                        line under the list puts it back. */}
+                    {charged &&
+                      canEdit &&
+                      (order.hiddenAt ? (
+                        <button
+                          onClick={() => hideShelf(order, false)}
+                          disabled={saving}
+                          title="Put it back on the board"
+                          style={{ ...btn, opacity: saving ? 0.6 : 1 }}
+                        >
+                          Unhide
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => hideShelf(order, true)}
+                          disabled={saving}
+                          title={`Take ${order.customer}'s order off the boards — the record is kept`}
+                          style={deleteLinkStyle}
+                        >
+                          Hide
+                        </button>
+                      ))}
                   </section>
                 );
               })}
             </div>
           </>
+        )}
+
+        {/*
+          The way back.
+
+          A hide with nowhere to see what was hidden is a trapdoor: the row is
+          gone, nothing on the screen says so, and the only way to find it
+          again is Firestore. One line, only there when something is behind
+          it, and it says how many.
+        */}
+        {view === "charged" && shelfHidden.length > 0 && (
+          <p style={{ fontSize: 12, color: BRAND.sub, margin: "0 0 16px" }}>
+            {shelfHidden.length} off-the-shelf{" "}
+            {shelfHidden.length === 1 ? "order is" : "orders are"} hidden ·{" "}
+            <button
+              onClick={() => setShowHidden((v) => !v)}
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                color: BRAND.blue,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: 12,
+              }}
+            >
+              {showHidden ? "hide them again" : "show them"}
+            </button>
+          </p>
         )}
 
         {!loading && jobs.length === 0 && shelfHere.length === 0 && (
