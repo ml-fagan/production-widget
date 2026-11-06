@@ -222,6 +222,13 @@ export default function InvoicingPage() {
 
   const invoiceOf = (h) => stored[h.jobId] ?? h.invoice ?? { state: "to_charge" };
   const stateOf = (h) => invoiceOf(h).state || "to_charge";
+  /**
+   * Put away on this board, record intact.
+   *
+   * Read through `invoiceOf` like the state is, so a row that was just hidden
+   * reads from the response rather than waiting for the next refresh.
+   */
+  const hiddenOf = (h) => Boolean(invoiceOf(h).hiddenAt);
 
   const setInvoice = useCallback(async (jobId, patch) => {
     if (!canEdit) {
@@ -312,15 +319,22 @@ export default function InvoicingPage() {
   const shelfCharged = shelfLive.filter((o) => o.invoicedAt);
   const counts = {
     to_charge: matching.filter((h) => stateOf(h) === "to_charge").length + shelfToCharge.length,
-    charged: matching.filter((h) => stateOf(h) === "charged").length + shelfCharged.length,
+    charged:
+      matching.filter((h) => stateOf(h) === "charged" && !hiddenOf(h)).length + shelfCharged.length,
   };
   // Whichever kind of charge this tab is about. Hidden rows join the charged
   // list only while somebody has asked to see them.
   const shelfOnTab = view === "charged" ? shelfCharged : shelfToCharge;
   const shelfHere =
     view === "charged" && showHidden ? [...shelfCharged, ...shelfHidden] : shelfOnTab;
+  // Jobs put away on this board, kept out of the list and the count. Shown
+  // only while somebody has asked to see them — same line as the shelf ones.
+  const jobsHidden = matching.filter((h) => stateOf(h) === "charged" && hiddenOf(h));
+  // What is really on this tab, for the header — hidden rows are left out
+  // even while they are being shown, so it agrees with the tab above it.
+  const jobsOnTab = matching.filter((h) => stateOf(h) === view && !hiddenOf(h));
   const jobs = matching
-    .filter((h) => stateOf(h) === view)
+    .filter((h) => stateOf(h) === view && (showHidden || !hiddenOf(h)))
     // Out the door and uncharged first: that's the work waiting on her.
     // Within each group, oldest despatch first — the longest unbilled.
     .sort((a, b) => {
@@ -390,9 +404,9 @@ export default function InvoicingPage() {
                   away is not a charge waiting on anybody, and a header that
                   said 97 over a tab that said 96 is how a count stops being
                   believed. */}
-              {jobs.length + shelfOnTab.length}{" "}
-              {jobs.length + shelfOnTab.length === 1 ? "charge" : "charges"}
-              {shelfOnTab.length > 0 && jobs.length > 0 && (
+              {jobsOnTab.length + shelfOnTab.length}{" "}
+              {jobsOnTab.length + shelfOnTab.length === 1 ? "charge" : "charges"}
+              {shelfOnTab.length > 0 && jobsOnTab.length > 0 && (
                 <span style={{ color: BRAND.sub }}> · {shelfOnTab.length} off the shelf</span>
               )}
               {view === "to_charge" && readyToCharge > 0 && (
@@ -615,10 +629,10 @@ export default function InvoicingPage() {
           again is Firestore. One line, only there when something is behind
           it, and it says how many.
         */}
-        {view === "charged" && shelfHidden.length > 0 && (
+        {view === "charged" && shelfHidden.length + jobsHidden.length > 0 && (
           <p style={{ fontSize: 12, color: BRAND.sub, margin: "0 0 16px" }}>
-            {shelfHidden.length} off-the-shelf{" "}
-            {shelfHidden.length === 1 ? "order is" : "orders are"} hidden ·{" "}
+            {shelfHidden.length + jobsHidden.length}{" "}
+            {shelfHidden.length + jobsHidden.length === 1 ? "charge is" : "charges are"} hidden ·{" "}
             <button
               onClick={() => setShowHidden((v) => !v)}
               style={{
@@ -674,7 +688,9 @@ export default function InvoicingPage() {
                 key={h.jobId}
                 style={{
                   background: BRAND.card,
-                  border: `1px solid ${BRAND.line}`,
+                  // Dashed and faded while it is one of the hidden ones being
+                  // shown, so it never reads as ordinary work on the list.
+                  border: `1px ${invoice.hiddenAt ? "dashed" : "solid"} ${BRAND.line}`,
                   borderLeft: `3px solid ${
                     invoice.state === "charged"
                       ? BRAND.green
@@ -684,6 +700,7 @@ export default function InvoicingPage() {
                   }`,
                   borderRadius: 10,
                   padding: "14px 16px",
+                  opacity: invoice.hiddenAt ? 0.55 : 1,
                 }}
               >
                 <div
@@ -757,6 +774,39 @@ export default function InvoicingPage() {
                         Delete
                       </button>
                     )}
+                    {/*
+                      Off this board, record intact.
+
+                      Charged is the gate, not despatched. Delete above is
+                      gated on the job having actually gone out, because it
+                      takes the handover off every board at once — which left
+                      a job that never got that far with no way off this list
+                      at all, and a test handover is exactly that job. 001
+                      "Test, ignore me" has been sitting on it.
+
+                      This only changes what Veronica sees. The handover is
+                      untouched and is still whatever it is to Duncan.
+                    */}
+                    {invoice.state === "charged" &&
+                      (invoice.hiddenAt ? (
+                        <button
+                          onClick={() => setInvoice(h.jobId, { hidden: false })}
+                          disabled={busy}
+                          title="Put it back on this board"
+                          style={{ ...btn, opacity: busy ? 0.6 : 1 }}
+                        >
+                          Unhide
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setInvoice(h.jobId, { hidden: true })}
+                          disabled={busy}
+                          title={`Take ${h.jobId} off the invoicing board — the handover is untouched`}
+                          style={deleteLinkStyle}
+                        >
+                          Hide
+                        </button>
+                      ))}
                   </span>
                 </div>
 
