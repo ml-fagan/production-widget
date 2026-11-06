@@ -1,4 +1,4 @@
-import { streamsOf, onStream, editKey } from "./lib/board.js";
+import { streamsOf, onStream, editKey, scheduleFieldFor } from "./lib/board.js";
 
 /**
  * Which board a job appears on — the rule that decides what Duncan sees.
@@ -74,6 +74,38 @@ check("and defaults to standard", editKey("23296-3") === "23296-3|standard");
 check(
   "the two boards' edits never share a key",
   editKey("23296-3", "fc") !== editKey("23296-3", "standard")
+);
+
+/**
+ * Where a line's dates actually live.
+ *
+ * This is the one that got shipped wrong. `fcSchedule` reads like "the fibre
+ * cement line's dates" and is not: it is the SECOND line's dates, and only
+ * exists for a job running on both. Every fibre cement job's dates are in
+ * `schedule`, because `schedule` was the only one there was — so pointing the
+ * board at `fcSchedule` emptied twenty-four rows on Duncan's screen while the
+ * dates sat untouched in the database.
+ */
+check(
+  "a fibre-cement-only job keeps its dates in `schedule`",
+  scheduleFieldFor({ fibreCement: true }, "fc") === "schedule",
+  scheduleFieldFor({ fibreCement: true }, "fc")
+);
+check(
+  "...including one written since the flags arrived",
+  scheduleFieldFor({ fibreCement: true, standardProduction: false }, "fc") === "schedule"
+);
+check(
+  "a standard-only job uses `schedule`",
+  scheduleFieldFor({ fibreCement: false }, "standard") === "schedule"
+);
+check(
+  "a job on both splits: standard keeps `schedule`",
+  scheduleFieldFor({ fibreCement: true, standardProduction: true }, "standard") === "schedule"
+);
+check(
+  "and fibre cement gets `fcSchedule`",
+  scheduleFieldFor({ fibreCement: true, standardProduction: true }, "fc") === "fcSchedule"
 );
 
 console.log(failures ? `\n${failures} FAILED` : "\nall checks pass");

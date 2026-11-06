@@ -21,6 +21,7 @@ import {
   editKey,
   leadShade,
   onStream,
+  scheduleFieldFor,
 } from "../../lib/board.js";
 
 /**
@@ -216,7 +217,9 @@ export default function BoardPage() {
           ...h,
           stream: which,
           schedule: {
-            ...((which === "fc" ? h.fcSchedule : h.schedule) || {}),
+            // Which field holds this line's dates depends on whether the job
+            // runs on one line or two — see scheduleFieldFor.
+            ...(h[scheduleFieldFor(h, which)] || {}),
             ...(edits[editKey(h.jobId, which)] || {}),
           },
           // So the row can say the other half exists, and is somewhere else.
