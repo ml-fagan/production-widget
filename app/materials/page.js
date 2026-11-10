@@ -1305,8 +1305,32 @@ export default function MaterialsPage() {
     .filter((p) => CLOSED_PRE_ORDER_STATES[p.state])
     .sort((a, b) => String(b.resolvedAt ?? "").localeCompare(String(a.resolvedAt ?? "")));
 
+  /**
+   * Raised, and still with Mitch.
+   *
+   * A pre-order is bought before the handover exists — whoever raises it is
+   * working from a quote, and the person who knows what the job will actually
+   * need has not written it down yet. So it goes past him before anybody
+   * rings a supplier, and until he has let it through it is not work on this
+   * board: the ordering routes refuse it, so a row offering a PO box would be
+   * offering something that cannot be saved.
+   *
+   * Shown in its own group rather than hidden, because whoever raised it
+   * needs to see where it went. A record that vanishes on the person who
+   * created it reads as a record that failed to save.
+   *
+   * Absent `review` means it predates this and was never held — see
+   * preOrderHeld in the handover app. Reading it the other way round would
+   * hold the fifty-eight already on the system all at once.
+   */
+  const heldPreOrders = preOrders
+    .filter((p) => !CLOSED_PRE_ORDER_STATES[p.state])
+    .filter((p) => p.review && !p.review.released)
+    .sort((a, b) => String(a.review?.at ?? "").localeCompare(String(b.review?.at ?? "")));
+
   const preOrderLines = preOrders
     .filter((p) => !CLOSED_PRE_ORDER_STATES[p.state])
+    .filter((p) => !(p.review && !p.review.released))
     .filter(
       (p) =>
         !q ||
@@ -2069,6 +2093,52 @@ export default function MaterialsPage() {
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {/* Raised, and still with Mitch.
+
+                Not work on this board — the ordering routes refuse a held
+                pre-order, so a row offering a PO box would be offering
+                something that cannot be saved. Shown anyway, and plainly,
+                because whoever raised it needs to see where it went: a record
+                that vanishes on the person who created it reads as one that
+                failed to save. */}
+            {heldPreOrders.length > 0 && (
+              <div style={{ marginTop: 20 }}>
+                <div style={{ fontSize: 12, color: BRAND.sub, marginBottom: 6 }}>
+                  Waiting on Mitch&apos;s review · {heldPreOrders.length} — nothing has been
+                  bought yet
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {heldPreOrders.map((p) => (
+                    <div
+                      key={p.id}
+                      style={{
+                        border: `1px dashed ${BRAND.line}`,
+                        borderLeft: `3px solid ${BRAND.blue}`,
+                        borderRadius: 8,
+                        background: BRAND.card,
+                        padding: "8px 12px",
+                        fontSize: 13,
+                        display: "flex",
+                        gap: 12,
+                        alignItems: "baseline",
+                        flexWrap: "wrap",
+                        opacity: 0.8,
+                      }}
+                    >
+                      <strong style={{ minWidth: 70 }}>{p.crm || "Stock"}</strong>
+                      <span style={{ flex: "1 1 220px", minWidth: 0 }}>
+                        {p.quantity ? `${p.quantity} × ` : ""}
+                        {p.name || p.project || "—"}
+                      </span>
+                      <span style={{ fontSize: 12, color: BRAND.sub }}>
+                        raised by {String(p.review?.by || p.loggedBy || "").split("@")[0]}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
