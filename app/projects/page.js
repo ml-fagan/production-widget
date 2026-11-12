@@ -11,6 +11,7 @@ import { baseCrm } from "../../lib/crmUtils.js";
 import { refreshLoop } from "../../lib/refresh.js";
 import { leadSamples, promisedDelivery, describeLead } from "../../lib/leadTime.js";
 import { criticalPath } from "../../lib/criticalPath.js";
+import { siteDateOf } from "../../lib/board.js";
 // Brisbane's today, not UTC's. See the note in criticalPath.
 import { today } from "../../lib/drafting.js";
 
@@ -184,7 +185,17 @@ export default function ProjectsPage() {
         const path = criticalPath({
           parts,
           draftingRows: draftingFor.get(crm) || [],
-          plan,
+          /**
+           * The project's own date, or the earliest its sections carry.
+           *
+           * Derived here rather than inside criticalPath, because that file
+           * is one of a matched pair with decorhandover's and the two have to
+           * go on agreeing about what a date means. What changes is the date
+           * handed to it — and both boards hand it the same one, so a job
+           * dated only by its sections cannot read "no site date" on one
+           * board and "overdue" on the other.
+           */
+          plan: { ...plan, neededOnSite: siteDateOf(plan) },
           samples,
           todayISO,
         });
@@ -505,6 +516,14 @@ function ProjectCard({ p, me, managers, editable, busy, onSave, onApprove, input
               />
             ) : (
               <span style={{ fontSize: 12 }}>{fmtDay(p.plan.neededOnSite) || "—"}</span>
+            )}
+            {/* Blank here but dated section by section on the project sheet.
+                Said out loud, or the box looks like missing information while
+                the chain beside it is running to a date. */}
+            {!p.plan.neededOnSite && siteDateOf(p.plan) && (
+              <div style={{ fontSize: 10.5, color: BRAND.sub, marginTop: 2 }}>
+                sections: {fmtDay(siteDateOf(p.plan))}
+              </div>
             )}
           </Field>
           <Field label="± days">
