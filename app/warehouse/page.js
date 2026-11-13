@@ -9,6 +9,7 @@ import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
 import { refreshLoop } from "../../lib/refresh.js";
+import { errorText } from "../../lib/routeError.js";
 
 // Warehouse — what's on its way in.
 //
@@ -145,7 +146,7 @@ export default function WarehousePage() {
         fetch("/api/pre-orders", { cache: "no-store" }).catch(() => null),
       ]);
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Failed to load handovers");
+      if (!json.ok) throw new Error(errorText(json, "Failed to load handovers"));
       setData(json);
       setError(null);
       const preJson = preRes ? await preRes.json().catch(() => null) : null;
@@ -201,7 +202,7 @@ export default function WarehousePage() {
           throw new Error(
             json.needs === "materials"
               ? "Sending it is Alice's — the dock packs, she books the freight."
-              : json.error || "That didn't save"
+              : errorText(json, "That didn't save")
           );
         }
         await loadShelf();
@@ -246,7 +247,7 @@ export default function WarehousePage() {
           body: JSON.stringify({ jobId, lineId, idToken, ...patch }),
         });
         const json = await res.json();
-        if (!json.ok) throw new Error(json.error || "Update failed");
+        if (!json.ok) throw new Error(errorText(json, "Update failed"));
         setStored((s) => ({ ...s, [jobId]: json.materials }));
       } catch (e) {
         setActionError(`Couldn't update ${jobId}. ${String(e.message || e)}`);
@@ -287,7 +288,7 @@ export default function WarehousePage() {
           body: JSON.stringify({ id: row.id, arrived: String(arrived ?? "").trim(), idToken }),
         });
         const json = await res.json();
-        if (!json.ok) throw new Error(json.error || "Update failed");
+        if (!json.ok) throw new Error(errorText(json, "Update failed"));
         load();
         // Said plainly, because "arrived" no longer means "finished": a part
         // delivery leaves the order open for the rest.
@@ -304,8 +305,28 @@ export default function WarehousePage() {
     [canReceive, load]
   );
 
+  /**
+   * Jobs Mitch has released, and only those.
+   *
+   * The ordering board has filtered held jobs out since the review queue was
+   * built; this one never did, and it lists the same material lines and
+   * writes to the same route. So the dock could put a line of a job nobody
+   * had released straight through — which is how 22512-1 came to be marked
+   * ordered on 13 November while it sat in the review queue.
+   *
+   * The route refuses it now either way, but a row somebody can see and not
+   * act on is its own kind of wrong: the dock would click, get a refusal they
+   * had no way of predicting, and ring somebody. A held job has nothing
+   * arriving and no rack to check, so it is not the dock's work yet.
+   *
+   * Absent `review` means it predates the queue and was never held — see the
+   * same rule on the ordering board and in lib/materialGate on the server.
+   */
   const all = useMemo(
-    () => [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])],
+    () =>
+      [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])].filter(
+        (h) => !(h.review && !h.review.material)
+      ),
     [data]
   );
 

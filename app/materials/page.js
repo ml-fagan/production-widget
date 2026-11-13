@@ -14,6 +14,7 @@ import { workingDaysBetweenStamps } from "../../lib/workingDays.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
 import { JobStateBadge } from "../../lib/jobState.js";
 import { refreshLoop } from "../../lib/refresh.js";
+import { errorText } from "../../lib/routeError.js";
 
 // Material orders board.
 //
@@ -587,7 +588,7 @@ export default function MaterialsPage() {
         fetch("/api/material-stock/available", { cache: "no-store" }).catch(() => null),
       ]);
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Failed to load handovers");
+      if (!json.ok) throw new Error(errorText(json, "Failed to load handovers"));
       setData(json);
       setError(null);
       const preJson = preRes ? await preRes.json().catch(() => null) : null;
@@ -771,7 +772,7 @@ export default function MaterialsPage() {
         body: JSON.stringify({ jobId, lineId, idToken, ...patch }),
       });
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Update failed");
+      if (!json.ok) throw new Error(errorText(json, "Update failed"));
       setStored((s) => ({ ...s, [jobId]: json.materials }));
     } catch (e) {
       setActionError(`Couldn't update ${jobId}. ${String(e.message || e)}`);
@@ -808,7 +809,7 @@ export default function MaterialsPage() {
         body: JSON.stringify({ id, idToken, ...patch }),
       });
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Update failed");
+      if (!json.ok) throw new Error(errorText(json, "Update failed"));
       setPreOrders((prev) => prev.map((p) => (p.id === id ? { ...p, ...json.preOrder } : p)));
     } catch (e) {
       setActionError(`Couldn't update that pre-order. ${String(e.message || e)}`);
@@ -846,7 +847,7 @@ export default function MaterialsPage() {
         body: JSON.stringify({ id: po.id, arrived: String(arrived ?? "").trim(), idToken }),
       });
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Update failed");
+      if (!json.ok) throw new Error(errorText(json, "Update failed"));
       // Jobs, stock and the pre-order all moved at once, so reload rather than
       // patching three lists and hoping they agree.
       load();
@@ -906,7 +907,7 @@ export default function MaterialsPage() {
         body: JSON.stringify({ id: po.id, idToken }),
       });
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Couldn't undo that arrival");
+      if (!json.ok) throw new Error(errorText(json, "Couldn't undo that arrival"));
       load();
       setActionError(
         `Arrival undone: ${json.reversedEntries} stock ${json.reversedEntries === 1 ? "entry" : "entries"} reversed` +
@@ -949,8 +950,8 @@ export default function MaterialsPage() {
           if (saved.length) setPreOrders((prev) => [...saved.reverse(), ...prev]);
           throw new Error(
             saved.length
-              ? `${saved.length} saved, then "${entry.finish}" failed: ${json.error || "save failed"}`
-              : json.error || "Save failed"
+              ? `${saved.length} saved, then "${entry.finish}" failed: ${errorText(json, "save failed")}`
+              : errorText(json, "Save failed")
           );
         }
         saved.push(json.preOrder);
@@ -994,7 +995,7 @@ export default function MaterialsPage() {
         throw new Error(
           json.error === "already_ordered"
             ? "It's been ordered — the details are what the supplier was asked for now, so they can't be changed here."
-            : json.error || "Save failed"
+            : errorText(json, "Save failed")
         );
       }
       setPreOrders((prev) => prev.map((p) => (p.id === id ? { ...p, ...json.preOrder } : p)));
@@ -1027,7 +1028,7 @@ export default function MaterialsPage() {
         body: JSON.stringify({ id, idToken }),
       });
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Update failed");
+      if (!json.ok) throw new Error(errorText(json, "Update failed"));
       setPreOrders((prev) => prev.map((p) => (p.id === id ? json.preOrder : p)));
     } catch (e) {
       setActionError(`Couldn't move that pre-order to stock. ${String(e.message || e)}`);
@@ -1065,7 +1066,7 @@ export default function MaterialsPage() {
         body: JSON.stringify({ id, idToken }),
       });
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Update failed");
+      if (!json.ok) throw new Error(errorText(json, "Update failed"));
       setPreOrders((prev) => prev.map((p) => (p.id === id ? json.preOrder : p)));
     } catch (e) {
       setActionError(`Couldn't close that pre-order as already in stock. ${String(e.message || e)}`);
@@ -1107,7 +1108,7 @@ export default function MaterialsPage() {
         throw new Error(
           json.error === "no_stock_entry_recorded"
             ? "this one was folded into stock before the board started recording which entry it wrote, so reopening it can't take the material back off the register. Do that by hand on the Stock tab."
-            : json.error || "Update failed"
+            : errorText(json, "Update failed")
         );
       }
       setPreOrders((prev) => prev.map((p) => (p.id === id ? json.preOrder : p)));
@@ -1137,7 +1138,7 @@ export default function MaterialsPage() {
         body: JSON.stringify({ id, idToken }),
       });
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Delete failed");
+      if (!json.ok) throw new Error(errorText(json, "Delete failed"));
       setPreOrders((prev) => prev.filter((p) => p.id !== id));
       setDeleteId(null);
       setDeleteText("");
@@ -1187,7 +1188,7 @@ export default function MaterialsPage() {
         throw new Error(
           json.error === "already_ordered"
             ? "It's been ordered — the line is what the supplier was asked for now."
-            : json.error || "Save failed"
+            : errorText(json, "Save failed")
         );
       }
       if (row.isPreOrder) {
