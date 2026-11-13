@@ -111,14 +111,19 @@ const TABS = [
     title: "Cost and sell price for DecorZen, flat panel, slat, baffle and metal ceiling jobs",
   },
   {
-    // One board per project manager, and everybody with the area reads them
-    // all. Only rendered for whoever holds Projects — see `tabs` on the
-    // capabilities.
-    key: "projects",
-    label: "Projects",
-    href: "/projects",
+    // What happened to every project, and when — assembled from the stamps
+    // the other boards already keep. It replaced the projects board that sat
+    // here: that was a tile per project with five circles on it, and the
+    // project managers' real board lives in the handover app.
+    //
+    // Only rendered for whoever has been granted Timeline by name. It crosses
+    // every area at once — the quote, the orders, the dates, the invoice — so
+    // it is not implied by holding any one of them. See `timeline` on Access.
+    key: "timeline",
+    label: "Timeline",
+    href: "/timeline",
     group: "projects",
-    title: "Each project manager's jobs — who has signed, what's promised, and what's at risk",
+    title: "What happened to every project, and when — read-only",
   },
 
   // Below the line, off to the side: the things that aren't the day's work. A

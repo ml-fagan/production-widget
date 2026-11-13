@@ -439,6 +439,18 @@ export default function AccessPage() {
                     />
                     Review
                   </label>
+                  <label
+                    style={{ fontSize: 11, color: BRAND.sub, display: "flex", gap: 5, alignItems: "center" }}
+                    title="Reading the Timeline: every project's history in one page — the quote, the drawings, the approval, the pre-orders, Alice's purchase orders, Duncan's dates and Veronica's invoice. It crosses every area, so it is granted by name rather than implied by any of them. Admin carries it anyway."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(next.timeline)}
+                      onChange={(e) => set({ timeline: e.target.checked })}
+                      disabled={busy}
+                    />
+                    Timeline
+                  </label>
 
                   <button
                     onClick={() => approve(person)}
@@ -532,6 +544,12 @@ export default function AccessPage() {
                     >
                       Review
                     </th>
+                    <th
+                      style={{ ...th, textAlign: "center" }}
+                      title="Reading the Timeline: every project's history in one page — the quote, the drawings, the approval, the pre-orders, Alice's purchase orders, Duncan's dates and Veronica's invoice. It crosses every area, so it is granted by name rather than implied by any of them. Admin carries it anyway."
+                    >
+                      Timeline
+                    </th>
                     <th style={th} title="Removing records and answering requests">
                       Admin
                     </th>
@@ -612,6 +630,15 @@ export default function AccessPage() {
                             onChange={(e) => set({ handoverReview: e.target.checked })}
                             disabled={busy}
                             aria-label={`Handover review for ${person.name}`}
+                          />
+                        </td>
+                        <td style={{ ...td, textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(person.access.timeline)}
+                            onChange={(e) => set({ timeline: e.target.checked })}
+                            disabled={busy}
+                            aria-label={`Timeline for ${person.name}`}
                           />
                         </td>
                         <td style={{ ...td, textAlign: "center" }}>
