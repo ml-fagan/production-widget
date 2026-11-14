@@ -7,7 +7,6 @@ import SignIn from "../SignIn.js";
 import { auth, firebaseConfigured } from "../../lib/firebaseClient.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
-import { refreshLoop } from "../../lib/refresh.js";
 import { errorText } from "../../lib/routeError.js";
 
 /**
@@ -34,7 +33,18 @@ import { errorText } from "../../lib/routeError.js";
  * name on the Access tab — see `timeline` on Access.
  */
 
-const REFRESH_MS = 120_000;
+/**
+ * This page does not poll.
+ *
+ * Every other board here refreshes on a timer because somebody is working
+ * from it and the next person's change matters within the minute. Nothing on
+ * this one can be changed, and the thing it describes is the past — so a
+ * timer would be a page nobody is reading spending money on the server's
+ * behalf. It loads when opened, and reloads when asked.
+ *
+ * See the Refresh button, which forces the server to reassemble rather than
+ * serve its stored copy.
+ */
 
 const C = {
   bg: "#f5f3ef",
@@ -114,14 +124,16 @@ export default function TimelinePage() {
     return onAuthStateChanged(auth(), (u) => setSignedIn(Boolean(u)));
   }, []);
 
-  const load = useCallback(async () => {
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async (rebuild = false) => {
     if (!firebaseConfigured() || !auth().currentUser) return;
     try {
       const idToken = await auth().currentUser.getIdToken();
       const res = await fetch("/api/timeline", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken }),
+        body: JSON.stringify({ idToken, rebuild }),
       });
       const json = await res.json();
       if (!json.ok) {
@@ -137,13 +149,13 @@ export default function TimelinePage() {
       setError(String(e.message || e));
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
     if (!signedIn) return;
     load();
-    return refreshLoop(load, REFRESH_MS);
   }, [load, signedIn]);
 
   const shown = useMemo(() => {
@@ -186,7 +198,16 @@ export default function TimelinePage() {
 
   return (
     <Shell>
-      <Masthead count={data?.projects?.length ?? null} tabs={can?.tabs} />
+      <Masthead
+        count={data?.projects?.length ?? null}
+        tabs={can?.tabs}
+        builtAt={data?.builtAt}
+        refreshing={refreshing}
+        onRefresh={() => {
+          setRefreshing(true);
+          load(true);
+        }}
+      />
 
       {error && <Banner red>{error}</Banner>}
 
@@ -522,20 +543,81 @@ function Banner({ children, red }) {
   );
 }
 
-function Masthead({ count, tabs }) {
+function Masthead({ count, tabs, builtAt, onRefresh, refreshing }) {
   return (
     <>
       <Tabs current="timeline" tabs={tabs} />
-      <div style={{ marginTop: HEADER_GAP, marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.02em" }}>Timeline</h1>
-        <div style={{ fontSize: 12.5, color: C.sub, marginTop: 3 }}>
-          {count === null
-            ? "What happened to every project, and when"
-            : `${count} ${count === 1 ? "project" : "projects"} · what happened, and when · most recently touched first`}
+      <div
+        style={{
+          marginTop: HEADER_GAP,
+          marginBottom: 16,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+          gap: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.02em" }}>Timeline</h1>
+          <div style={{ fontSize: 12.5, color: C.sub, marginTop: 3 }}>
+            {count === null
+              ? "What happened to every project, and when"
+              : `${count} ${count === 1 ? "project" : "projects"} · what happened, and when · most recently touched first`}
+          </div>
         </div>
+        {/*
+          How old the answer is, said out loud.
+
+          The server assembles this at most once every ten minutes and serves
+          the stored copy in between — which is the whole reason the page is
+          cheap to look at. A page that was quietly a few minutes behind and
+          didn't say so would be worse than one that polls.
+        */}
+        {onRefresh && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {builtAt && (
+              <span style={{ fontSize: 11.5, color: C.sub }}>
+                as at {fmtClock(builtAt)}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              title="Reassemble from the records now, rather than using the stored copy"
+              style={{
+                border: `1px solid ${C.line}`,
+                background: "#fff",
+                color: C.ink,
+                borderRadius: 8,
+                padding: "6px 13px",
+                fontSize: 12.5,
+                fontFamily: "inherit",
+                cursor: refreshing ? "default" : "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {refreshing ? "Rebuilding…" : "Refresh"}
+            </button>
+          </div>
+        )}
       </div>
     </>
   );
+}
+
+/** A timestamp as a clock time, Brisbane, with the day where it isn't today. */
+function fmtClock(iso) {
+  const when = new Date(String(iso || ""));
+  if (Number.isNaN(when.getTime())) return "";
+  const local = new Date(when.getTime() + 10 * 3600_000);
+  const h = local.getUTCHours();
+  const m = String(local.getUTCMinutes()).padStart(2, "0");
+  const time = `${((h + 11) % 12) + 1}:${m}${h < 12 ? "am" : "pm"}`;
+  const today = new Date(Date.now() + 10 * 3600_000).toISOString().slice(0, 10);
+  const day = local.toISOString().slice(0, 10);
+  return day === today ? time : `${fmtDay(day)}, ${time}`;
 }
 
 function Shell({ children }) {
