@@ -210,7 +210,40 @@ export default function BoardPage() {
    */
   const rowsFor = useCallback(
     (which) => {
-      const all = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
+      const jobs = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
+
+      /**
+       * A job that goes out in more than one load is more than one row.
+       *
+       * Duncan could not fit it on one truck, so the handover was split — see
+       * the Split despatch button in the handover app — and each load needs
+       * its own date, its own process cells and its own despatch. They are
+       * numbered 21398-1-1 and 21398-1-2, and the job itself does not appear:
+       * dating it as a whole would be dating a truck that does not exist.
+       *
+       * The material behind them is not split and never is. One picking list,
+       * one order, one set of purchase orders — which is why a load carries
+       * no material of its own here.
+       */
+      const all = jobs.flatMap((h) =>
+        (h.despatch ?? []).length
+          ? h.despatch.map((part) => ({
+              ...h,
+              jobId: part.jobId,
+              partOf: h.jobId,
+              partId: part.id,
+              // The load's own dates, in the same shape a job carries them.
+              schedule: part.schedule,
+              fcSchedule: part.fcSchedule,
+              // What is on this truck, rather than what the job sells.
+              product:
+                (part.invoiceLines ?? [])
+                  .map((l) => [l.code, l.name].filter(Boolean).join(" "))
+                  .join(", ") || h.product,
+            }))
+          : [h]
+      );
+
       return all
         .filter((h) => onStream(h, which))
         .map((h) => ({
@@ -236,7 +269,11 @@ export default function BoardPage() {
     const q = query.trim().toLowerCase();
     const matching = q
       ? inStream.filter((h) =>
-          [h.jobId, h.project, h.client, h.product].join(" ").toLowerCase().includes(q)
+          [h.jobId, h.partOf, h.project, h.client, h.product]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(q)
         )
       : inStream;
     // Soonest out first, like the spreadsheet. Jobs with no date yet collect at
@@ -278,7 +315,15 @@ export default function BoardPage() {
 
   const save = useCallback(
     async (row, patch) => {
-      const jobId = row.jobId;
+      /**
+       * The row may be one load of a split job.
+       *
+       * Its `jobId` is 21398-1-2, which is what Duncan reads and what keys
+       * the optimistic edit — but the record behind it is the handover, and
+       * the write has to name both. See lib/despatchSplit.
+       */
+      const jobId = row.partOf || row.jobId;
+      const partId = row.partId || "";
       const stream = row.stream || "standard";
       // Checked before the optimistic update, not after: showing a cell as
       // changed and then refusing to save it is worse than not moving at all.
@@ -298,7 +343,7 @@ export default function BoardPage() {
         );
         return;
       }
-      const key = editKey(jobId, stream);
+      const key = editKey(row.jobId, stream);
       setEdits((e) => ({ ...e, [key]: { ...(e[key] || {}), ...patch } }));
       setActionError(null);
       try {
@@ -306,7 +351,7 @@ export default function BoardPage() {
         const res = await fetch("/api/schedule-edit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId, stream, patch, idToken }),
+          body: JSON.stringify({ jobId, partId, stream, patch, idToken }),
         });
         const json = await res.json();
         if (!json.ok) throw new Error(json.error || "Update failed");
@@ -332,7 +377,7 @@ export default function BoardPage() {
             await fetch("/api/schedule-edit", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ jobId, stream, patch, idToken, acknowledgeShortfall: true }),
+              body: JSON.stringify({ jobId, partId, stream, patch, idToken, acknowledgeShortfall: true }),
             });
           }
           setActionError(
@@ -402,7 +447,10 @@ export default function BoardPage() {
   // Drops a job off the board and the production schedule's active list,
   // stamping who and when rather than deleting anything.
   const completeJob = useCallback(async (row) => {
-    const { jobId } = row;
+    // One load of a split job, or the whole job. The record is the handover
+    // either way — see the note on `save`.
+    const jobId = row.partOf || row.jobId;
+    const partId = row.partId || "";
     const stream = row.stream || "standard";
     const current = firebaseConfigured() ? auth().currentUser : null;
     if (!current) {
@@ -416,11 +464,11 @@ export default function BoardPage() {
       const res = await fetch("/api/handovers/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, stream, completed: true, idToken }),
+        body: JSON.stringify({ jobId, partId, stream, completed: true, idToken }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Update failed");
-      const key = editKey(jobId, stream);
+      const key = editKey(row.jobId, stream);
       setEdits((e) => ({
         ...e,
         [key]: { ...(e[key] || {}), completedAt: json.schedule.completedAt, completedBy: json.schedule.completedBy },
@@ -435,7 +483,8 @@ export default function BoardPage() {
 
   // Undoes a mark-complete — a mis-click shouldn't need a trip to Firestore.
   const reopenJob = useCallback(async (row) => {
-    const { jobId } = row;
+    const jobId = row.partOf || row.jobId;
+    const partId = row.partId || "";
     const stream = row.stream || "standard";
     const current = firebaseConfigured() ? auth().currentUser : null;
     if (!current) {
@@ -448,11 +497,11 @@ export default function BoardPage() {
       const res = await fetch("/api/handovers/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, stream, completed: false, idToken }),
+        body: JSON.stringify({ jobId, partId, stream, completed: false, idToken }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Update failed");
-      const key = editKey(jobId, stream);
+      const key = editKey(row.jobId, stream);
       setEdits((e) => ({ ...e, [key]: { ...(e[key] || {}), completedAt: null, completedBy: "" } }));
     } catch (e) {
       setActionError(`Couldn't reopen ${jobId}. ${String(e.message || e)}`);
