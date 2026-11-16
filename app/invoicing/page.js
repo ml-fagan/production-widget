@@ -230,7 +230,13 @@ export default function InvoicingPage() {
    */
   const hiddenOf = (h) => Boolean(invoiceOf(h).hiddenAt);
 
-  const setInvoice = useCallback(async (jobId, patch) => {
+  /**
+   * `jobId` here is the row's id, which for a split job is 21398-1-2 — a
+   * despatch, not a document. The write has to name the handover and the
+   * despatch separately, and `stored` stays keyed by the row so the board
+   * updates the line that was clicked.
+   */
+  const setInvoice = useCallback(async (jobId, patch, { realJobId = jobId, partId = "" } = {}) => {
     if (!canEdit) {
       setActionError("This board is Veronica's — you can see it, but not change it.");
       return;
@@ -253,7 +259,7 @@ export default function InvoicingPage() {
       const res = await fetch("/api/invoice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, idToken, ...patch }),
+        body: JSON.stringify({ jobId: realJobId, partId, idToken, ...patch }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Update failed");
@@ -293,13 +299,49 @@ export default function InvoicingPage() {
    * count is shown under the heading so a job stuck in a review queue is
    * visible from the board waiting for it — see /review.
    */
-  const everything = [...(data?.awaiting ?? []), ...(data?.scheduled ?? [])];
+  /**
+   * A job that goes out in more than one load is more than one invoice.
+   *
+   * Duncan could not fit it on one truck, so the handover was split — see
+   * the Split despatch button on the handover. Each load is its own row here,
+   * numbered 21398-1-1 and 21398-1-2, with its own share of the charge and
+   * its own charged stamp. The job itself does not appear: billing it as a
+   * whole would bill a load that has not left the building.
+   *
+   * Expanded here rather than on the server so every other board sees the
+   * job exactly as it always did. Nothing about the split reaches Alice: the
+   * picking list and the purchase orders are the job's, and they stay the
+   * job's.
+   */
+  const expand = (rows) =>
+    rows.flatMap((h) =>
+      (h.despatch ?? []).length
+        ? h.despatch.map((part) => ({
+            ...h,
+            jobId: part.jobId,
+            partOf: h.jobId,
+            partId: part.id,
+            invoice: part.invoice,
+            invoiceLines: part.invoiceLines,
+            chargeNote: part.note || h.chargeNote,
+            // Veronica bills when the load goes, so the despatch date is the
+            // date this row is waiting on — not the job's.
+            despatchedAt: part.despatchDate || h.despatchedAt,
+          }))
+        : [h]
+    );
+
+  const everything = expand([...(data?.awaiting ?? []), ...(data?.scheduled ?? [])]);
   const heldForReview = everything.filter((h) => h.review && !h.review.invoice);
   const all = everything.filter((h) => !(h.review && !h.review.invoice));
   const q = query.trim().toLowerCase();
   const matching = q
     ? all.filter((h) =>
-        [h.jobId, h.project, h.client, h.product].join(" ").toLowerCase().includes(q)
+        [h.jobId, h.partOf, h.project, h.client, h.product]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(q)
       )
     : all;
 
@@ -711,14 +753,25 @@ export default function InvoicingPage() {
                     flexWrap: "wrap",
                   }}
                 >
+                  {/* The number Veronica puts on the invoice. For a split
+                      job that is the despatch, 21398-1-2 — but the record
+                      behind it is the handover, so the link goes there. */}
                   <a
-                    href={`${HANDOVER_APP}/${encodeURIComponent(h.jobId)}`}
+                    href={`${HANDOVER_APP}/${encodeURIComponent(h.partOf || h.jobId)}`}
                     target="_blank"
                     rel="noreferrer"
                     style={{ fontWeight: 600, fontSize: 14, color: BRAND.blue, textDecoration: "none" }}
                   >
                     {h.jobId}
                   </a>
+                  {h.partOf && (
+                    <span
+                      style={{ fontSize: 11, color: BRAND.sub }}
+                      title={`One of several despatches of ${h.partOf}. The material order is the job's and is not split.`}
+                    >
+                      despatch of {h.partOf}
+                    </span>
+                  )}
                   <span style={{ fontSize: 14 }}>{h.project || h.client || "—"}</span>
                   {h.client && h.project && (
                     <span style={{ fontSize: 12, color: BRAND.sub }}>{h.client}</span>
@@ -737,7 +790,7 @@ export default function InvoicingPage() {
                   <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
                     {invoice.state === "to_charge" ? (
                       <button
-                        onClick={() => setInvoice(h.jobId, { state: "charged" })}
+                        onClick={() => setInvoice(h.jobId, { state: "charged" }, { realJobId: h.partOf || h.jobId, partId: h.partId || "" })}
                         disabled={busy}
                         style={{
                           ...btn,
@@ -751,7 +804,7 @@ export default function InvoicingPage() {
                       </button>
                     ) : (
                       <button
-                        onClick={() => setInvoice(h.jobId, { state: "to_charge" })}
+                        onClick={() => setInvoice(h.jobId, { state: "to_charge" }, { realJobId: h.partOf || h.jobId, partId: h.partId || "" })}
                         disabled={busy}
                         style={{ ...btn, color: BRAND.green }}
                         title={
@@ -790,7 +843,7 @@ export default function InvoicingPage() {
                     {invoice.state === "charged" &&
                       (invoice.hiddenAt ? (
                         <button
-                          onClick={() => setInvoice(h.jobId, { hidden: false })}
+                          onClick={() => setInvoice(h.jobId, { hidden: false }, { realJobId: h.partOf || h.jobId, partId: h.partId || "" })}
                           disabled={busy}
                           title="Put it back on this board"
                           style={{ ...btn, opacity: busy ? 0.6 : 1 }}
@@ -799,7 +852,7 @@ export default function InvoicingPage() {
                         </button>
                       ) : (
                         <button
-                          onClick={() => setInvoice(h.jobId, { hidden: true })}
+                          onClick={() => setInvoice(h.jobId, { hidden: true }, { realJobId: h.partOf || h.jobId, partId: h.partId || "" })}
                           disabled={busy}
                           title={`Take ${h.jobId} off the invoicing board — the handover is untouched`}
                           style={deleteLinkStyle}
@@ -896,7 +949,7 @@ export default function InvoicingPage() {
                     defaultValue={invoice.reference || ""}
                     onBlur={(e) => {
                       if ((invoice.reference || "") !== e.target.value) {
-                        setInvoice(h.jobId, { reference: e.target.value });
+                        setInvoice(h.jobId, { reference: e.target.value }, { realJobId: h.partOf || h.jobId, partId: h.partId || "" });
                       }
                     }}
                     placeholder="Invoice reference (optional)"
