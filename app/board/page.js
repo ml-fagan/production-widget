@@ -829,8 +829,19 @@ export default function BoardPage() {
                     <Fragment key={row.jobId}>
                     <tr>
                       <td style={{ ...td, ...stickyJob }}>
+                        {/*
+                          The row's number, linking to the RECORD behind it.
+
+                          For one load of a split job those are different
+                          things: the row is 20417-1-1 and the handover is
+                          20417-1. Linking to the row's own number opened a
+                          blank new form in the handover app — a despatch is
+                          not a document — and on 17 November somebody edited
+                          it, sent it, and created a second real handover
+                          answering to the name of a despatch.
+                        */}
                         <a
-                          href={`${HANDOVER_APP}/${encodeURIComponent(row.jobId)}`}
+                          href={`${HANDOVER_APP}/${encodeURIComponent(row.partOf || row.jobId)}`}
                           target="_blank"
                           rel="noreferrer"
                           style={{ color: BRAND.blue, textDecoration: "none", fontWeight: 600 }}
@@ -839,7 +850,7 @@ export default function BoardPage() {
                         </a>
                         {" · "}
                         <a
-                          href={`${HANDOVER_APP}/${encodeURIComponent(row.jobId)}/ticket`}
+                          href={`${HANDOVER_APP}/${encodeURIComponent(row.partOf || row.jobId)}/ticket`}
                           target="_blank"
                           rel="noreferrer"
                           title="Job ticket — printable cover page for the floor"
