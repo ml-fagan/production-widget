@@ -235,6 +235,15 @@ export default function BoardPage() {
               // The load's own dates, in the same shape a job carries them.
               schedule: part.schedule,
               fcSchedule: part.fcSchedule,
+              /**
+               * And its own steps.
+               *
+               * Two loads of one job are usually different products going
+               * through different machines — DecorZen Solid on one truck and
+               * DecorZen Micro on the next — so showing the job's whole list
+               * against both told Duncan nothing about either.
+               */
+              processes: part.processes ?? h.processes,
               // What is on this truck, rather than what the job sells.
               product:
                 (part.invoiceLines ?? [])
