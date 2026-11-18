@@ -10,6 +10,7 @@ import { confirmAndDeleteJob, deleteLinkStyle } from "../deleteJob.js";
 import { useCapabilities } from "../../lib/useCapabilities.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../../lib/layout.js";
 import { refreshLoop } from "../../lib/refresh.js";
+import Closedowns from "./Closedowns.js";
 import {
   PROCESS_COLUMNS,
   CELL_COLOURS,
@@ -272,6 +273,15 @@ export default function BoardPage() {
   );
 
   const mergedRows = useMemo(() => rowsFor(stream), [rowsFor, stream]);
+
+  /**
+   * The days the factory is shut, as the leads on this board are measured.
+   *
+   * Comes down with the jobs. Empty until the first load, and empty is the
+   * honest answer for a year nobody has filled in — the lead is then the plain
+   * span it has always been.
+   */
+  const closedowns = useMemo(() => data?.closedowns ?? [], [data]);
 
   const rows = useMemo(() => {
     const inStream = mergedRows.filter((h) => !h.schedule?.completedAt);
@@ -769,6 +779,18 @@ export default function BoardPage() {
             style={{ ...input, flex: 1, maxWidth: 360, padding: "7px 10px", fontSize: 13 }}
           />
           <Legend />
+          {/*
+            The shutdown calendar, up here with the legend rather than down in
+            a settings page: it is read as often as the legend is — it explains
+            why a lead says what it says — and typed about twice a year.
+          */}
+          <div style={{ marginLeft: "auto" }}>
+            <Closedowns
+              closedowns={closedowns}
+              canEdit={caps.schedule}
+              onChanged={(next) => setData((d) => (d ? { ...d, closedowns: next } : d))}
+            />
+          </div>
         </div>
 
         {!loading && rows.length === 0 && (
@@ -820,7 +842,7 @@ export default function BoardPage() {
               <tbody>
                 {rows.map((row) => {
                   const s = row.schedule || {};
-                  const lead = boardLeadFor(row);
+                  const lead = boardLeadFor(row, closedowns);
                   const approval = approvalFor(row);
                   // A job whose last material lands after the date it's committed
                   // to is a miss nobody is currently told about — both numbers
@@ -833,7 +855,7 @@ export default function BoardPage() {
                   // Shown but not saved: the date is the handover's until Duncan
                   // types one of his own.
                   const approvalFromHandover = !s.approvalDate && Boolean(approval);
-                  const auto = computedLead(approval, s.committedDate);
+                  const auto = computedLead(approval, s.committedDate, closedowns);
                   return (
                     <Fragment key={row.jobId}>
                     <tr>

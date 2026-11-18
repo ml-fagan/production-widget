@@ -1,4 +1,4 @@
-import { fetchLoggedHandovers, splitByScheduled } from "../../../lib/handovers.js";
+import { fetchLoggedHandovers, splitByScheduled, closedownsSeen } from "../../../lib/handovers.js";
 import { tokenForCrm } from "../../../lib/token.js";
 import {
   fetchProductionTasks,
@@ -69,6 +69,9 @@ export async function GET(req) {
         ok: true,
         awaiting,
         scheduled,
+        // The days the factory is shut, so every lead on the board is measured
+        // across the days somebody was actually here. See lib/closedowns.
+        closedowns: closedownsSeen(),
         fetchedAt: new Date().toISOString(),
       },
       { headers: { "Cache-Control": "no-store" } }

@@ -79,6 +79,9 @@ export default function Page() {
   const [awaiting, setAwaiting] = useState([]);
   const [unordered, setUnordered] = useState([]);
   const [handovers, setHandovers] = useState([]);
+  // The days the factory is shut, so a lead across Christmas doesn't read as
+  // three weeks of work nobody did. See lib/closedowns.
+  const [closedowns, setClosedowns] = useState([]);
 
   // Load once on mount (localStorage isn't available during SSR).
   useEffect(() => {
@@ -126,6 +129,7 @@ export default function Page() {
       setError(null);
       setFetchedAt(json.fetchedAt || new Date().toISOString());
       setHandovers([...(json.awaiting || []), ...(json.scheduled || [])]);
+      setClosedowns(json.closedowns || []);
       setAwaiting(json.awaiting || []);
       setUnordered(
         [...(json.awaiting || []), ...(json.scheduled || [])].filter(
@@ -181,7 +185,7 @@ export default function Page() {
          * approval date on the handover rather than typed onto the schedule,
          * so being strict now just means the figure is blank.
          */
-        lead: boardLeadFor(h),
+        lead: boardLeadFor(h, closedowns),
         priority: h.schedule.priority || "",
         fc: false,
         /**

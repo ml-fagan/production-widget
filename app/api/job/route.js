@@ -1,4 +1,4 @@
-import { fetchLoggedHandovers } from "../../../lib/handovers.js";
+import { fetchLoggedHandovers, closedownsSeen } from "../../../lib/handovers.js";
 import { boardLeadFor } from "../../../lib/board.js";
 import { baseCrm, crmLooksValid } from "../../../lib/crmUtils.js";
 import {
@@ -84,7 +84,7 @@ export async function GET(req) {
         priority: h.schedule?.priority || "",
         // Weeks, which is what the spreadsheet's Lead Time column held and
         // what the schedule board shows.
-        lead: boardLeadFor(h),
+        lead: boardLeadFor(h, closedownsSeen()),
         // Past its date and not finished. A job Duncan has stamped complete is
         // never overdue however old its dates are — the sheet had no way to
         // know that, which is what left delivered jobs flagged late forever.
