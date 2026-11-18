@@ -250,6 +250,27 @@ export default function BoardPage() {
                 (part.invoiceLines ?? [])
                   .map((l) => [l.code, l.name].filter(Boolean).join(" "))
                   .join(", ") || h.product,
+              /**
+               * The same thing as a list, so the cell can show all of it.
+               *
+               * A load of five products joined into one line was cut off at
+               * the column width — 21027-1-3 read "CFC4 DecorLux - Solid,
+               * CFC5a …" and the other four were only in the tooltip. The
+               * products are what the row is ABOUT, so they get their own
+               * lines rather than an ellipsis.
+               *
+               * Products only, which is what this column has always meant: a
+               * job's own Product cell is its products, and a load's lines
+               * are products AND the materials and accessories billed beside
+               * them. Listing all of those put eight rows of screws and
+               * backing strip in the cell for 21027-1-4 and made one row
+               * three hundred pixels tall. The full list, quantities and all,
+               * is a click away on `load`.
+               */
+              productLines: (part.invoiceLines ?? [])
+                .filter((l) => l.source === "product")
+                .map((l) => [l.code, l.name].filter(Boolean).join(" "))
+                .filter(Boolean),
             }))
           : [h]
       );
@@ -890,6 +911,30 @@ export default function BoardPage() {
                           ticket
                         </a>
                         {/*
+                          What is actually on THIS load.
+
+                          Both links above go to the handover, and they have
+                          to: a despatch is not a document, and linking a load
+                          to its own number is what created a phantom handover
+                          on 17 November. But the handover is the whole job —
+                          four loads of it — so from a row that is one load,
+                          neither link answers the question the row raises.
+                        */}
+                        {row.partOf && (
+                          <>
+                            {" · "}
+                            <a
+                              href={`${HANDOVER_APP}/despatches/${encodeURIComponent(row.jobId)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="What is on this load — read-only"
+                              style={{ color: BRAND.sub, textDecoration: "none", fontSize: 11 }}
+                            >
+                              load
+                            </a>
+                          </>
+                        )}
+                        {/*
                           The other half of the job, and where it is.
 
                           Without it this row is indistinguishable from a job
@@ -991,11 +1036,30 @@ export default function BoardPage() {
                           B
                         </label>
                       </td>
+                      {/*
+                        Every product on the row, one per line.
+
+                        Capped in width but not in height: a job sells one
+                        product and a load can carry six, and which six is the
+                        thing Duncan is reading the row for.
+                      */}
                       <td
-                        style={{ ...td, maxWidth: 136, overflow: "hidden", textOverflow: "ellipsis" }}
+                        style={{
+                          ...td,
+                          maxWidth: 190,
+                          minWidth: 136,
+                          whiteSpace: "normal",
+                          lineHeight: 1.3,
+                        }}
                         title={row.product || ""}
                       >
-                        {row.product || "—"}
+                        {row.productLines?.length ? (
+                          row.productLines.map((name, i) => (
+                            <div key={`${name}-${i}`}>{name}</div>
+                          ))
+                        ) : (
+                          row.product || "—"
+                        )}
                       </td>
                       {["committedDate", "actualDate"].map((field) => (
                         <td style={td} key={field}>
