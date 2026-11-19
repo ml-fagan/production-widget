@@ -114,6 +114,16 @@ export default function WarehousePage() {
   // is the one who knows it went.
   const canDispatch = caps.materials;
   const [shelf, setShelf] = useState([]);
+  /**
+   * The order being sent, while whoever is sending it says what it took.
+   *
+   * An off-the-shelf order is a sentence taken down the phone — "40 sheets of
+   * Blackbutt" — and the register files stock by name AND size. Nothing can
+   * work out which rack that sentence means, so the person holding the sheets
+   * is asked, once, at the only moment they are standing in front of them.
+   */
+  const [dispatching, setDispatching] = useState(null);
+  const [registerRows, setRegisterRows] = useState(null);
   const [saving, setSaving] = useState(false);
   const [received, setReceived] = useState({});
   const [pending, setPending] = useState({});
@@ -174,8 +184,15 @@ export default function WarehousePage() {
    * offered follows the right rather than the page: the dock packs, Alice
    * sends, and the server checks the same split.
    */
+  /**
+   * `extra` carries the register line a dispatch takes off the rack.
+   *
+   * Dispatching now moves the stock register in the same write that marks the
+   * order gone — see /api/shelf-orders. The server refuses a dispatch without
+   * it, so the panel below asks for it rather than the button sending blind.
+   */
   const markShelf = useCallback(
-    async (order, mark) => {
+    async (order, mark, extra = {}) => {
       const current = firebaseConfigured() ? auth().currentUser : null;
       if (!current) {
         setActionError("Sign in first so this is recorded against your name.");
@@ -194,6 +211,7 @@ export default function WarehousePage() {
             kind: "note",
             mark,
             note: mark === "packed" ? "Packed" : "Dispatched",
+            ...extra,
             idToken,
           }),
         });
@@ -202,9 +220,12 @@ export default function WarehousePage() {
           throw new Error(
             json.needs === "materials"
               ? "Sending it is Alice's — the dock packs, she books the freight."
-              : errorText(json, "That didn't save")
+              : json.error === "needs_stock_line"
+                ? json.message || "Say which material this came off before marking it gone."
+                : errorText(json, "That didn't save")
           );
         }
+        setDispatching(null);
         await loadShelf();
       } catch (e) {
         setActionError(String(e.message || e));
@@ -720,7 +741,7 @@ export default function WarehousePage() {
                       </button>
                     ) : (
                       <button
-                        onClick={() => markShelf(order, "dispatched")}
+                        onClick={() => setDispatching(order)}
                         disabled={saving || !canDispatch}
                         title={
                           canDispatch
@@ -1401,6 +1422,219 @@ export default function WarehousePage() {
           </p>
         )}
       </div>
+
+      {dispatching && (
+        <DispatchPanel
+          order={dispatching}
+          rows={registerRows}
+          saving={saving}
+          onClose={() => setDispatching(null)}
+          onSend={(drawnFrom) => markShelf(dispatching, "dispatched", { drawnFrom })}
+        />
+      )}
     </main>
+  );
+}
+
+/**
+ * What this order takes off the register, asked once, as it goes.
+ *
+ * The order says "40 sheets of Blackbutt" because that is what the client
+ * said on the phone. The register files stock by name and the three sizes, so
+ * that sentence matches nothing on its own and a ledger entry written from it
+ * would open a bucket of its own rather than depleting the sheets that
+ * actually went out the door.
+ *
+ * So the one person who can answer is asked: whoever is standing at the rack
+ * with the order in their hand. Nothing is pre-selected and nothing is
+ * guessed — a wrong guess here debits the wrong material and is invisible
+ * afterwards, which is worse than the gap this closes.
+ */
+function DispatchPanel({ order, rows, saving, onClose, onSend }) {
+  const [pick, setPick] = useState("");
+  const [qty, setQty] = useState("");
+  const [list, setList] = useState(rows);
+  const [loading, setLoading] = useState(!rows);
+  const [failed, setFailed] = useState(null);
+
+  useEffect(() => {
+    if (list) return;
+    let dropped = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/material-stock", { cache: "no-store" });
+        const json = await res.json();
+        if (!json.ok) throw new Error(json.error || "Could not read the register");
+        const map = new Map();
+        for (const e of json.entries || []) {
+          const key = [
+            String(e.name ?? "").trim().toLowerCase(),
+            e.length,
+            e.width,
+            e.thickness,
+          ].join("|");
+          if (!map.has(key)) {
+            map.set(key, {
+              key,
+              name: e.name,
+              length: e.length,
+              width: e.width,
+              thickness: e.thickness,
+              total: 0,
+            });
+          }
+          map.get(key).total += Number(e.quantity) || 0;
+        }
+        // Only what is actually there. Offering a bucket at nought would be
+        // offering a draw that can only come up short.
+        const out = [...map.values()]
+          .filter((b) => b.total > 0)
+          .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+        if (!dropped) setList(out);
+      } catch (e) {
+        if (!dropped) setFailed(String(e.message || e));
+      } finally {
+        if (!dropped) setLoading(false);
+      }
+    })();
+    return () => {
+      dropped = true;
+    };
+  }, [list]);
+
+  const chosen = (list || []).find((b) => b.key === pick) || null;
+  const wanted = Number(qty) || 0;
+  const short = chosen && wanted > chosen.total ? wanted - chosen.total : 0;
+
+  const field = {
+    width: "100%",
+    border: `1px solid ${BRAND.line}`,
+    borderRadius: 8,
+    padding: "8px 10px",
+    fontSize: 13,
+    fontFamily: "inherit",
+    background: "#fff",
+    color: BRAND.ink,
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(28,27,25,0.42)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        zIndex: 50,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: BRAND.card,
+          border: `1px solid ${BRAND.line}`,
+          borderRadius: 12,
+          padding: 20,
+          width: "min(460px, 100%)",
+          maxHeight: "90vh",
+          overflowY: "auto",
+        }}
+      >
+        <h2 style={{ margin: 0, fontSize: 16, color: BRAND.ink }}>Sending this order</h2>
+        <p style={{ margin: "6px 0 16px", fontSize: 13, color: BRAND.sub }}>
+          <strong style={{ color: BRAND.ink }}>{order.customer}</strong> — {order.product}
+          {order.qty ? ` · ${order.qty}` : ""}
+        </p>
+
+        <label style={{ fontSize: 12, color: BRAND.sub, display: "block", marginBottom: 4 }}>
+          Which material it comes off
+        </label>
+        {loading ? (
+          <p style={{ fontSize: 13, color: BRAND.sub }}>Reading the register…</p>
+        ) : failed ? (
+          <p style={{ fontSize: 13, color: BRAND.red }}>{failed}</p>
+        ) : (
+          <select value={pick} onChange={(e) => setPick(e.target.value)} style={field}>
+            <option value="">Choose…</option>
+            {(list || []).map((b) => (
+              <option key={b.key} value={b.key}>
+                {b.name} · {b.length}×{b.width}×{b.thickness} · {b.total} on the register
+              </option>
+            ))}
+          </select>
+        )}
+
+        <label
+          style={{ fontSize: 12, color: BRAND.sub, display: "block", margin: "14px 0 4px" }}
+        >
+          How many are going
+        </label>
+        <input
+          value={qty}
+          onChange={(e) => setQty(e.target.value.replace(/[^\d.]/g, ""))}
+          inputMode="decimal"
+          placeholder="e.g. 40"
+          style={field}
+        />
+
+        {short > 0 && (
+          <p style={{ fontSize: 12, color: BRAND.amber, marginTop: 10 }}>
+            The register only holds {chosen.total}. It will come off what is there and record
+            the other {short} as short — worth a look before you send it.
+          </p>
+        )}
+
+        <p style={{ fontSize: 11, color: BRAND.sub, marginTop: 14 }}>
+          This takes the material off the register in the same write that marks the order gone.
+          Until now an off-the-shelf order moved no stock at all.
+        </p>
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+          <button
+            onClick={onClose}
+            style={{
+              border: `1px solid ${BRAND.line}`,
+              background: BRAND.card,
+              color: BRAND.ink,
+              borderRadius: 8,
+              padding: "8px 14px",
+              fontSize: 13,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            disabled={saving || !chosen || !(wanted > 0)}
+            onClick={() =>
+              onSend({
+                name: chosen.name,
+                length: chosen.length,
+                width: chosen.width,
+                thickness: chosen.thickness,
+                quantity: wanted,
+              })
+            }
+            style={{
+              border: `1px solid ${BRAND.green}`,
+              background: BRAND.green,
+              color: "#fff",
+              borderRadius: 8,
+              padding: "8px 14px",
+              fontSize: 13,
+              cursor: saving || !chosen || !(wanted > 0) ? "not-allowed" : "pointer",
+              opacity: saving || !chosen || !(wanted > 0) ? 0.55 : 1,
+              fontFamily: "inherit",
+            }}
+          >
+            Send it
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

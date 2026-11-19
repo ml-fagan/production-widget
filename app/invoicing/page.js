@@ -323,6 +323,7 @@ export default function InvoicingPage() {
             partId: part.id,
             invoice: part.invoice,
             invoiceLines: part.invoiceLines,
+            invoiceDrift: part.invoiceDrift,
             chargeNote: part.note || h.chargeNote,
             // Veronica bills when the load goes, so the despatch date is the
             // date this row is waiting on — not the job's.
@@ -942,6 +943,43 @@ export default function InvoicingPage() {
                     {invoice.chargedAt ? ` · ${fmtStamp(invoice.chargedAt)}` : ""}
                     {invoice.reference ? ` · ref ${invoice.reference}` : ""}
                   </p>
+                )}
+
+                {/* The job has moved since the invoice went out.
+                    Not an error — correcting a handover after charging is a
+                    legitimate thing to do — but it is a variation somebody
+                    has to decide about, and the whole point of recording
+                    what was billed is that this is visible rather than
+                    absorbed into a recomputed figure nobody notices. */}
+                {invoice.state === "charged" && (h.invoiceDrift ?? []).length > 0 && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      border: `1px solid ${BRAND.amber}`,
+                      background: "#fdf4e3",
+                      borderRadius: 8,
+                      padding: "8px 10px",
+                    }}
+                  >
+                    <strong style={{ fontSize: 12, color: BRAND.amber }}>
+                      The job has changed since this was invoiced
+                    </strong>
+                    <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12, color: BRAND.ink }}>
+                      {h.invoiceDrift.slice(0, 6).map((row, i) => (
+                        <li key={i}>
+                          {row.kind === "added"
+                            ? `${row.name} — added since, not on the invoice`
+                            : row.kind === "removed"
+                              ? `${row.name} — billed, no longer on the job`
+                              : `${row.name} — ${row.field} was ${row.was}, now ${row.now}`}
+                        </li>
+                      ))}
+                    </ul>
+                    <p style={{ margin: "6px 0 0", fontSize: 11, color: BRAND.sub }}>
+                      Invoice {invoice.reference || "(no reference)"} says what was billed. Raise a
+                      variation or a credit if the difference is real.
+                    </p>
+                  </div>
                 )}
 
                 <div style={{ marginTop: 10 }}>
