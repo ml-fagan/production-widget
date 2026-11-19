@@ -231,6 +231,26 @@ export default function InvoicingPage() {
   const hiddenOf = (h) => Boolean(invoiceOf(h).hiddenAt);
 
   /**
+   * This job was cut into loads after it was invoiced, and nobody has said
+   * they have recorded it yet.
+   *
+   * Read through `invoiceOf` like the state is, so a row she has just
+   * accepted moves off this list straight away rather than at the next
+   * refresh.
+   *
+   * A job in this state IS charged — the money went out once, under one
+   * reference, and splitting it afterwards did not unbill it. It appears on
+   * To charge anyway, because this is the list she works from and a notice
+   * on the Charged list is a notice nobody reads. It is drawn as a notice
+   * rather than as a job, and there is no Mark charged on it.
+   */
+  const noticeOf = (h) => invoiceOf(h).splitAfterCharge ?? null;
+  const noticePending = (h) => {
+    const n = noticeOf(h);
+    return Boolean(n && !n.acknowledgedAt);
+  };
+
+  /**
    * `jobId` here is the row's id, which for a split job is 21398-1-2 — a
    * despatch, not a document. The write has to name the handover and the
    * despatch separately, and `stored` stays keyed by the row so the board
@@ -314,9 +334,31 @@ export default function InvoicingPage() {
    * job's.
    */
   const expand = (rows) =>
-    rows.flatMap((h) =>
-      (h.despatch ?? []).length
-        ? h.despatch.map((part) => ({
+    rows.flatMap((h) => {
+      const parts = h.despatch ?? [];
+      if (!parts.length) return [h];
+      /**
+       * One exception to "the job itself does not appear".
+       *
+       * A job that was cut into loads AFTER it was invoiced carries a notice
+       * on the JOB's invoice — one invoice covering several deliveries is a
+       * fact about the job, not about any one load, and saying it once per
+       * load would be the same sentence three times.
+       *
+       * So the job keeps a row of its own for as long as the notice does.
+       * While it is waiting it sits on To charge, tinted, offering nothing
+       * but "Got it". Once she records it the same row moves to Charged and
+       * stays there as the record — the same way a charged job stays on
+       * that tab rather than disappearing, which is the reason she asked
+       * for that tab in the first place.
+       */
+      const notice = h.invoice?.splitAfterCharge;
+      const jobRow = notice
+        ? [{ ...h, isSplitNotice: true, invoiceLines: [], invoiceDrift: [] }]
+        : [];
+      return [
+        ...jobRow,
+        ...parts.map((part) => ({
             ...h,
             jobId: part.jobId,
             partOf: h.jobId,
@@ -328,9 +370,9 @@ export default function InvoicingPage() {
             // Veronica bills when the load goes, so the despatch date is the
             // date this row is waiting on — not the job's.
             despatchedAt: part.despatchDate || h.despatchedAt,
-          }))
-        : [h]
-    );
+        })),
+      ];
+    });
 
   const everything = expand([...(data?.awaiting ?? []), ...(data?.scheduled ?? [])]);
   const heldForReview = everything.filter((h) => h.review && !h.review.invoice);
@@ -360,10 +402,18 @@ export default function InvoicingPage() {
   // tab as the record — which is the reason she asked for it.
   const shelfToCharge = shelfLive.filter((o) => o.releasedAt && !o.invoicedAt);
   const shelfCharged = shelfLive.filter((o) => o.invoicedAt);
+  /**
+   * Which list a job is on.
+   *
+   * Normally its invoice state, and for one case not: a charged job with a
+   * split notice nobody has accepted sits on To charge until she does, then
+   * goes back where it belongs. The money never moves either way.
+   */
+  const tabOf = (h) => (noticePending(h) ? "to_charge" : stateOf(h));
   const counts = {
-    to_charge: matching.filter((h) => stateOf(h) === "to_charge").length + shelfToCharge.length,
+    to_charge: matching.filter((h) => tabOf(h) === "to_charge").length + shelfToCharge.length,
     charged:
-      matching.filter((h) => stateOf(h) === "charged" && !hiddenOf(h)).length + shelfCharged.length,
+      matching.filter((h) => tabOf(h) === "charged" && !hiddenOf(h)).length + shelfCharged.length,
   };
   // Whichever kind of charge this tab is about. Hidden rows join the charged
   // list only while somebody has asked to see them.
@@ -372,12 +422,12 @@ export default function InvoicingPage() {
     view === "charged" && showHidden ? [...shelfCharged, ...shelfHidden] : shelfOnTab;
   // Jobs put away on this board, kept out of the list and the count. Shown
   // only while somebody has asked to see them — same line as the shelf ones.
-  const jobsHidden = matching.filter((h) => stateOf(h) === "charged" && hiddenOf(h));
+  const jobsHidden = matching.filter((h) => tabOf(h) === "charged" && hiddenOf(h));
   // What is really on this tab, for the header — hidden rows are left out
   // even while they are being shown, so it agrees with the tab above it.
-  const jobsOnTab = matching.filter((h) => stateOf(h) === view && !hiddenOf(h));
+  const jobsOnTab = matching.filter((h) => tabOf(h) === view && !hiddenOf(h));
   const jobs = matching
-    .filter((h) => stateOf(h) === view && (showHidden || !hiddenOf(h)))
+    .filter((h) => tabOf(h) === view && (showHidden || !hiddenOf(h)))
     // Out the door and uncharged first: that's the work waiting on her.
     // Within each group, oldest despatch first — the longest unbilled.
     .sort((a, b) => {
@@ -392,6 +442,9 @@ export default function InvoicingPage() {
   const readyToCharge = matching.filter((h) => h.state === "despatched").length;
   // No billable line at all, or every billable line still has no amount.
   const missingFigure = jobs.filter((h) => {
+    // A split notice has no lines because it is not a charge — counting it
+    // here would nudge her to enter a figure on something already billed.
+    if (h.isSplitNotice) return false;
     const lines = h.invoiceLines ?? [];
     return lines.length === 0 || lines.every((l) => !lineLabel(l).priced);
   }).length;
@@ -726,20 +779,29 @@ export default function InvoicingPage() {
             const lines = h.invoiceLines ?? [];
             const anyPriced = lines.some((l) => lineLabel(l).priced);
             const busy = pending[h.jobId];
+            const notice = noticeOf(h);
+            const pendingNotice = noticePending(h);
             return (
               <section
                 key={h.jobId}
                 style={{
-                  background: BRAND.card,
+                  // A notice is tinted all over rather than only edged, so
+                  // it does not read as one more job to bill on a list of
+                  // jobs to bill. It is the only row here that is not work.
+                  background: pendingNotice ? "#fdf4e3" : BRAND.card,
                   // Dashed and faded while it is one of the hidden ones being
                   // shown, so it never reads as ordinary work on the list.
-                  border: `1px ${invoice.hiddenAt ? "dashed" : "solid"} ${BRAND.line}`,
+                  border: `1px ${invoice.hiddenAt ? "dashed" : "solid"} ${
+                    pendingNotice ? BRAND.amber : BRAND.line
+                  }`,
                   borderLeft: `3px solid ${
-                    invoice.state === "charged"
-                      ? BRAND.green
-                      : anyPriced
-                        ? BRAND.amber
-                        : BRAND.line
+                    pendingNotice
+                      ? BRAND.amber
+                      : invoice.state === "charged"
+                        ? BRAND.green
+                        : anyPriced
+                          ? BRAND.amber
+                          : BRAND.line
                   }`,
                   borderRadius: 10,
                   padding: "14px 16px",
@@ -789,7 +851,34 @@ export default function InvoicingPage() {
                   />
 
                   <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-                    {invoice.state === "to_charge" ? (
+                    {/* A job on this list only because it was split after it
+                        was invoiced. It is charged and stays charged — so
+                        the one thing it must NOT offer is Mark charged.
+                        Accepting the notice is the whole of the action, and
+                        the row moves to Charged where it belongs. */}
+                    {h.isSplitNotice && !pendingNotice ? (
+                      <span
+                        style={{ fontSize: 12, color: BRAND.sub }}
+                        title={`Recorded by ${notice?.acknowledgedBy || "somebody"}`}
+                      >
+                        ✓ Split recorded
+                      </span>
+                    ) : pendingNotice ? (
+                      <button
+                        onClick={() => setInvoice(h.jobId, { acknowledgeSplit: true }, { realJobId: h.partOf || h.jobId })}
+                        disabled={busy}
+                        style={{
+                          ...btn,
+                          background: BRAND.amber,
+                          borderColor: BRAND.amber,
+                          color: "#fff",
+                          opacity: busy ? 0.6 : 1,
+                        }}
+                        title="I have seen this and recorded it against the invoice"
+                      >
+                        Got it — recorded
+                      </button>
+                    ) : invoice.state === "to_charge" ? (
                       <button
                         onClick={() => setInvoice(h.jobId, { state: "charged" }, { realJobId: h.partOf || h.jobId, partId: h.partId || "" })}
                         disabled={busy}
@@ -865,7 +954,10 @@ export default function InvoicingPage() {
                 </div>
 
                 <div style={{ marginTop: 10, fontSize: 13 }}>
-                  {lines.length === 0 ? (
+                  {/* A notice row carries no lines BECAUSE it is a notice —
+                      the loads below it carry them. Saying "nothing entered"
+                      would read as a job somebody forgot to fill in. */}
+                  {h.isSplitNotice ? null : lines.length === 0 ? (
                     <span style={{ color: BRAND.amber }}>No products or materials entered yet.</span>
                   ) : (
                     <table style={{ borderCollapse: "collapse", fontSize: 13 }}>
@@ -988,7 +1080,7 @@ export default function InvoicingPage() {
                     which is exactly why it has to be said out loud. One
                     invoice now covers more than one delivery, and how that
                     gets recorded is Veronica's call, not the system's. */}
-                {h.splitAfterCharge && (
+                {notice && (
                   <div
                     style={{
                       marginTop: 10,
@@ -999,19 +1091,24 @@ export default function InvoicingPage() {
                     }}
                   >
                     <strong style={{ fontSize: 12, color: BRAND.amber }}>
-                      Split into {h.splitAfterCharge.loads} load
-                      {h.splitAfterCharge.loads === 1 ? "" : "s"} after it was invoiced
+                      Split into {notice.loads} load
+                      {notice.loads === 1 ? "" : "s"} after it was invoiced
                     </strong>
                     <p style={{ margin: "6px 0 0", fontSize: 12, color: BRAND.ink }}>
-                      {h.splitAfterCharge.reference
-                        ? `Invoice ${h.splitAfterCharge.reference} covers all of them.`
+                      {notice.reference
+                        ? `Invoice ${notice.reference} covers all of them.`
                         : "One invoice covers all of them."}{" "}
                       Nothing has been re-charged and no load is waiting to be billed — this is
                       here so you can record the split against the invoice however you need to.
                     </p>
                     <p style={{ margin: "6px 0 0", fontSize: 11, color: BRAND.sub }}>
-                      Split by {(h.splitAfterCharge.by || "").split("@")[0] || "somebody"} on{" "}
-                      {String(h.splitAfterCharge.at || "").slice(0, 10)}.
+                      Split by {(notice.by || "").split("@")[0] || "somebody"} on{" "}
+                      {String(notice.at || "").slice(0, 10)}.
+                      {notice.acknowledgedAt
+                        ? ` Recorded by ${
+                            (notice.acknowledgedBy || "").split("@")[0] || "somebody"
+                          } on ${String(notice.acknowledgedAt).slice(0, 10)}.`
+                        : ""}
                     </p>
                   </div>
                 )}
