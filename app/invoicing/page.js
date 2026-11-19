@@ -982,6 +982,40 @@ export default function InvoicingPage() {
                   </div>
                 )}
 
+                {/* The job was cut into loads after it was invoiced.
+                    Every load inherits the charge, so nothing comes back
+                    here as work to do and nothing can be billed twice —
+                    which is exactly why it has to be said out loud. One
+                    invoice now covers more than one delivery, and how that
+                    gets recorded is Veronica's call, not the system's. */}
+                {h.splitAfterCharge && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      border: `1px solid ${BRAND.amber}`,
+                      background: "#fdf4e3",
+                      borderRadius: 8,
+                      padding: "8px 10px",
+                    }}
+                  >
+                    <strong style={{ fontSize: 12, color: BRAND.amber }}>
+                      Split into {h.splitAfterCharge.loads} load
+                      {h.splitAfterCharge.loads === 1 ? "" : "s"} after it was invoiced
+                    </strong>
+                    <p style={{ margin: "6px 0 0", fontSize: 12, color: BRAND.ink }}>
+                      {h.splitAfterCharge.reference
+                        ? `Invoice ${h.splitAfterCharge.reference} covers all of them.`
+                        : "One invoice covers all of them."}{" "}
+                      Nothing has been re-charged and no load is waiting to be billed — this is
+                      here so you can record the split against the invoice however you need to.
+                    </p>
+                    <p style={{ margin: "6px 0 0", fontSize: 11, color: BRAND.sub }}>
+                      Split by {(h.splitAfterCharge.by || "").split("@")[0] || "somebody"} on{" "}
+                      {String(h.splitAfterCharge.at || "").slice(0, 10)}.
+                    </p>
+                  </div>
+                )}
+
                 <div style={{ marginTop: 10 }}>
                   <input
                     defaultValue={invoice.reference || ""}
