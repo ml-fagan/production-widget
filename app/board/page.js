@@ -877,8 +877,27 @@ export default function BoardPage() {
                   // types one of his own.
                   const approvalFromHandover = !s.approvalDate && Boolean(approval);
                   const auto = computedLead(approval, s.committedDate, closedowns);
+                  /**
+                   * The row's key is WHICH THING this is, not what it is
+                   * called.
+                   *
+                   * It was `row.jobId`, which is the name on screen — and a
+                   * load of a split job is NAMED 21516-6-2 while a handover
+                   * document can be called 21516-6-2 as well. The two
+                   * numbering schemes collide head on. React then has two
+                   * siblings claiming one key, reconciles them wrongly, and
+                   * renders a third row that is a copy of the first: 21516-6
+                   * had one document and two loads, and the board drew four
+                   * rows, three of them keyed the same.
+                   *
+                   * A load is its job plus its part id; a job is itself. The
+                   * duplicate NAME is a separate problem and still wants
+                   * solving, but no naming decision anybody makes should be
+                   * able to put phantom rows on Duncan's board.
+                   */
+                  const rowKey = row.partId ? `${row.partOf}#${row.partId}` : row.jobId;
                   return (
-                    <Fragment key={row.jobId}>
+                    <Fragment key={rowKey}>
                     <tr>
                       <td style={{ ...td, ...stickyJob }}>
                         {/*
@@ -1250,7 +1269,7 @@ export default function BoardPage() {
                       </td>
                     </tr>
                     {commentOpen === row.jobId && (
-                      <tr key={`${row.jobId}-comment`}>
+                      <tr key={`${rowKey}-comment`}>
                         <td
                           colSpan={totalCols}
                           style={{ ...td, background: "#faf9f6", padding: "8px 14px" }}
@@ -1277,7 +1296,7 @@ export default function BoardPage() {
                     {/* The full picture, in its own row so opening it can't
                         change the height of the grid above. */}
                     {materialsOpen === row.jobId && (
-                      <tr key={`${row.jobId}-materials`}>
+                      <tr key={`${rowKey}-materials`}>
                         <td
                           colSpan={totalCols}
                           style={{
