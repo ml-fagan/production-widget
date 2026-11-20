@@ -358,11 +358,29 @@ export default function InvoicingPage() {
         : [];
       return [
         ...jobRow,
-        ...parts.map((part) => ({
+        ...parts.map((part, i) => ({
             ...h,
             jobId: part.jobId,
             partOf: h.jobId,
             partId: part.id,
+            /**
+             * Which load of how many, so the row can say it the way Duncan's
+             * board does. "despatch of 21398-1" said this was one of some
+             * unstated number — which leaves "is that the lot?" unanswerable
+             * from the row, and that is the question behind every invoice.
+             */
+            partOrder: i + 1,
+            partTotal: parts.length,
+            /**
+             * A load carrying more of a line than was ordered for the job.
+             *
+             * Acknowledged during the split, where somebody said the extra
+             * would be pre-ordered from Alice or found on the rack. It
+             * belongs here because it is a difference between what the job
+             * was sold as and what this truck carried, which is a difference
+             * in what gets billed.
+             */
+            shortfall: part.shortfall ?? null,
             invoice: part.invoice,
             invoiceLines: part.invoiceLines,
             invoiceDrift: part.invoiceDrift,
@@ -829,10 +847,49 @@ export default function InvoicingPage() {
                   </a>
                   {h.partOf && (
                     <span
-                      style={{ fontSize: 11, color: BRAND.sub }}
-                      title={`One of several despatches of ${h.partOf}. The material order is the job's and is not split.`}
+                      style={{
+                        fontSize: 10,
+                        color: BRAND.sub,
+                        border: `1px solid ${BRAND.line}`,
+                        borderRadius: 4,
+                        padding: "1px 4px",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={`Load ${h.partOrder} of ${h.partTotal} on ${h.partOf}, which was split because it would not go on one truck. Each load is billed as it goes. The material order is the job's and is not split with it.`}
                     >
-                      despatch of {h.partOf}
+                      split {h.partOrder} of {h.partTotal} · {h.partOf}
+                    </span>
+                  )}
+                  {/*
+                    More on this truck than was ordered for the job.
+
+                    Somebody acknowledged it during the split — the extra
+                    comes from a pre-order to Alice or off the rack — and it
+                    is on this row because it is a difference between what
+                    the job was sold as and what this load carried, which is
+                    a difference in what gets billed.
+                  */}
+                  {h.shortfall && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: "#92400e",
+                        border: "1px solid #fcd34d",
+                        background: "#fffbeb",
+                        borderRadius: 4,
+                        padding: "1px 4px",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={`${(h.shortfall.lines || [])
+                        .map(
+                          (s) =>
+                            `${s.short}${s.unit === "m2" ? " m²" : s.unit ? ` ${s.unit}` : ""} more ${
+                              s.code || s.name
+                            } than the job was sold`
+                        )
+                        .join(", ")} — acknowledged by ${String(h.shortfall.by || "").split("@")[0]}. Check it against what this load is being billed for.`}
+                    >
+                      carries more than ordered
                     </span>
                   )}
                   <span style={{ fontSize: 14 }}>{h.project || h.client || "—"}</span>
