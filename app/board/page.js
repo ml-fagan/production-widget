@@ -228,11 +228,23 @@ export default function BoardPage() {
        */
       const all = jobs.flatMap((h) =>
         (h.despatch ?? []).length
-          ? h.despatch.map((part) => ({
+          ? h.despatch.map((part, i) => ({
               ...h,
               jobId: part.jobId,
               partOf: h.jobId,
               partId: part.id,
+              /**
+               * Which load of how many, so the row can say so.
+               *
+               * Without it 21516-6-1 reads as a job whose number happens to
+               * end in -1, and the thing Duncan most needs to know about it
+               * — that there is another truck, and the client's job is not
+               * finished when this one goes — is nowhere on the board.
+               */
+              partOrder: i + 1,
+              partTotal: h.despatch.length,
+              /** More on this truck than was ordered — see the split panel. */
+              partShortfall: part.shortfall ?? null,
               // The load's own dates, in the same shape a job carries them.
               schedule: part.schedule,
               fcSchedule: part.fcSchedule,
@@ -939,6 +951,71 @@ export default function BoardPage() {
                           four loads of it — so from a row that is one load,
                           neither link answers the question the row raises.
                         */}
+                        {/*
+                          That this row is one truck of several.
+
+                          The number alone does not say it: 21516-6-1 reads
+                          as a job whose number ends in -1, and Duncan has no
+                          way to tell from the board that there is another
+                          load behind it. The job he was handed is 21516-6;
+                          what he is dating here is part of it, and the
+                          client's job is not done until the other part goes.
+
+                          The material is not split and never is — one
+                          picking list, one order, one set of purchase
+                          orders, all against the job — so the tooltip says
+                          that too, because it is the next thing anybody
+                          asks.
+                        */}
+                        {row.partOf && row.partTotal > 1 && (
+                          <span
+                            title={`One of ${row.partTotal} loads of ${row.partOf}, which was split because it would not go on one truck. The material was ordered for the whole job and is not split with it.`}
+                            style={{
+                              marginLeft: 6,
+                              fontSize: 10,
+                              color: BRAND.sub,
+                              border: `1px solid ${BRAND.line}`,
+                              borderRadius: 4,
+                              padding: "1px 4px",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            split {row.partOrder} of {row.partTotal}
+                          </span>
+                        )}
+                        {/*
+                          And where this one is carrying more than was
+                          ordered. Somebody said yes to that during the
+                          split; Duncan is the one who finds out on the
+                          floor, so it is on his row rather than only in the
+                          handover app.
+                        */}
+                        {row.partShortfall && (
+                          <span
+                            title={`${row.partShortfall.lines
+                              .map(
+                                (s) =>
+                                  `${s.short}${s.unit === "m2" ? " m²" : s.unit ? ` ${s.unit}` : ""} more ${
+                                    s.code || s.name
+                                  } than was ordered`
+                              )
+                              .join(", ")} — acknowledged by ${String(
+                              row.partShortfall.by || ""
+                            ).split("@")[0]}. The extra comes from a pre-order to Alice or off the rack.`}
+                            style={{
+                              marginLeft: 6,
+                              fontSize: 10,
+                              color: "#92400e",
+                              border: "1px solid #fcd34d",
+                              background: "#fffbeb",
+                              borderRadius: 4,
+                              padding: "1px 4px",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            short on material
+                          </span>
+                        )}
                         {row.partOf && (
                           <>
                             {" · "}
