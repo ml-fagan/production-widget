@@ -381,13 +381,34 @@ export default function InvoicingPage() {
              * in what gets billed.
              */
             shortfall: part.shortfall ?? null,
+            /**
+             * This load's dates and this load's state, not the job's.
+             *
+             * The job's schedule on a split one is the roll-up — blank until
+             * every load has a date, and the LAST truck's date once they do
+             * — so every row here read 18 December for a job whose loads go
+             * on the 4th, the 16th and the 18th, and all four said "awaiting
+             * schedule" while three of them were dated. Veronica bills a
+             * load when it goes, so the date on the row has to be the date
+             * that load goes.
+             */
+            schedule: part.schedule,
+            fcSchedule: part.fcSchedule,
+            jobSchedule: part.jobSchedule,
+            state: part.state ?? h.state,
             invoice: part.invoice,
             invoiceLines: part.invoiceLines,
             invoiceDrift: part.invoiceDrift,
             chargeNote: part.note || h.chargeNote,
             // Veronica bills when the load goes, so the despatch date is the
-            // date this row is waiting on — not the job's.
-            despatchedAt: part.despatchDate || h.despatchedAt,
+            // date this row is waiting on — not the job's. The date the
+            // Split panel recorded wins, since that is somebody saying when
+            // this truck goes; otherwise it is what Duncan has dated it.
+            despatchedAt:
+              part.despatchDate ||
+              part.jobSchedule?.actualDate ||
+              part.jobSchedule?.committedDate ||
+              null,
         })),
       ];
     });
@@ -451,8 +472,10 @@ export default function InvoicingPage() {
     .sort((a, b) => {
       const ready = (h) => (h.state === "despatched" ? 0 : 1);
       if (ready(a) !== ready(b)) return ready(a) - ready(b);
-      return String(a.schedule?.completedAt || "").localeCompare(
-        String(b.schedule?.completedAt || "")
+      // The job's two lines resolved into one, and a load's own — not the
+      // first line's, and on a split job not the whole job's roll-up.
+      return String(a.jobSchedule?.completedAt || "").localeCompare(
+        String(b.jobSchedule?.completedAt || "")
       );
     });
   // The nudge: finished work nobody has invoiced. Not "everything unbilled",
@@ -964,8 +987,11 @@ export default function InvoicingPage() {
                       </button>
                     )}
                     {/* Deleting follows completion, not charging: the schedule
-                        owns when a job is over. */}
-                    {invoice.state === "charged" && h.schedule?.completedAt && (
+                        owns when a job is over. Read through `jobSchedule`,
+                        which is both lines resolved into one — a job whose
+                        fibre cement half is still on the saw is not over,
+                        and `schedule` alone would have said it was. */}
+                    {invoice.state === "charged" && h.jobSchedule?.completedAt && (
                       <button
                         onClick={() => deleteJob(h)}
                         title="Remove this job and its record completely"
@@ -1083,7 +1109,26 @@ export default function InvoicingPage() {
                   }}
                 >
                   {h.charge?.note && <Fact label="Note">{h.charge.note}</Fact>}
-                  <Fact label="Despatch">{h.schedule?.actualDate || h.schedule?.committedDate || "—"}</Fact>
+                  {/*
+                    When this row goes out, which is when it gets billed.
+
+                    `jobSchedule` and not `schedule`: a job on both of
+                    Duncan's lines keeps its second line's dates in
+                    `fcSchedule`, so reading `schedule` showed the MDF half
+                    and said nothing about the fibre cement half — and the
+                    job is not out the door until both have gone. On a load
+                    it is that load's own answer. See the logged route.
+
+                    A load whose despatch was recorded in the Split panel
+                    uses that, because somebody said in so many words when
+                    that truck goes.
+                  */}
+                  <Fact label="Despatch">
+                    {h.despatchedAt ||
+                      h.jobSchedule?.actualDate ||
+                      h.jobSchedule?.committedDate ||
+                      "—"}
+                  </Fact>
                 </div>
 
                 {invoice.state === "charged" && (
