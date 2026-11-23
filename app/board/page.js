@@ -243,6 +243,8 @@ export default function BoardPage() {
                */
               partOrder: i + 1,
               partTotal: h.despatch.length,
+              /** The load's own number, for the ticket link. */
+              partSuffix: part.suffix,
               /** More on this truck than was ordered — see the split panel. */
               partShortfall: part.shortfall ?? null,
               // The load's own dates, in the same shape a job carries them.
@@ -932,11 +934,32 @@ export default function BoardPage() {
                           {row.jobId}
                         </a>
                         {" · "}
+                        {/*
+                          The ticket for THIS load, where the row is one.
+
+                          A split job is four tickets, not four copies of
+                          one: 21027-1-1 is DecorLux Solid and 21027-1-4 is
+                          slats and screws, and the floor handed the whole
+                          job's list for either has been told nothing about
+                          what to make. The handover is still what the link
+                          names — a despatch is not a document — with the
+                          load beside it.
+                        */}
                         <a
-                          href={`${HANDOVER_APP}/${encodeURIComponent(row.partOf || row.jobId)}/ticket`}
+                          href={`${HANDOVER_APP}/${encodeURIComponent(
+                            row.partOf || row.jobId
+                          )}/ticket${
+                            row.partOf && row.partSuffix
+                              ? `?load=${encodeURIComponent(row.partSuffix)}`
+                              : ""
+                          }`}
                           target="_blank"
                           rel="noreferrer"
-                          title="Job ticket — printable cover page for the floor"
+                          title={
+                            row.partOf
+                              ? `Job ticket for ${row.jobId} — what is on this load`
+                              : "Job ticket — printable cover page for the floor"
+                          }
                           style={{ color: BRAND.sub, textDecoration: "none", fontSize: 11 }}
                         >
                           ticket
