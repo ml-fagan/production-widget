@@ -5,7 +5,7 @@ import { baseCrm, crmLooksValid } from "../lib/crmUtils.js";
 import Tabs from "./Tabs.js";
 import SignIn from "./SignIn.js";
 import { useCapabilities } from "../lib/useCapabilities.js";
-import { boardLeadFor } from "../lib/board.js";
+import { boardLeadFor, streamsOf } from "../lib/board.js";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, firebaseConfigured } from "../lib/firebaseClient.js";
 import { PAGE_WIDTH, HEADER_HEIGHT, HEADER_GAP } from "../lib/layout.js";
@@ -163,11 +163,41 @@ export default function Page() {
   // any CRM they shared. There is one list now, because there is one place
   // the dates are kept.
   const jobs = handovers
-    .filter((h) => h.schedule?.committedDate)
-    .filter((h) => !h.schedule?.completedAt)
+    /**
+     * A job that goes out on more than one truck is more than one row.
+     *
+     * Duncan's board draws the loads and not the job, and this page is that
+     * board's overview — so it has to draw the same things. It did not: a
+     * split job's own committed date is the roll-up, blank until every load
+     * has one, so 21027-1 and 21516-6 were on nobody's list here at all
+     * while four and two of their loads sat dated on the board.
+     */
+    .flatMap((h) =>
+      (h.despatch ?? []).length
+        ? h.despatch.map((part) => ({
+            ...h,
+            jobId: part.jobId,
+            partOf: h.jobId,
+            jobSchedule: part.jobSchedule,
+          }))
+        : [h]
+    )
+    /**
+     * Read through `jobSchedule`, which is the job's two lines resolved into
+     * one — see effectiveSchedule in the handover app.
+     *
+     * `schedule` is not "the dates" and `fcSchedule` is not "the fibre
+     * cement dates": `fcSchedule` is the SECOND line's, and only exists for
+     * a job that runs on both. So reading `schedule` showed the MDF half of
+     * a two-line job and said nothing about the other, and a job whose
+     * fibre cement half was a fortnight behind read as being on one date.
+     * The job is not out the door until both lines have gone.
+     */
+    .filter((h) => h.jobSchedule?.committedDate)
+    .filter((h) => !h.jobSchedule?.completedAt)
     .map((h) => {
-      const committed = h.schedule.committedDate || null;
-      const actual = h.schedule.actualDate || null;
+      const committed = h.jobSchedule.committedDate || null;
+      const actual = h.jobSchedule.actualDate || null;
       const dispatch = actual || committed;
       return {
         crm: h.jobId,
@@ -185,9 +215,32 @@ export default function Page() {
          * approval date on the handover rather than typed onto the schedule,
          * so being strict now just means the figure is blank.
          */
-        lead: boardLeadFor(h, closedowns),
-        priority: h.schedule.priority || "",
-        fc: false,
+        /**
+         * Off the resolved schedule, like everything else on the row.
+         *
+         * `boardLeadFor` reads `row.schedule`, which on a load is the parent
+         * job's roll-up — blank while any load is undated — and on a job
+         * running on both lines is only the first line's. Handing it the
+         * resolved one keeps the lead and the date on this row talking about
+         * the same thing.
+         */
+        lead: boardLeadFor({ ...h, schedule: h.jobSchedule }, closedowns),
+        priority: h.jobSchedule.priority || "",
+        /**
+         * Which of Duncan's two lines builds it.
+         *
+         * Hard-coded `false` since this page stopped reading the
+         * spreadsheet, and read by nothing, so every fibre cement job on the
+         * overview has been indistinguishable from an MDF one — a third of
+         * the book. Read through `streamsOf`, never off the flags: a record
+         * written before 5 November 2026 has `fibreCement` and no
+         * `standardProduction`, and taking the missing one as false puts
+         * forty jobs on the wrong line.
+         */
+        fc: streamsOf(h).includes("fc"),
+        bothLines: streamsOf(h).length > 1,
+        /** One load of a split job, so the row can say which. */
+        partOf: h.partOf || null,
         /**
          * Past its date and not finished.
          *
@@ -501,6 +554,51 @@ export default function Page() {
                   </td>
                   <td style={{ padding: "10px 14px" }}>
                     {j.project}
+                    {/*
+                      Which line builds it, which this page never said.
+
+                      A third of the book is fibre cement and every one of
+                      them read here as an MDF job. "FC + std" rather than
+                      "FC" where it runs on both, because the two are
+                      different facts: one line's dates are not the job's,
+                      and the job is not out until both have gone.
+                    */}
+                    {j.fc && (
+                      <span
+                        title={
+                          j.bothLines
+                            ? "Runs on both of Duncan's lines — the job is out when both halves have gone"
+                            : "Fibre cement"
+                        }
+                        style={{
+                          marginLeft: 8,
+                          fontSize: 11,
+                          color: BRAND.sub,
+                          border: `1px solid ${BRAND.line}`,
+                          borderRadius: 4,
+                          padding: "1px 6px",
+                        }}
+                      >
+                        {j.bothLines ? "FC + std" : "FC"}
+                      </span>
+                    )}
+                    {/* One truck of several. The job itself is on no board
+                        once it is split — the loads replace it. */}
+                    {j.partOf && (
+                      <span
+                        title={`One load of ${j.partOf}, which goes out on more than one truck`}
+                        style={{
+                          marginLeft: 8,
+                          fontSize: 11,
+                          color: BRAND.sub,
+                          border: `1px solid ${BRAND.line}`,
+                          borderRadius: 4,
+                          padding: "1px 6px",
+                        }}
+                      >
+                        load of {j.partOf}
+                      </span>
+                    )}
                     {j.fromBoard && (
                       <span
                         title="Dated on the schedule board"
