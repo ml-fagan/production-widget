@@ -94,6 +94,8 @@ export default function InvoicingPage() {
   const canEdit = caps.invoicing;
   const [pending, setPending] = useState({});
   const [stored, setStored] = useState({});
+  /** The reference being typed for a second invoice, per row. */
+  const [rechargeRef, setRechargeRef] = useState({});
   const [shelf, setShelf] = useState([]);
   const [saving, setSaving] = useState(false);
   /**
@@ -251,6 +253,26 @@ export default function InvoicingPage() {
   };
 
   /**
+   * A charge that needs raising again.
+   *
+   * Two ways in, because there are two ways a billed figure stops being
+   * true. The system can SEE one of them: the snapshot says what went out
+   * and `invoiceDrift` says what has moved since. It cannot see the other —
+   * most of the charged book was billed before snapshots existed, so for
+   * those there is nothing to compare against however plainly the job
+   * changed — and for those somebody raises it by hand with a reason.
+   *
+   * Either way the row leaves Charged and goes back on To charge, because
+   * To charge is the list Veronica works from and a notice on Charged is a
+   * notice nobody reads. It is not un-charged: the first invoice happened
+   * and the row still says so.
+   */
+  const rechargeOf = (h) => invoiceOf(h).recharge ?? null;
+  const rechargePending = (h) =>
+    stateOf(h) === "charged" &&
+    Boolean(rechargeOf(h) || (h.invoiceDrift ?? []).length > 0);
+
+  /**
    * `jobId` here is the row's id, which for a split job is 21398-1-2 — a
    * despatch, not a document. The write has to name the handover and the
    * despatch separately, and `stored` stays keyed by the row so the board
@@ -262,7 +284,9 @@ export default function InvoicingPage() {
       return;
     }
     let idToken = null;
-    if (patch.state === "charged") {
+    // Saying money was billed is attributable, and so is saying it has to be
+    // billed again or that the second invoice has gone out.
+    if (patch.state === "charged" || patch.recharged || patch.recharge !== undefined) {
       const current = firebaseConfigured() ? auth().currentUser : null;
       if (!current) {
         setActionError("Sign in first so this is recorded against your name.");
@@ -399,6 +423,8 @@ export default function InvoicingPage() {
             invoice: part.invoice,
             invoiceLines: part.invoiceLines,
             invoiceDrift: part.invoiceDrift,
+            // Each load is billed on its own, so its charges are its own.
+            invoiceCharges: part.invoiceCharges,
             chargeNote: part.note || h.chargeNote,
             // Veronica bills when the load goes, so the despatch date is the
             // date this row is waiting on — not the job's. The date the
@@ -448,7 +474,8 @@ export default function InvoicingPage() {
    * split notice nobody has accepted sits on To charge until she does, then
    * goes back where it belongs. The money never moves either way.
    */
-  const tabOf = (h) => (noticePending(h) ? "to_charge" : stateOf(h));
+  const tabOf = (h) =>
+    noticePending(h) || rechargePending(h) ? "to_charge" : stateOf(h);
   const counts = {
     to_charge: matching.filter((h) => tabOf(h) === "to_charge").length + shelfToCharge.length,
     charged:
@@ -489,6 +516,15 @@ export default function InvoicingPage() {
     const lines = h.invoiceLines ?? [];
     return lines.length === 0 || lines.every((l) => !lineLabel(l).priced);
   }).length;
+
+  const refInputStyle = {
+    border: `1px solid ${BRAND.line}`,
+    borderRadius: 6,
+    padding: "4px 8px",
+    fontSize: 12,
+    fontFamily: "inherit",
+    width: 240,
+  };
 
   const btn = {
     border: `1px solid ${BRAND.line}`,
@@ -822,6 +858,10 @@ export default function InvoicingPage() {
             const busy = pending[h.jobId];
             const notice = noticeOf(h);
             const pendingNotice = noticePending(h);
+            // A recharge is tinted the same way and for the same reason: it
+            // is on this list to be dealt with, not to be billed from scratch.
+            const pendingRecharge = rechargePending(h);
+            const tinted = pendingNotice || pendingRecharge;
             return (
               <section
                 key={h.jobId}
@@ -829,14 +869,14 @@ export default function InvoicingPage() {
                   // A notice is tinted all over rather than only edged, so
                   // it does not read as one more job to bill on a list of
                   // jobs to bill. It is the only row here that is not work.
-                  background: pendingNotice ? "#fdf4e3" : BRAND.card,
+                  background: tinted ? "#fdf4e3" : BRAND.card,
                   // Dashed and faded while it is one of the hidden ones being
                   // shown, so it never reads as ordinary work on the list.
                   border: `1px ${invoice.hiddenAt ? "dashed" : "solid"} ${
-                    pendingNotice ? BRAND.amber : BRAND.line
+                    tinted ? BRAND.amber : BRAND.line
                   }`,
                   borderLeft: `3px solid ${
-                    pendingNotice
+                    tinted
                       ? BRAND.amber
                       : invoice.state === "charged"
                         ? BRAND.green
@@ -984,6 +1024,45 @@ export default function InvoicingPage() {
                         }
                       >
                         ✓ Charged
+                      </button>
+                    )}
+                    {/*
+                      Saying the billed figure has stopped being true, where
+                      nothing can see it for itself.
+
+                      Most of the charged book was billed before anything
+                      recorded what was billed, so for those there is no
+                      snapshot to compare the job against and a correction
+                      leaves no trace a screen can find. 22799-1 was invoiced
+                      for 216 sheets and corrected to 205 a month later, and
+                      the only evidence was a sentence typed on the line.
+
+                      So it can be said. The reason is kept with it, the row
+                      goes back on To charge as a recharge, and it is a
+                      different act from un-charging: the first invoice
+                      happened and the row goes on saying so.
+                    */}
+                    {invoice.state === "charged" && !rechargePending(h) && (
+                      <button
+                        onClick={() => {
+                          const reason = window.prompt(
+                            `What has changed since ${h.jobId} was invoiced${
+                              invoice.reference ? ` as ${invoice.reference}` : ""
+                            }?`,
+                            ""
+                          );
+                          if (reason === null || !reason.trim()) return;
+                          setInvoice(
+                            h.jobId,
+                            { recharge: reason.trim() },
+                            { realJobId: h.partOf || h.jobId, partId: h.partId || "" }
+                          );
+                        }}
+                        disabled={busy}
+                        title="The figure billed is no longer what the job says. Puts it back on To charge to be raised again."
+                        style={{ ...btn, color: BRAND.amber }}
+                      >
+                        Needs recharging
                       </button>
                     )}
                     {/* Deleting follows completion, not charging: the schedule
@@ -1145,7 +1224,7 @@ export default function InvoicingPage() {
                     has to decide about, and the whole point of recording
                     what was billed is that this is visible rather than
                     absorbed into a recomputed figure nobody notices. */}
-                {invoice.state === "charged" && (h.invoiceDrift ?? []).length > 0 && (
+                {rechargePending(h) && (
                   <div
                     style={{
                       marginTop: 10,
@@ -1156,23 +1235,125 @@ export default function InvoicingPage() {
                     }}
                   >
                     <strong style={{ fontSize: 12, color: BRAND.amber }}>
-                      The job has changed since this was invoiced
+                      Recharge — this one needs raising again
                     </strong>
-                    <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12, color: BRAND.ink }}>
-                      {h.invoiceDrift.slice(0, 6).map((row, i) => (
-                        <li key={i}>
-                          {row.kind === "added"
-                            ? `${row.name} — added since, not on the invoice`
-                            : row.kind === "removed"
-                              ? `${row.name} — billed, no longer on the job`
-                              : `${row.name} — ${row.field} was ${row.was}, now ${row.now}`}
-                        </li>
-                      ))}
-                    </ul>
-                    <p style={{ margin: "6px 0 0", fontSize: 11, color: BRAND.sub }}>
-                      Invoice {invoice.reference || "(no reference)"} says what was billed. Raise a
-                      variation or a credit if the difference is real.
+                    {/* What moved, where the system could see it for itself. */}
+                    {(h.invoiceDrift ?? []).length > 0 && (
+                      <ul
+                        style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12, color: BRAND.ink }}
+                      >
+                        {h.invoiceDrift.slice(0, 8).map((row, i) => (
+                          <li key={i}>
+                            {row.kind === "added"
+                              ? `${row.name} — added since, not on the invoice`
+                              : row.kind === "removed"
+                                ? `${row.name} — billed, no longer on the job`
+                                : `${row.name} — ${row.field} was ${row.was}, now ${row.now}`}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {/* And where somebody had to say it, because the charge
+                        predates any record of what was billed. */}
+                    {rechargeOf(h) && (
+                      <p style={{ margin: "6px 0 0", fontSize: 12, color: BRAND.ink }}>
+                        {rechargeOf(h).reason}
+                        <span style={{ color: BRAND.sub }}>
+                          {" — raised by "}
+                          {String(rechargeOf(h).by || "someone").split("@")[0]}
+                          {rechargeOf(h).at ? ` · ${fmtStamp(rechargeOf(h).at)}` : ""}
+                        </span>
+                      </p>
+                    )}
+                    <p style={{ margin: "8px 0 0", fontSize: 12, color: BRAND.ink }}>
+                      Charged {invoice.reference ? `as ${invoice.reference}` : "with no reference"}
+                      {invoice.chargedBy ? ` by ${invoice.chargedBy.split("@")[0]}` : ""}
+                      {invoice.chargedAt ? ` · ${fmtStamp(invoice.chargedAt)}` : ""}. The first
+                      invoice stands — raise the second however it needs raising, then record it
+                      here. What was billed the first time is kept.
                     </p>
+                    {canEdit && (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <input
+                          value={rechargeRef[h.jobId] ?? invoice.reference ?? ""}
+                          onChange={(e) =>
+                            setRechargeRef((r) => ({ ...r, [h.jobId]: e.target.value }))
+                          }
+                          placeholder="Reference for the new invoice"
+                          style={{ ...refInputStyle, maxWidth: 260 }}
+                        />
+                        <button
+                          onClick={() =>
+                            setInvoice(
+                              h.jobId,
+                              {
+                                recharged: true,
+                                reference: rechargeRef[h.jobId] ?? invoice.reference ?? "",
+                              },
+                              { realJobId: h.partOf || h.jobId, partId: h.partId || "" }
+                            )
+                          }
+                          style={{ ...btn, background: BRAND.amber, color: "#fff", border: "none" }}
+                        >
+                          Recharged — record it
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/*
+                  Every charge this row has carried, where there is more than
+                  one.
+
+                  The reason the old snapshot is kept rather than replaced:
+                  somebody holding two invoices for one job wants to know
+                  what was different about the second, and that is a question
+                  only the pair can answer.
+                */}
+                {(h.invoiceCharges ?? []).length > 1 && (
+                  <div style={{ marginTop: 10, borderTop: `1px solid ${BRAND.line}`, paddingTop: 8 }}>
+                    <div style={{ fontSize: 11, color: BRAND.sub, marginBottom: 4 }}>
+                      Charged {h.invoiceCharges.length} times
+                    </div>
+                    {h.invoiceCharges.map((c, i) => (
+                      <div key={i} style={{ fontSize: 12, marginTop: i ? 6 : 0 }}>
+                        <span style={{ color: c.current ? BRAND.ink : BRAND.sub }}>
+                          {c.reference || "(no reference)"}
+                          {c.by ? ` · ${c.by.split("@")[0]}` : ""}
+                          {c.at ? ` · ${fmtStamp(c.at)}` : ""}
+                          {c.current ? " · in force" : " · superseded"}
+                        </span>
+                        {c.changed.length > 0 && (
+                          <ul
+                            style={{
+                              margin: "2px 0 0",
+                              paddingLeft: 18,
+                              color: BRAND.sub,
+                              fontSize: 11,
+                            }}
+                          >
+                            {c.changed.slice(0, 8).map((row, j) => (
+                              <li key={j}>
+                                {row.kind === "added"
+                                  ? `${row.name} — added`
+                                  : row.kind === "removed"
+                                    ? `${row.name} — taken off`
+                                    : `${row.name} — ${row.field} ${row.was} → ${row.now}`}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
 
