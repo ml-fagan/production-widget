@@ -69,6 +69,29 @@ function wasteColour(percent) {
 const REFRESH_MS = 15 * 60 * 1000;
 const HANDOVER_APP = "https://decorhandover.lyphex.com";
 
+/**
+ * Whether dating a job warns that its material is short on the rack.
+ *
+ * OFF since 26 November 2026, at Mitch's request. The warning is working
+ * exactly as designed and that is the problem: material confirmations are
+ * running behind, so almost every job Duncan dates is short on the register
+ * and he was answering the same dialog all day. A warning that fires on
+ * nearly everything stops being read, and the one that matters goes with
+ * the rest.
+ *
+ * Nothing is hidden by this. The MATERIALS cell on every row still says
+ * where the job's material has got to — "5 of 7 out", "material in" — so
+ * Duncan can see the state of it whenever he wants to; he is just not
+ * stopped and asked about it on the way past.
+ *
+ * TO TURN IT BACK ON: set this to true. Nothing else changed. The route
+ * still works the shortfalls out and still sends them down, and the
+ * acknowledgement it records still has an author and a time — which is why
+ * the flag skips the asking rather than auto-answering it. Recording that
+ * Duncan saw a warning he was never shown would be worse than not asking.
+ */
+const WARN_ON_SHORT_MATERIAL = false;
+
 /** "16 Sep" — a date read at a glance rather than one being typed into. */
 function fmtDay(value) {
   if (!value) return "";
@@ -418,8 +441,10 @@ export default function BoardPage() {
          * this is the moment to say the material isn't there. Told, not
          * stopped: scheduling ahead of a delivery is normal, and a block would
          * only be worked around. Saying yes records who knew.
+         *
+         * Off since 26 November 2026 — see WARN_ON_SHORT_MATERIAL.
          */
-        if (json.shortfalls?.length) {
+        if (WARN_ON_SHORT_MATERIAL && json.shortfalls?.length) {
           const lines = json.shortfalls
             .map((s) => `  ${s.name} — wants ${s.wanted}, register has ${s.onRegister}, ${s.short} short`)
             .join("\n");
